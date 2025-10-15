@@ -88,11 +88,9 @@ function WordCard({ token, showNikud, onStar, isStarred = false }: WordCardProps
           <div className="mb-2">
             <div className="text-sm text-secondary">Root:</div>
             <div className="hebrew-text" dir="rtl">{toggleNikud(token.root, showNikud)}</div>
-            {rootMeaning && (
-              <div className="text-xs text-gray-600 italic mt-1">
-                {rootMeaning}
-              </div>
-            )}
+            <div className="text-xs text-gray-600 italic mt-1">
+              {rootMeaning || 'No root translation available'}
+            </div>
           </div>
         )}
 
