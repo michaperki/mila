@@ -144,20 +144,50 @@ function tokenizeHebrew(text: string): Token[] {
 
 /**
  * Identifies initial clitics in Hebrew words
+ * Improved to handle ambiguous cases like words starting with מ
  */
 function getInitialClitic(word: string): string | null {
   // Get first character
   const firstChar = word.charAt(0);
-  
+
+  // Skip processing for very short words - they're likely standalone
+  if (word.length <= 2) {
+    return null;
+  }
+
   // Check if it's a known clitic
   if (
-    word.length > 1 && 
-    HEBREW_CLITICS[firstChar] && 
+    HEBREW_CLITICS[firstChar] &&
     HEBREW_LETTER_PATTERN.test(word.charAt(1))
   ) {
+    // Common Hebrew words that start with these letters but aren't prefixed
+    // This is a dictionary of words that should NOT be split
+    const nonPrefixWords: Record<string, string[]> = {
+      'מ': ['מת', 'מי', 'מה', 'מתי', 'מאד', 'מעט', 'מים', 'מלך', 'מקום', 'מדבר', 'משה', 'מאוד'],
+      'ב': ['בית', 'בן', 'בת', 'בא', 'בר', 'בד'],
+      'ל': ['לב', 'לא', 'לחם', 'ליל', 'לשון'],
+      'כ': ['כל', 'כן', 'כי', 'כף', 'כח'],
+      'ש': ['שם', 'שמש', 'שר', 'שיר', 'שלום']
+    };
+
+    // Check if this word is in our exception list
+    const wordWithoutNikud = removeNikud(word);
+    if (
+      nonPrefixWords[firstChar] &&
+      nonPrefixWords[firstChar].some(w => wordWithoutNikud === w || wordWithoutNikud.startsWith(w))
+    ) {
+      return null;
+    }
+
+    // Additional heuristic - if remaining part after prefix would be too short (1 letter),
+    // it's likely not a prefix
+    if (word.length <= 3) {
+      return null;
+    }
+
     return firstChar;
   }
-  
+
   return null;
 }
 
