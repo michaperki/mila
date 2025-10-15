@@ -187,21 +187,21 @@ function Reader() {
           </button>
 
           {/* Display mode selector */}
-          <div className="flex border rounded overflow-hidden ml-auto mb-2">
+          <div className="toggle-group ml-auto">
             <button
-              className={`px-3 py-1 ${displayMode === 'fullText' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+              className={`toggle-button ${displayMode === 'fullText' ? 'active' : ''}`}
               onClick={() => setDisplayMode('fullText')}
             >
               Full Text
             </button>
             <button
-              className={`px-3 py-1 ${displayMode === 'sentence' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+              className={`toggle-button ${displayMode === 'sentence' ? 'active' : ''}`}
               onClick={() => setDisplayMode('sentence')}
             >
               Sentence
             </button>
             <button
-              className={`px-3 py-1 ${displayMode === 'word' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+              className={`toggle-button ${displayMode === 'word' ? 'active' : ''}`}
               onClick={() => setDisplayMode('word')}
             >
               Word
@@ -210,21 +210,21 @@ function Reader() {
 
           {/* Translation display mode (only visible in fullText mode) */}
           {displayMode === 'fullText' && (
-            <div className="flex border rounded overflow-hidden w-full">
+            <div className="toggle-group w-full">
               <button
-                className={`px-3 py-1 flex-1 ${translationDisplay === 'hidden' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+                className={`toggle-button ${translationDisplay === 'hidden' ? 'active' : ''}`}
                 onClick={() => setTranslationDisplay('hidden')}
               >
                 Hebrew Only
               </button>
               <button
-                className={`px-3 py-1 flex-1 ${translationDisplay === 'inline' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+                className={`toggle-button ${translationDisplay === 'inline' ? 'active' : ''}`}
                 onClick={() => setTranslationDisplay('inline')}
               >
                 English Only
               </button>
               <button
-                className={`px-3 py-1 flex-1 ${translationDisplay === 'interlinear' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+                className={`toggle-button ${translationDisplay === 'interlinear' ? 'active' : ''}`}
                 onClick={() => setTranslationDisplay('interlinear')}
               >
                 Interlinear
@@ -234,15 +234,15 @@ function Reader() {
 
           {/* Word/Phrase view mode selector (only visible in word mode) */}
           {displayMode === 'word' && (
-            <div className="flex border rounded overflow-hidden w-full">
+            <div className="toggle-group w-full">
               <button
-                className={`px-3 py-1 flex-1 ${viewMode === 'words' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+                className={`toggle-button ${viewMode === 'words' ? 'active' : ''}`}
                 onClick={() => setViewMode('words')}
               >
                 Words
               </button>
               <button
-                className={`px-3 py-1 flex-1 ${viewMode === 'phrases' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+                className={`toggle-button ${viewMode === 'phrases' ? 'active' : ''}`}
                 onClick={() => setViewMode('phrases')}
               >
                 Phrases

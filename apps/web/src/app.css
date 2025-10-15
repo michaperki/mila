@@ -173,6 +173,69 @@ body {
   direction: rtl;
   unicode-bidi: bidi-override;
   font-family: var(--font-hebrew);
+  width: 100%;
+  max-width: 100%;
+  text-align: right;
+  position: relative; /* Ensure consistent positioning */
+  display: block; /* Prevent inline behavior */
+}
+
+/* Interlinear text container */
+.interlinear-block {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+/* Text content wrapper for consistent width and alignment */
+.text-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+/* Sentence block container */
+.sentence-block {
+  width: 100%;
+}
+
+/* Text container with consistent width */
+.full-text-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Full text individual blocks */
+.full-text-block {
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+/* Hebrew and English text containers to prevent layout shifts */
+.hebrew-text-container, .english-text-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 50px; /* Prevents layout shift when switching between empty containers */
+}
+
+/* Interlinear wrapper for better styling */
+.interlinear-wrapper {
+  width: 100%;
+}
+
+/* Text container for consistent display between modes */
+.text-container {
+  width: 100%;
+  min-height: 50px; /* Prevents layout shift when switching between empty containers */
+}
+
+/* Translation text */
+.translation {
+  width: 100%;
+  text-align: left;
 }
 
 /* Mobile-first styles */
@@ -198,6 +261,40 @@ body {
   justify-content: space-around;
   padding: 0.75rem 0;
   z-index: 100;
+}
+
+/* Toggle button groups */
+.toggle-group {
+  display: flex;
+  border: 1px solid var(--border-color);
+  border-radius: 0.25rem;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.toggle-button {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  background-color: white;
+  border: none;
+  border-right: 1px solid var(--border-color);
+  cursor: pointer;
+  flex: 1 1 0;
+  transition: all 0.2s ease;
+}
+
+.toggle-button:last-child {
+  border-right: none;
+}
+
+.toggle-button.active {
+  background-color: var(--primary-color);
+  color: white;
+  font-weight: 500;
+}
+
+.toggle-button:hover:not(.active) {
+  background-color: var(--background-color);
 }
 
 .main-content {

@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { Chunk } from '../types';
 import { toggleNikud } from '../lib/nikud';
 import { transliterate } from '../lib/translit';
-import { createRtlElement } from '../lib/rtl';
 
 interface SentenceBlockProps {
   chunk: Chunk;
@@ -47,31 +46,33 @@ function SentenceBlock({
         </div>
       )}
 
-      {/* Main Hebrew text */}
-      <div
-        className="hebrew-text text-lg mb-2 p-2 bg-gray-50 rounded"
-        dir="rtl"
-        lang="he"
-      >
-        {processedText}
+      <div className="text-content-wrapper">
+        {/* Main Hebrew text */}
+        <div
+          className="hebrew-text text-lg mb-2 p-2 bg-gray-50 rounded"
+          dir="rtl"
+          lang="he"
+        >
+          {processedText}
+        </div>
+
+        {/* Transliteration if enabled */}
+        {showTransliteration && (
+          <div className="transliteration text-sm mb-2 italic">
+            {transliteratedText}
+          </div>
+        )}
+
+        {/* Translation */}
+        {translationDisplay !== 'hidden' && (
+          <div className={`translation p-2 ${translationDisplay === 'inline' ? 'border-t mt-2 pt-2' : ''}`}>
+            {translationDisplay === 'inline' && (
+              <div className="text-sm text-secondary mb-1">Translation:</div>
+            )}
+            <div>{chunk.translation || '—'}</div>
+          </div>
+        )}
       </div>
-
-      {/* Transliteration if enabled */}
-      {showTransliteration && (
-        <div className="transliteration text-sm mb-2 italic">
-          {transliteratedText}
-        </div>
-      )}
-
-      {/* Translation */}
-      {translationDisplay !== 'hidden' && (
-        <div className={`translation p-2 ${translationDisplay === 'inline' ? 'border-t mt-2 pt-2' : ''}`}>
-          {translationDisplay === 'inline' && (
-            <div className="text-sm text-secondary mb-1">Translation:</div>
-          )}
-          <div>{chunk.translation || '—'}</div>
-        </div>
-      )}
 
       {/* Audio button (placeholder for future implementation) */}
       <button className="icon-btn mt-2 text-secondary" disabled title="Text-to-speech (Coming soon)">

@@ -23,59 +23,79 @@ function FullTextDisplay({
     }))
   }, [chunks, showNikud])
 
-  // Render based on translation display mode
+  // For hidden or inline modes, we use fixed width containers
   if (translationDisplay === 'hidden') {
     // Hebrew only
     return (
-      <div className="full-text">
+      <div className="full-text-container">
         {processedChunks.map((chunk) => (
           <div 
-            key={chunk.id} 
-            className="hebrew-text text-lg mb-3 p-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
-            dir="rtl"
-            lang="he"
+            key={chunk.id}
+            className="full-text-block"
             onClick={() => onChunkClick(chunk)}
           >
-            {chunk.processedText}
+            <div 
+              className="hebrew-text-container"
+            >
+              <div
+                className="hebrew-text p-2 mb-3 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
+                dir="rtl"
+                lang="he"
+              >
+                {chunk.processedText}
+              </div>
+            </div>
           </div>
         ))}
       </div>
     )
-  } else if (translationDisplay === 'interlinear') {
-    // Interlinear mode - Hebrew with translation below each line
+  } else if (translationDisplay === 'inline') {
+    // English only
     return (
-      <div className="full-text">
+      <div className="full-text-container">
         {processedChunks.map((chunk) => (
           <div 
-            key={chunk.id} 
-            className="interlinear-block mb-6 border-b pb-4"
+            key={chunk.id}
+            className="full-text-block"
             onClick={() => onChunkClick(chunk)}
           >
-            <div 
-              className="hebrew-text text-lg mb-2 p-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
-              dir="rtl"
-              lang="he"
-            >
-              {chunk.processedText}
-            </div>
-            <div className="translation p-2">
-              {chunk.translation || '—'}
+            <div className="english-text-container">
+              <div
+                className="translation p-3 mb-3 border rounded cursor-pointer hover:bg-gray-50"
+              >
+                {chunk.translation || '—'}
+              </div>
             </div>
           </div>
         ))}
       </div>
     )
   } else {
-    // English only
+    // Interlinear mode - Hebrew with translation below each line
     return (
-      <div className="full-text">
+      <div className="full-text-container">
         {processedChunks.map((chunk) => (
           <div 
-            key={chunk.id} 
-            className="translation p-3 mb-3 border rounded cursor-pointer hover:bg-gray-50"
+            key={chunk.id}
+            className="interlinear-wrapper mb-6 border-b pb-4"
             onClick={() => onChunkClick(chunk)}
           >
-            {chunk.translation || '—'}
+            <div className="interlinear-block">
+              <div className="hebrew-text-container">
+                <div 
+                  className="hebrew-text p-2 mb-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
+                  dir="rtl"
+                  lang="he"
+                >
+                  {chunk.processedText}
+                </div>
+              </div>
+              <div className="english-text-container">
+                <div className="translation p-2">
+                  {chunk.translation || '—'}
+                </div>
+              </div>
+            </div>
           </div>
         ))}
       </div>
