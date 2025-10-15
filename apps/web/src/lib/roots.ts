@@ -7,6 +7,7 @@
  */
 
 import { removeNikud } from './nikud';
+import { extractRootFromDictionary, getGlossForRoot } from '../data/hebrew/rootDictionary';
 
 // Common Hebrew prefixes to remove before root extraction
 const PREFIXES = ['ו', 'ה', 'ב', 'כ', 'ל', 'מ', 'ש', 'כש', 'שה', 'לה', 'מה', 'וה', 'וכ', 'ול', 'ומ', 'וש'];
@@ -75,29 +76,35 @@ export function extractRoot(word: string): string | null {
   if (!/[\u0590-\u05FF\uFB1D-\uFB4F]/.test(normalized) || normalized.length < 2) {
     return null;
   }
-  
-  // First try to extract root by removing affixes
+
+  // First try dictionary-based extraction (most accurate)
+  const dictionaryRoot = extractRootFromDictionary(normalized);
+  if (dictionaryRoot) {
+    return dictionaryRoot;
+  }
+
+  // Then try to extract root by removing affixes
   const rootByStripping = extractRootByStrippingAffixes(normalized);
   if (rootByStripping && rootByStripping.length >= 2) {
     return rootByStripping;
   }
-  
+
   // Then try to match against known patterns
   const rootByPattern = extractRootByPatterns(normalized);
   if (rootByPattern) {
     return rootByPattern;
   }
-  
+
   // If the word is 3 letters, it might itself be a root
   if (normalized.length === 3 && isValidHebrewRoot(normalized)) {
     return normalized;
   }
-  
+
   // If the word is 2 letters, it might be a defective root (missing י or ו)
   if (normalized.length === 2 && isValidHebrewRoot(normalized)) {
     return normalized;
   }
-  
+
   return null;
 }
 
@@ -178,38 +185,56 @@ export function getCommonConjugations(root: string): string[] {
   if (!root || root.length < 2) {
     return [];
   }
-  
+
   const conjugations: string[] = [];
-  
+
   if (root.length === 3) {
     const [r1, r2, r3] = root.split('');
-    
+
     // Add some basic conjugations based on common patterns
     // Pa'al past tense
     conjugations.push(`${r1}${r2}${r3}`);
-    
+
     // Pa'al present
     conjugations.push(`${r1}${getCommonVowelConnector()}${r2}${r3}`);
-    
+
     // Pi'el past
     conjugations.push(`${r1}${getCommonVowelConnector()}${r2}${r3}`);
-    
+
     // Hif'il past
     conjugations.push(`ה${r1}${r2}${getCommonVowelConnector()}${r3}`);
-    
+
     // Pa'al infinitive
     conjugations.push(`ל${r1}${r2}${getCommonVowelConnector()}${r3}`);
   } else if (root.length === 2) {
     // Handle defective roots
     const [r1, r2] = root.split('');
-    
+
     // Common defective patterns
     conjugations.push(`${r1}${r2}`);
     conjugations.push(`${r1}${r2}ה`);
     conjugations.push(`ל${r1}${r2}${getCommonVowelConnector()}ת`);
   }
-  
+
   return [...new Set(conjugations)]; // Remove duplicates
+}
+
+/**
+ * Gets the English meaning of a root
+ * @param root The Hebrew root to translate
+ * @returns The English meaning or null if not found
+ */
+export function getRootMeaning(root: string): string | null {
+  if (!root) return null;
+
+  // Try to get meaning from the dictionary
+  const dictMeaning = getGlossForRoot(root);
+  if (dictMeaning) {
+    return dictMeaning;
+  }
+
+  // Fallback: return a generic message
+  return null;
 }
 
 /**
