@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hebrew Root Extraction Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .test-word {
+      margin-bottom: 20px;
+      padding: 10px;
+      border: 1px solid #eee;
+      border-radius: 5px;
+    }
+    .hebrew {
+      font-size: 24px;
+      direction: rtl;
+    }
+    .status {
+      color: #666;
+      font-style: italic;
+    }
+    .success { color: green; }
+    .failure { color: red; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+    }
+    th, td {
+      padding: 8px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+  </style>
+</head>
+<body>
+  <h1>Hebrew Root Extraction Test</h1>
+  
+  <p>This page tests the Hebrew root extraction functionality with the expanded dictionary.</p>
+  
+  <h2>Test Words</h2>
+  <div id="results"></div>
+  
+  <h2>Summary</h2>
+  <div id="summary"></div>
+  
+  <script type="module">
+    // Import the extracted module from main app
+    import { extractRoot, getRootMeaning } from '../src/lib/roots.js';
+    
+    // Test words to check
+    const TEST_WORDS = [
+      { word: 'אלהים', description: 'God' },
+      { word: 'הארץ', description: 'the earth/land' },
+      { word: 'השמים', description: 'the heavens' },
+      { word: 'בראשית', description: 'in the beginning' },
+      { word: 'אדם', description: 'man, Adam' },
+      { word: 'אישה', description: 'woman' },
+      { word: 'מלך', description: 'king' },
+      { word: 'תורה', description: 'Torah, law' },
+      { word: 'שלום', description: 'peace' },
+      { word: 'ישראל', description: 'Israel' },
+      { word: 'דבר', description: 'word, thing' },
+      { word: 'ספר', description: 'book' },
+      { word: 'בית', description: 'house' },
+      { word: 'יום', description: 'day' },
+      { word: 'מים', description: 'water' }
+    ];
+    
+    // Run the test
+    let foundRoots = 0;
+    let foundMeanings = 0;
+    
+    function runTest() {
+      const resultsDiv = document.getElementById('results');
+      const summaryDiv = document.getElementById('summary');
+      
+      for (const test of TEST_WORDS) {
+        const root = extractRoot(test.word);
+        const meaning = root ? getRootMeaning(root) : null;
+        
+        const rootFound = root !== null;
+        const meaningFound = meaning !== null;
+        
+        if (rootFound) foundRoots++;
+        if (meaningFound) foundMeanings++;
+        
+        // Create HTML for test result
+        const div = document.createElement('div');
+        div.className = 'test-word';
+        div.innerHTML = `
+          <div class="hebrew">${test.word}</div>
+          <div class="description">${test.description}</div>
+          <div class="status ${rootFound ? 'success' : 'failure'}">
+            Root: ${rootFound ? root : 'Not found'}
+          </div>
+          ${rootFound ? `
+            <div class="status ${meaningFound ? 'success' : 'failure'}">
+              Meaning: ${meaningFound ? meaning : 'No meaning available'}
+            </div>
+          ` : ''}
+        `;
+        
+        resultsDiv.appendChild(div);
+      }
+      
+      // Create summary
+      summaryDiv.innerHTML = `
+        <p>Found ${foundRoots}/${TEST_WORDS.length} roots (${Math.round(foundRoots/TEST_WORDS.length*100)}%)</p>
+        <p>Found ${foundMeanings}/${foundRoots} meanings (${foundRoots > 0 ? Math.round(foundMeanings/foundRoots*100) : 0}%)</p>
+        
+        <h3>All Test Results</h3>
+        <table>
+          <tr>
+            <th>Word</th>
+            <th>Description</th>
+            <th>Root</th>
+            <th>Meaning</th>
+          </tr>
+          ${TEST_WORDS.map(test => {
+            const root = extractRoot(test.word);
+            const meaning = root ? getRootMeaning(root) : null;
+            return `
+              <tr>
+                <td class="hebrew">${test.word}</td>
+                <td>${test.description}</td>
+                <td>${root || 'Not found'}</td>
+                <td>${meaning || 'No meaning available'}</td>
+              </tr>
+            `;
+          }).join('')}
+        </table>
+      `;
+    }
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', runTest);
+  </script>
+</body>
+</html>
