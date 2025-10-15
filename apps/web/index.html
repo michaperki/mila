@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="description" content="Learn language through reading with OCR and translation" />
+    <meta name="theme-color" content="#ffffff" />
+    <title>ReadLearn</title>
+
+    <!-- Pre-load Hebrew language data to ensure it's available -->
+    <link rel="preload" href="/ocr-models/heb.traineddata" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="/tessdata/heb.traineddata" as="fetch" crossorigin="anonymous">
+
+    <!-- Define global settings for OCR -->
+    <script>
+      window.OCR_CONFIG = {
+        langPaths: ['/tessdata', '/ocr-models', 'tessdata', 'ocr-models']
+      };
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

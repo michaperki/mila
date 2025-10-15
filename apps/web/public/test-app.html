@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ReadLearn App Tests</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #2c3e50;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+    }
+    .test-section {
+      margin: 20px 0;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    .test-heading {
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    .success {
+      color: #27ae60;
+    }
+    .error {
+      color: #e74c3c;
+    }
+    button {
+      padding: 8px 16px;
+      background: #3498db;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #2980b9;
+    }
+    code {
+      background: #f8f8f8;
+      padding: 2px 4px;
+      border-radius: 2px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <h1>ReadLearn App Tests</h1>
+
+  <div class="test-section">
+    <div class="test-heading">1. OCR Language File Test</div>
+    <div id="ocr-status">Testing access to Hebrew language file...</div>
+    <button onclick="testOcrFile()">Test Again</button>
+  </div>
+
+  <div class="test-section">
+    <div class="test-heading">2. Translation API Test</div>
+    <div id="api-status">Click the button to test the Translation API</div>
+    <button onclick="testTranslationAPI()">Test Translation API</button>
+    <div id="api-result"></div>
+  </div>
+
+  <div class="test-section">
+    <div class="test-heading">3. Environment Variables</div>
+    <div id="env-status">Testing environment variables...</div>
+  </div>
+
+  <script>
+    // Test 1: OCR Language File
+    async function testOcrFile() {
+      const status = document.getElementById('ocr-status');
+      
+      try {
+        // Try to fetch the Hebrew language file
+        const response = await fetch('/ocr-models/heb.traineddata');
+        if (response.ok) {
+          const size = response.headers.get('content-length') || 'unknown';
+          status.textContent = `Success! File found with size: ${size} bytes`;
+          status.className = 'success';
+        } else {
+          status.textContent = `Error: File not found (HTTP ${response.status})`;
+          status.className = 'error';
+        }
+      } catch (error) {
+        status.textContent = `Error: ${error.message}`;
+        status.className = 'error';
+      }
+    }
+    
+    // Test 2: Translation API
+    async function testTranslationAPI() {
+      const status = document.getElementById('api-status');
+      const result = document.getElementById('api-result');
+      
+      status.textContent = 'Testing translation API...';
+      
+      try {
+        // Simple Hebrew text to translate
+        const testData = {
+          sourceLang: 'he',
+          targetLang: 'en',
+          sentences: ['שלום עולם'],
+          tokens: [['שלום', 'עולם']]
+        };
+        
+        const response = await fetch('/api/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(testData)
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          status.textContent = 'Success! Translation API is working.';
+          status.className = 'success';
+          
+          result.innerHTML = `
+            <pre><code>
+Input: שלום עולם
+Translation: ${data.sentenceTranslations[0]}
+
+Tokens: 
+- שלום → ${data.tokenGlosses?.[0]?.[0] || 'N/A'}
+- עולם → ${data.tokenGlosses?.[0]?.[1] || 'N/A'}
+            </code></pre>
+          `;
+        } else {
+          status.textContent = `Error: API request failed (HTTP ${response.status})`;
+          status.className = 'error';
+          
+          try {
+            const errorData = await response.json();
+            result.innerHTML = `<pre><code>${JSON.stringify(errorData, null, 2)}</code></pre>`;
+          } catch (e) {
+            result.textContent = await response.text();
+          }
+        }
+      } catch (error) {
+        status.textContent = `Error: ${error.message}`;
+        status.className = 'error';
+        result.textContent = '';
+      }
+    }
+    
+    // Test 3: Environment Variables
+    function testEnvironmentVariables() {
+      const status = document.getElementById('env-status');
+      
+      // We can't directly access environment variables from client-side code
+      // But we can look for clues that suggest they're working
+      
+      const usingRealTranslate = localStorage.getItem('useRealTranslate');
+      
+      status.innerHTML = `
+        <div>useRealTranslate in localStorage: <strong>${usingRealTranslate || 'Not set'}</strong></div>
+        <div>To enable real translation, you can run this in your browser console:</div>
+        <pre><code>localStorage.setItem('useRealTranslate', 'true')</code></pre>
+      `;
+    }
+    
+    // Run tests on page load
+    window.onload = function() {
+      testOcrFile();
+      testEnvironmentVariables();
+    };
+  </script>
+</body>
+</html>

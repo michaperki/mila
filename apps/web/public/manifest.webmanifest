@@ -1,0 +1,56 @@
+{
+  "name": "ReadLearn",
+  "short_name": "ReadLearn",
+  "description": "Learn Hebrew through reading with OCR and translation",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f0f4f8",
+  "theme_color": "#3182ce",
+  "orientation": "portrait",
+  "categories": ["education", "language", "productivity"],
+  "screenshots": [],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/maskable-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New Scan",
+      "url": "/",
+      "description": "Scan a new text"
+    },
+    {
+      "name": "Vocabulary",
+      "url": "/vocab",
+      "description": "View saved vocabulary"
+    }
+  ]
+}

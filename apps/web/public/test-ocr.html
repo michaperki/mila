@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>OCR Test</title>
+</head>
+<body>
+  <h1>OCR File Test</h1>
+  <div id="status">Testing access to Hebrew language file...</div>
+  
+  <script>
+    async function testFile() {
+      const status = document.getElementById('status');
+      
+      try {
+        // Try to fetch the Hebrew language file
+        const response = await fetch('/ocr-models/heb.traineddata');
+        if (response.ok) {
+          const size = response.headers.get('content-length') || 'unknown';
+          status.textContent = `Success! File found with size: ${size} bytes`;
+          status.style.color = 'green';
+        } else {
+          status.textContent = `Error: File not found (HTTP ${response.status})`;
+          status.style.color = 'red';
+        }
+      } catch (error) {
+        status.textContent = `Error: ${error.message}`;
+        status.style.color = 'red';
+      }
+    }
+    
+    testFile();
+  </script>
+</body>
+</html>

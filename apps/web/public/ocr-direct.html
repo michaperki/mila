@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Direct OCR Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .container {
+      margin: 20px 0;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+    }
+    button {
+      padding: 8px 16px;
+      background-color: #4a90e2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 10px;
+      margin-bottom: 10px;
+    }
+    button:hover {
+      background-color: #3a80d2;
+    }
+    img {
+      max-width: 100%;
+      margin: 10px 0;
+      border: 1px solid #eee;
+    }
+    #results {
+      white-space: pre-wrap;
+      background: #f8f8f8;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: monospace;
+      margin: 10px 0;
+    }
+    .progress {
+      margin: 10px 0;
+      height: 20px;
+      background: #f0f0f0;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background: #4a90e2;
+      transition: width 0.3s;
+    }
+    .status {
+      margin: 10px 0;
+      font-style: italic;
+    }
+    input[type="file"] {
+      display: none;
+    }
+    .file-label {
+      display: inline-block;
+      padding: 8px 16px;
+      background-color: #4a90e2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 10px;
+      margin-bottom: 10px;
+    }
+    .file-label:hover {
+      background-color: #3a80d2;
+    }
+  </style>
+</head>
+<body>
+  <h1>OCR Direct Test</h1>
+  <p>This page tests Tesseract.js directly without using a web worker.</p>
+
+  <div class="container">
+    <label class="file-label" for="imageInput">Choose Image</label>
+    <input type="file" id="imageInput" accept="image/*">
+    <button id="testButton">Run OCR</button>
+    <button id="downloadLangButton">Download Lang Data</button>
+    <div class="progress">
+      <div id="progressBar" class="progress-bar" style="width: 0%"></div>
+    </div>
+    <div id="status" class="status">Ready</div>
+  </div>
+  
+  <div class="container">
+    <h3>Image:</h3>
+    <img id="preview" src="" alt="Upload an image">
+  </div>
+
+  <div class="container">
+    <h3>Results:</h3>
+    <pre id="results">No results yet</pre>
+  </div>
+  
+  <!-- Import the Tesseract.js library directly -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
+  
+  <script>
+    // Get page elements
+    const imageInput = document.getElementById('imageInput');
+    const testButton = document.getElementById('testButton');
+    const downloadLangButton = document.getElementById('downloadLangButton');
+    const preview = document.getElementById('preview');
+    const results = document.getElementById('results');
+    const progressBar = document.getElementById('progressBar');
+    const status = document.getElementById('status');
+    
+    // Handle image selection
+    imageInput.addEventListener('change', function(e) {
+      if (e.target.files && e.target.files[0]) {
+        const file = e.target.files[0];
+        const url = URL.createObjectURL(file);
+        preview.src = url;
+      }
+    });
+
+    // Handle click on the test button
+    testButton.addEventListener('click', async function() {
+      if (!preview.src || preview.src === window.location.href) {
+        status.textContent = 'Please select an image first';
+        return;
+      }
+      
+      // Reset UI
+      results.textContent = 'Processing...';
+      progressBar.style.width = '0%';
+      status.textContent = 'Initializing OCR engine...';
+      
+      try {
+        const worker = await Tesseract.createWorker('heb', 1, {
+          logger: message => {
+            console.log(message);
+            if (message.status) {
+              status.textContent = message.status;
+            }
+            if (message.progress) {
+              progressBar.style.width = `${message.progress * 100}%`;
+            }
+          },
+          cachePath: '/tessdata',
+        });
+
+        // Recognize the image
+        status.textContent = 'Recognizing text...';
+        const { data } = await worker.recognize(preview.src);
+        
+        // Display results
+        results.textContent = `Text: ${data.text}\n\nConfidence: ${data.confidence}\n\nLines:\n${data.lines.map(line => line.text).join('\n')}`;
+        status.textContent = 'Done!';
+        progressBar.style.width = '100%';
+        
+        // Terminate worker
+        await worker.terminate();
+      } catch (error) {
+        console.error('OCR Error:', error);
+        results.textContent = `Error: ${error.message}`;
+        status.textContent = 'Failed!';
+      }
+    });
+
+    // Handle direct language data download
+    downloadLangButton.addEventListener('click', async function() {
+      status.textContent = 'Downloading language data...';
+      progressBar.style.width = '0%';
+      
+      try {
+        // This will download the language directly
+        await Tesseract.createWorker('heb');
+        status.textContent = 'Language data downloaded!';
+        progressBar.style.width = '100%';
+      } catch (error) {
+        console.error('Download Error:', error);
+        status.textContent = `Download failed: ${error.message}`;
+      }
+    });
+
+    // Check if language data is already available
+    document.addEventListener('DOMContentLoaded', async () => {
+      status.textContent = 'Checking language data...';
+      try {
+        // Try to fetch the language data to check if it's available
+        const response = await fetch('/tessdata/heb.traineddata');
+        if (response.ok) {
+          status.textContent = 'Language data is available ✓';
+        } else {
+          status.textContent = 'Language data not found (will be downloaded on demand)';
+        }
+      } catch (error) {
+        console.error('Check Error:', error);
+        status.textContent = 'Could not check language data';
+      }
+    });
+  </script>
+</body>
+</html>
