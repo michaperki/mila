@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Chunk, Token, ChunkType } from '../types';
 import { normalizeZeroWidth } from '../lib/rtl';
 import { removeNikud } from '../lib/nikud';
+import { extractRoot, categorizeWord } from '../lib/roots';
 
 /**
  * Hebrew-aware text segmentation utilities
@@ -115,21 +116,25 @@ function tokenizeHebrew(text: string): Token[] {
         idx: idx++,
         surface: prefix,
         lemma: prefix,
-        root: prefix,
+        root: prefix, // For clitics, the root is the same as the surface
       });
-      
+
       // Add the base word token
+      const root = extractRoot(base);
       tokens.push({
         idx: idx++,
         surface: base,
         lemma: base,
+        root: root || undefined, // Add the root if available
       });
     } else {
       // Regular word (no clitic)
+      const root = extractRoot(word);
       tokens.push({
         idx: idx++,
         surface: word,
         lemma: word,
+        root: root || undefined,
       });
     }
   }
