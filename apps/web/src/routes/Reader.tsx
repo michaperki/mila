@@ -5,9 +5,11 @@ import { useVocabStore } from '../state/useVocabStore'
 import SentenceBlock from '../components/SentenceBlock'
 import PhraseChips from '../components/PhraseChips'
 import WordCard from '../components/WordCard'
+import FullTextDisplay from '../components/FullTextDisplay'
 import { Chunk, Token, StarredItem } from '../types'
 
 type ViewMode = 'words' | 'phrases'
+type DisplayMode = 'fullText' | 'sentence' | 'word'
 
 function Reader() {
   const { textId } = useParams<{ textId: string }>()
@@ -17,6 +19,7 @@ function Reader() {
 
   // State
   const [viewMode, setViewMode] = useState<ViewMode>('words')
+  const [displayMode, setDisplayMode] = useState<DisplayMode>('sentence')
   const [selectedChunk, setSelectedChunk] = useState<Chunk | null>(null)
   const [selectedToken, setSelectedToken] = useState<Token | null>(null)
   const [currentChunkIndex, setCurrentChunkIndex] = useState(0)
@@ -25,6 +28,7 @@ function Reader() {
   const [text, setText] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [starredItems, setStarredItems] = useState<StarredItem[]>([])
+  const [translationDisplay, setTranslationDisplay] = useState<'hidden' | 'inline' | 'interlinear'>('inline')
 
   // Load text and vocab data
   useEffect(() => {
@@ -182,27 +186,94 @@ function Reader() {
             {showTransliteration ? 'Hide Transliteration' : 'Show Transliteration'}
           </button>
 
-          {/* View mode selector */}
-          <div className="flex border rounded overflow-hidden ml-auto">
+          {/* Display mode selector */}
+          <div className="flex border rounded overflow-hidden ml-auto mb-2">
             <button
-              className={`px-3 py-1 ${viewMode === 'words' ? 'bg-primary text-white' : 'bg-gray-100'}`}
-              onClick={() => setViewMode('words')}
+              className={`px-3 py-1 ${displayMode === 'fullText' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+              onClick={() => setDisplayMode('fullText')}
             >
-              Words
+              Full Text
             </button>
             <button
-              className={`px-3 py-1 ${viewMode === 'phrases' ? 'bg-primary text-white' : 'bg-gray-100'}`}
-              onClick={() => setViewMode('phrases')}
+              className={`px-3 py-1 ${displayMode === 'sentence' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+              onClick={() => setDisplayMode('sentence')}
             >
-              Phrases
+              Sentence
+            </button>
+            <button
+              className={`px-3 py-1 ${displayMode === 'word' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+              onClick={() => setDisplayMode('word')}
+            >
+              Word
             </button>
           </div>
+
+          {/* Translation display mode (only visible in fullText mode) */}
+          {displayMode === 'fullText' && (
+            <div className="flex border rounded overflow-hidden w-full">
+              <button
+                className={`px-3 py-1 flex-1 ${translationDisplay === 'hidden' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+                onClick={() => setTranslationDisplay('hidden')}
+              >
+                Hebrew Only
+              </button>
+              <button
+                className={`px-3 py-1 flex-1 ${translationDisplay === 'inline' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+                onClick={() => setTranslationDisplay('inline')}
+              >
+                English Only
+              </button>
+              <button
+                className={`px-3 py-1 flex-1 ${translationDisplay === 'interlinear' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+                onClick={() => setTranslationDisplay('interlinear')}
+              >
+                Interlinear
+              </button>
+            </div>
+          )}
+
+          {/* Word/Phrase view mode selector (only visible in word mode) */}
+          {displayMode === 'word' && (
+            <div className="flex border rounded overflow-hidden w-full">
+              <button
+                className={`px-3 py-1 flex-1 ${viewMode === 'words' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+                onClick={() => setViewMode('words')}
+              >
+                Words
+              </button>
+              <button
+                className={`px-3 py-1 flex-1 ${viewMode === 'phrases' ? 'bg-primary text-white' : 'bg-gray-100'}`}
+                onClick={() => setViewMode('phrases')}
+              >
+                Phrases
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      {selectedChunk && (
+      {/* Full Text Mode */}
+      {displayMode === 'fullText' && text && (
+        <div className="card mb-4 p-4">
+          <FullTextDisplay
+            chunks={text.chunks}
+            showNikud={showNikud}
+            translationDisplay={translationDisplay}
+            onChunkClick={(chunk) => {
+              setSelectedChunk(chunk);
+              const index = text.chunks.findIndex((c: Chunk) => c.id === chunk.id);
+              if (index !== -1) {
+                setCurrentChunkIndex(index);
+              }
+              setDisplayMode('sentence');
+            }}
+          />
+        </div>
+      )}
+
+      {/* Sentence Mode */}
+      {displayMode === 'sentence' && selectedChunk && (
         <>
-          {/* Main content area */}
           <div className="card mb-4">
             <SentenceBlock
               chunk={selectedChunk}
@@ -210,6 +281,7 @@ function Reader() {
               showTransliteration={showTransliteration}
               currentIndex={currentChunkIndex}
               totalChunks={text.chunks.length}
+              translationDisplay={translationDisplay}
             />
           </div>
 
@@ -232,6 +304,32 @@ function Reader() {
             </button>
           </div>
 
+          {/* Button to view word details */}
+          <div className="mb-4 text-center">
+            <button
+              className="btn"
+              onClick={() => setDisplayMode('word')}
+            >
+              View Word Details
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Word Mode */}
+      {displayMode === 'word' && selectedChunk && (
+        <>
+          <div className="card mb-4">
+            <SentenceBlock
+              chunk={selectedChunk}
+              showNikud={showNikud}
+              showTransliteration={showTransliteration}
+              currentIndex={currentChunkIndex}
+              totalChunks={text.chunks.length}
+              translationDisplay={translationDisplay}
+            />
+          </div>
+
           {/* Word chips */}
           <div className="card mb-4">
             <PhraseChips
@@ -252,6 +350,25 @@ function Reader() {
               />
             </div>
           )}
+
+          {/* Navigation controls */}
+          <div className="mb-4 flex items-center justify-between">
+            <button
+              className="btn"
+              onClick={handlePrevious}
+              disabled={currentChunkIndex <= 0}
+            >
+              ← Previous
+            </button>
+
+            <button
+              className="btn"
+              onClick={handleNext}
+              disabled={currentChunkIndex >= text.chunks.length - 1}
+            >
+              Next →
+            </button>
+          </div>
         </>
       )}
     </div>

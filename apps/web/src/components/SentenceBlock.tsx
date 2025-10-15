@@ -10,6 +10,7 @@ interface SentenceBlockProps {
   showTransliteration: boolean;
   currentIndex?: number;
   totalChunks?: number;
+  translationDisplay?: 'hidden' | 'inline' | 'interlinear';
 }
 
 function SentenceBlock({
@@ -17,7 +18,8 @@ function SentenceBlock({
   showNikud,
   showTransliteration,
   currentIndex,
-  totalChunks
+  totalChunks,
+  translationDisplay = 'inline'
 }: SentenceBlockProps) {
   const processedText = useMemo(() => {
     return toggleNikud(chunk.text, showNikud);
@@ -62,10 +64,14 @@ function SentenceBlock({
       )}
 
       {/* Translation */}
-      <div className="translation p-2 border-t mt-2 pt-2">
-        <div className="text-sm text-secondary mb-1">Translation:</div>
-        <div>{chunk.translation || '—'}</div>
-      </div>
+      {translationDisplay !== 'hidden' && (
+        <div className={`translation p-2 ${translationDisplay === 'inline' ? 'border-t mt-2 pt-2' : ''}`}>
+          {translationDisplay === 'inline' && (
+            <div className="text-sm text-secondary mb-1">Translation:</div>
+          )}
+          <div>{chunk.translation || '—'}</div>
+        </div>
+      )}
 
       {/* Audio button (placeholder for future implementation) */}
       <button className="icon-btn mt-2 text-secondary" disabled title="Text-to-speech (Coming soon)">

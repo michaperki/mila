@@ -6,6 +6,7 @@ import BottomBar from './components/BottomBar'
 const Home = lazy(() => import('./routes/Home'))
 const Reader = lazy(() => import('./routes/Reader'))
 const Vocab = lazy(() => import('./routes/Vocab'))
+const Settings = lazy(() => import('./routes/Settings'))
 
 // Loading fallback
 const LoadingFallback = () => (
@@ -22,7 +23,9 @@ function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/reader/:textId" element={<Reader />} />
+            <Route path="/texts" element={<Vocab />} />
             <Route path="/vocab" element={<Vocab />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
