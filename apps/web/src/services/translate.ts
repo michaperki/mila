@@ -390,13 +390,15 @@ async function realTranslateSentence(text: string): Promise<string> {
  */
 async function realGlossTokens(tokens: string[]): Promise<string[]> {
   try {
+    // The API requires at least one sentence, so we'll create a dummy sentence
+    // This addresses the "Missing or invalid sentences parameter" error
     const response = await realTranslate({
       sourceLang: 'he',
       targetLang: 'en',
-      sentences: [],
+      sentences: ['dummy'],  // Add a dummy sentence to satisfy API requirement
       tokens: [tokens],
     });
-    
+
     return response.tokenGlosses?.[0] || tokens.map(() => '—');
   } catch (error) {
     console.error('Token glossing error:', error);

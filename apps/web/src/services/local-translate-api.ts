@@ -74,10 +74,49 @@ export async function processTranslation(req: TranslationRequest): Promise<Trans
     
     const sentenceTranslations = json?.data?.translations?.map((t: any) => t.translatedText) || [];
     
-    // Handle token glosses (basic implementation)
+    // Handle token glosses with real translation
     let tokenGlosses: string[][] | undefined;
     if (req.tokens && Array.isArray(req.tokens) && req.tokens.length > 0) {
-      tokenGlosses = req.tokens.map(tokenArray => tokenArray.map(() => '—'));
+      // Process each token group separately
+      tokenGlosses = [];
+
+      for (const tokenArray of req.tokens) {
+        if (tokenArray.length === 0) {
+          tokenGlosses.push([]);
+          continue;
+        }
+
+        // Call Google Translate API for each token
+        try {
+          const tokenUrl = `https://translation.googleapis.com/language/translate/v2?key=${GOOGLE_API_KEY}`;
+          const tokenBody = {
+            q: tokenArray,
+            source: req.sourceLang || 'he',
+            target: req.targetLang || 'en',
+            format: 'text'
+          };
+
+          const tokenResp = await fetch(tokenUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(tokenBody)
+          });
+
+          if (!tokenResp.ok) {
+            throw new Error(`Token translation error: ${tokenResp.status}`);
+          }
+
+          const tokenJson = await tokenResp.json();
+          const tokenTranslations = tokenJson?.data?.translations?.map((t: any) => t.translatedText) || [];
+
+          // Add the translated tokens to results
+          tokenGlosses.push(tokenTranslations);
+        } catch (error) {
+          console.error('Token translation error:', error);
+          // Fallback to placeholders if translation fails
+          tokenGlosses.push(tokenArray.map(() => '—'));
+        }
+      }
     }
     
     const result: TranslationResponse = {

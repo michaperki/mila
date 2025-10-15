@@ -60,11 +60,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       tokens = [] 
     } = req.body || {};
     
-    // Validate required parameters
-    if (!sentences || !Array.isArray(sentences) || sentences.length === 0) {
+    // Validate required parameters - allow token-only requests
+    if ((!sentences || !Array.isArray(sentences) || sentences.length === 0) &&
+        (!tokens || !Array.isArray(tokens) || tokens.length === 0)) {
       return res.status(400)
         .set(corsHeaders)
-        .json({ error: 'Missing or invalid sentences parameter' });
+        .json({ error: 'Missing or invalid parameters - either sentences or tokens must be provided' });
+    }
+
+    // Ensure sentences is a valid array - use a placeholder if only tokens are provided
+    if (!sentences || !Array.isArray(sentences) || sentences.length === 0) {
+      sentences = ['dummy_sentence'];
     }
     
     // Limit request size
@@ -130,16 +136,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .json({ error: 'Translation service unavailable' });
     }
     
-    // Handle token glosses (basic implementation)
+    // Handle token glosses with real translation
     let tokenGlosses: string[][] | undefined;
-    
+
     if (tokens && Array.isArray(tokens) && tokens.length > 0) {
-      // For this basic implementation, we'll return placeholder glosses
-      // A full implementation would use Google Translate API for each token
-      // or use a glossary/dictionary API
-      tokenGlosses = tokens.map(tokenArray => 
-        tokenArray.map(() => '—')
-      );
+      // Process each token group with real translations
+      tokenGlosses = [];
+
+      for (const tokenArray of tokens) {
+        if (tokenArray.length === 0) {
+          tokenGlosses.push([]);
+          continue;
+        }
+
+        // Call Google Translate API for each token array
+        try {
+          const tokenUrl = `https://translation.googleapis.com/language/translate/v2?key=${GOOGLE_API_KEY}`;
+          const tokenBody = {
+            q: tokenArray,
+            source: sourceLang,
+            target: targetLang,
+            format: 'text'
+          };
+
+          const tokenResp = await fetch(tokenUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(tokenBody)
+          });
+
+          if (!tokenResp.ok) {
+            const errorText = await tokenResp.text();
+            throw new Error(`Token translation API error (${tokenResp.status}): ${errorText}`);
+          }
+
+          const tokenJson = await tokenResp.json();
+          const tokenTranslations = tokenJson?.data?.translations?.map((t: any) => t.translatedText) || [];
+
+          // Add the translated tokens to results
+          tokenGlosses.push(tokenTranslations);
+        } catch (error) {
+          console.error('Token translation error:', error);
+          // Fallback to placeholders if translation fails
+          tokenGlosses.push(tokenArray.map(() => '—'));
+        }
+      }
     }
     
     // Prepare response
