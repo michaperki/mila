@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { Token } from '../types';
 import { toggleNikud } from '../lib/nikud';
 import { transliterate } from '../lib/translit';
+import { getRootMeaning } from '../lib/roots';
 
 interface WordCardProps {
   token: Token;
@@ -26,6 +27,11 @@ function WordCard({ token, showNikud, onStar, isStarred = false }: WordCardProps
   const transliteration = useMemo(() => {
     return transliterate(processedSurface);
   }, [processedSurface]);
+
+  // Get root meaning if available
+  const rootMeaning = useMemo(() => {
+    return token.root ? getRootMeaning(token.root) : null;
+  }, [token.root]);
 
   // Handle copy to clipboard
   const handleCopy = () => {
@@ -82,6 +88,11 @@ function WordCard({ token, showNikud, onStar, isStarred = false }: WordCardProps
           <div className="mb-2">
             <div className="text-sm text-secondary">Root:</div>
             <div className="hebrew-text" dir="rtl">{toggleNikud(token.root, showNikud)}</div>
+            {rootMeaning && (
+              <div className="text-xs text-gray-600 italic mt-1">
+                {rootMeaning}
+              </div>
+            )}
           </div>
         )}
 
