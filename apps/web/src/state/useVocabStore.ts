@@ -55,7 +55,7 @@ export const useVocabStore = create<VocabState>()(
           // Ensure database is initialized properly
           try {
             const db = await initAppDB();
-            const rawVocab = await db.getAll<StarredItem>('vocab');
+            const rawVocab = await db.getAll('vocab') as StarredItem[];
             const normalizedVocab = await ensureFrequency(rawVocab, db);
 
             // Sort by createdAt in descending order (newest first)
@@ -86,7 +86,7 @@ export const useVocabStore = create<VocabState>()(
 
               // Try the original connection again
               const db = await initAppDB();
-              const rawVocab = await db.getAll<StarredItem>('vocab');
+              const rawVocab = await db.getAll('vocab') as StarredItem[];
               const normalizedVocab = await ensureFrequency(rawVocab, db);
 
               const sortedVocab = normalizedVocab.sort((a, b) => b.createdAt - a.createdAt);
