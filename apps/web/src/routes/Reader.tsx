@@ -9,6 +9,7 @@ import ContextMiniMap from '../components/ContextMiniMap'
 import FullTextDisplay from '../components/FullTextDisplay'
 import ReadingControlBar from '../components/ReadingControlBar'
 import ErrorMessage from '../components/ErrorMessage'
+import { toggleNikud } from '../lib/nikud'
 import { Chunk, Token, StarredItem } from '../types'
 
 type ViewMode = 'words' | 'phrases'
@@ -151,6 +152,52 @@ function Reader() {
     // Auto-switch to word view when selecting a token
     setViewMode('words')
   }
+
+  // Get the first token in the current chunk (for default word selection)
+  const getFirstTokenInChunk = useCallback(() => {
+    if (selectedChunk && selectedChunk.tokens.length > 0) {
+      return selectedChunk.tokens[0];
+    }
+    return null;
+  }, [selectedChunk]);
+
+  // Get the next or previous token in the current chunk
+  const navigateToTokenByOffset = useCallback((offset: number) => {
+    if (!selectedChunk || !selectedToken) return;
+
+    // Find current token index in the tokens array
+    const currentIndex = selectedChunk.tokens.findIndex(t => t.idx === selectedToken.idx);
+    if (currentIndex === -1) return;
+
+    // Calculate new index with bounds checking
+    const newIndex = currentIndex + offset;
+    if (newIndex >= 0 && newIndex < selectedChunk.tokens.length) {
+      // We're still in the same chunk
+      setSelectedToken(selectedChunk.tokens[newIndex]);
+    } else if (newIndex < 0 && currentChunkIndex > 0) {
+      // Move to last token of previous chunk
+      const prevChunk = text.chunks[currentChunkIndex - 1];
+      setSelectedChunk(prevChunk);
+      setCurrentChunkIndex(currentChunkIndex - 1);
+      setSelectedToken(prevChunk.tokens[prevChunk.tokens.length - 1]);
+    } else if (newIndex >= selectedChunk.tokens.length && currentChunkIndex < text.chunks.length - 1) {
+      // Move to first token of next chunk
+      const nextChunk = text.chunks[currentChunkIndex + 1];
+      setSelectedChunk(nextChunk);
+      setCurrentChunkIndex(currentChunkIndex + 1);
+      setSelectedToken(nextChunk.tokens[0]);
+    }
+  }, [selectedChunk, selectedToken, currentChunkIndex, text]);
+
+  // Select first token in word view when no token is selected
+  useEffect(() => {
+    if (displayMode === 'word' && !selectedToken && selectedChunk) {
+      const firstToken = getFirstTokenInChunk();
+      if (firstToken) {
+        setSelectedToken(firstToken);
+      }
+    }
+  }, [displayMode, selectedChunk, selectedToken, getFirstTokenInChunk]);
 
   // Toggle star status for any token
   const handleToggleStar = async (tokenToStar?: Token) => {
@@ -348,65 +395,71 @@ function Reader() {
       {/* Word Mode */}
       {displayMode === 'word' && selectedChunk && (
         <>
-          <div className="card mb-4">
-            <SentenceBlock
-              chunk={selectedChunk}
-              showNikud={showNikud}
-              showTransliteration={showTransliteration}
-              currentIndex={currentChunkIndex}
-              totalChunks={text.chunks.length}
-              translationDisplay={translationDisplay}
-            />
-          </div>
-
-          {/* Word chips */}
-          <div className="card mb-4">
-            <PhraseChips
-              chunk={selectedChunk}
-              onSelectToken={handleSelectToken}
-              showNikud={showNikud}
-              onStarToken={handleToggleStar}
-              starredTokens={starredLemmaSet}
-              textId={textId}
-              translationDisplay={translationDisplay}
-            />
-          </div>
-
-          {/* Word card (if a token is selected in word mode) */}
-          {viewMode === 'words' && selectedToken && (
-            <div className="mb-4">
-              <h2 className="text-lg font-semibold mb-2">🟦 Word Focus</h2>
-              <WordCard
-                token={selectedToken}
-                onStar={handleToggleStar}
-                showNikud={showNikud}
-                isStarred={isTokenStarred(selectedToken)}
-                translationDisplay={translationDisplay}
-              />
-
-              {/* Context mini-map */}
-              <ContextMiniMap
-                chunk={selectedChunk}
-                selectedToken={selectedToken}
-                showNikud={showNikud}
+          {/* Progress indicator */}
+          <div className="mb-4 flex items-center justify-between">
+            <div className="text-secondary text-sm">
+              Sentence {currentChunkIndex + 1} of {text.chunks.length}
+            </div>
+            <div className="progress-indicator w-24 h-1 bg-gray-200 rounded-full">
+              <div
+                className="h-1 bg-primary rounded-full"
+                style={{ width: `${((currentChunkIndex + 1) / text.chunks.length) * 100}%` }}
               />
             </div>
-          )}
+          </div>
 
-          {/* Navigation controls */}
+          {/* Word card - always show a token, default to first if none selected */}
+          <div className="mb-4">
+            {(selectedToken || getFirstTokenInChunk()) && (
+              <>
+                <h2 className="text-lg font-semibold mb-2">🟦 Word Focus</h2>
+                <WordCard
+                  token={selectedToken || getFirstTokenInChunk()!}
+                  onStar={handleToggleStar}
+                  showNikud={showNikud}
+                  isStarred={isTokenStarred(selectedToken || getFirstTokenInChunk()!)}
+                  translationDisplay={translationDisplay}
+                />
+
+                {/* Context mini-map */}
+                <ContextMiniMap
+                  chunk={selectedChunk}
+                  selectedToken={selectedToken || getFirstTokenInChunk()}
+                  showNikud={showNikud}
+                />
+              </>
+            )}
+          </div>
+
+          {/* Word selector (compact version - just shows small chips) */}
+          <div className="card mb-4 p-3">
+            <div className="flex flex-wrap gap-2 justify-center" dir="rtl">
+              {selectedChunk.tokens.map((token) => (
+                <button
+                  key={token.idx}
+                  className={`text-sm px-2 py-1 rounded ${selectedToken?.idx === token.idx ? 'bg-primary text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
+                  onClick={() => handleSelectToken(token)}
+                >
+                  {toggleNikud(token.surface, showNikud)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Word navigation controls */}
           <div className="mb-4 flex items-center justify-between">
             <button
               className="btn flex items-center"
-              onClick={handlePrevious}
-              disabled={currentChunkIndex <= 0}
+              onClick={() => navigateToTokenByOffset(-1)}
+              disabled={currentChunkIndex <= 0 && (!selectedToken || selectedChunk?.tokens.indexOf(selectedToken) <= 0)}
             >
               <span className="mr-1">◀</span> Previous Word
             </button>
 
             <button
               className="btn flex items-center"
-              onClick={handleNext}
-              disabled={currentChunkIndex >= text.chunks.length - 1}
+              onClick={() => navigateToTokenByOffset(1)}
+              disabled={currentChunkIndex >= text.chunks.length - 1 && (!selectedToken || selectedChunk?.tokens.indexOf(selectedToken) >= (selectedChunk?.tokens.length || 0) - 1)}
             >
               Next Word <span className="ml-1">▶</span>
             </button>
