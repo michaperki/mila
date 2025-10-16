@@ -28,17 +28,15 @@ function FullTextDisplay({
     // Hebrew only
     return (
       <div className="full-text-container">
-        {processedChunks.map((chunk) => (
-          <div 
+        {processedChunks.map((chunk, index) => (
+          <div
             key={chunk.id}
-            className="full-text-block"
+            className={`full-text-block ${index % 2 === 0 ? 'bg-gray-50' : ''} rounded p-2 mb-3`}
             onClick={() => onChunkClick(chunk)}
           >
-            <div 
-              className="hebrew-text-container"
-            >
+            <div className="hebrew-text-container">
               <div
-                className="hebrew-text p-2 mb-3 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
+                className="hebrew-text p-2 rounded cursor-pointer hover:bg-gray-200"
                 dir="rtl"
                 lang="he"
               >
@@ -53,15 +51,15 @@ function FullTextDisplay({
     // English only
     return (
       <div className="full-text-container">
-        {processedChunks.map((chunk) => (
-          <div 
+        {processedChunks.map((chunk, index) => (
+          <div
             key={chunk.id}
-            className="full-text-block"
+            className={`full-text-block ${index % 2 === 0 ? 'bg-gray-50' : ''} rounded p-2 mb-3`}
             onClick={() => onChunkClick(chunk)}
           >
             <div className="english-text-container">
               <div
-                className="translation p-3 mb-3 border rounded cursor-pointer hover:bg-gray-50"
+                className="translation p-3 rounded cursor-pointer hover:bg-gray-100"
               >
                 {chunk.translation || '—'}
               </div>
@@ -74,23 +72,23 @@ function FullTextDisplay({
     // Interlinear mode - Hebrew with translation below each line
     return (
       <div className="full-text-container">
-        {processedChunks.map((chunk) => (
-          <div 
+        {processedChunks.map((chunk, index) => (
+          <div
             key={chunk.id}
-            className="interlinear-wrapper mb-6 border-b pb-4"
+            className={`interlinear-wrapper ${index % 2 === 0 ? 'bg-gray-50' : ''} mb-4 p-3 rounded`}
             onClick={() => onChunkClick(chunk)}
           >
             <div className="interlinear-block">
               <div className="hebrew-text-container">
-                <div 
-                  className="hebrew-text p-2 mb-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
+                <div
+                  className="hebrew-text p-2 mb-2 rounded cursor-pointer hover:bg-gray-200"
                   dir="rtl"
                   lang="he"
                 >
                   {chunk.processedText}
                 </div>
               </div>
-              <div className="english-text-container">
+              <div className="english-text-container border-t pt-2">
                 <div className="translation p-2">
                   {chunk.translation || '—'}
                 </div>

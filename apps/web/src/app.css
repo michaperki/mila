@@ -238,6 +238,140 @@ body {
   text-align: left;
 }
 
+/* Preview card styles */
+.preview-content {
+  border-left: 3px solid var(--primary-color);
+  padding-left: 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.preview-content .hebrew-text {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-bottom: 0.3rem;
+  background-color: var(--background-color);
+  padding: 0.3rem;
+  border-radius: 0.25rem;
+}
+
+.preview-content .translation {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Reading control bar */
+.reading-control-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: white;
+  border-bottom: 1px solid var(--border-color);
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.reading-control-bar .control-inner {
+  max-width: 100%;
+}
+
+.reading-control-bar .controls-section {
+  margin-top: 0.5rem;
+}
+
+/* Improved spacing and readability for text display */
+.full-text-container {
+  line-height: 1.6;
+}
+
+.hebrew-text {
+  line-height: 1.8;
+  letter-spacing: 0.02em;
+}
+
+.translation {
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+}
+
+/* Add scrolling anchors for long text */
+.full-text-block, .interlinear-wrapper {
+  scroll-margin-top: 120px; /* Provides space for the sticky header */
+}
+
+/* Star button */
+.star-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem;
+  border-radius: 0.25rem;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+}
+
+.star-button:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.star-button.starred svg {
+  animation: star-pulse 0.3s ease-in-out;
+}
+
+@keyframes star-pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+/* Inline star button that appears on hover */
+.word-item {
+  position: relative;
+}
+
+.word-item .inline-star {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.word-item:hover .inline-star {
+  opacity: 1;
+}
+
+/* Settings styles */
+.settings-card {
+  transition: all 0.2s ease;
+}
+
+.settings-card:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+  transform: translateY(-1px);
+}
+
+.settings-section {
+  margin-bottom: 1rem;
+}
+
+.settings-option-label {
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+/* Color variants for settings cards */
+.settings-card.bg-blue-50 { background-color: #eef2ff; }
+.settings-card.bg-purple-50 { background-color: #f5f3ff; }
+.settings-card.bg-green-50 { background-color: #ecfdf5; }
+.settings-card.bg-orange-50 { background-color: #fff7ed; }
+.settings-card.bg-red-50 { background-color: #fef2f2; }
+.settings-card.bg-gray-50 { background-color: #f9fafb; }
+
 /* Mobile-first styles */
 @media (max-width: 640px) {
   .container {

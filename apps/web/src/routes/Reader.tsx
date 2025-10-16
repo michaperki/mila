@@ -6,6 +6,8 @@ import SentenceBlock from '../components/SentenceBlock'
 import PhraseChips from '../components/PhraseChips'
 import WordCard from '../components/WordCard'
 import FullTextDisplay from '../components/FullTextDisplay'
+import ReadingControlBar from '../components/ReadingControlBar'
+import ErrorMessage from '../components/ErrorMessage'
 import { Chunk, Token, StarredItem } from '../types'
 
 type ViewMode = 'words' | 'phrases'
@@ -29,6 +31,8 @@ function Reader() {
   const [isLoading, setIsLoading] = useState(true)
   const [starredItems, setStarredItems] = useState<StarredItem[]>([])
   const [translationDisplay, setTranslationDisplay] = useState<'hidden' | 'inline' | 'interlinear'>('inline')
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [starringError, setStarringError] = useState<string | null>(null)
 
   // Load text and vocab data
   useEffect(() => {
@@ -56,8 +60,10 @@ function Reader() {
         // Load vocabulary
         const vocabItems = await getVocab()
         setStarredItems(vocabItems)
+        setLoadError(null) // Clear any previous errors
       } catch (error) {
         console.error('Error loading data:', error)
+        setLoadError((error as Error).message || 'Failed to load text data')
       } finally {
         setIsLoading(false)
       }
@@ -70,6 +76,15 @@ function Reader() {
   const isTokenStarred = useCallback((token: Token): boolean => {
     if (!token.lemma) return false
     return starredItems.some(item => item.lemma === token.lemma)
+  }, [starredItems])
+
+  // Get set of starred lemmas for faster lookup
+  const starredLemmaSet = useMemo(() => {
+    const set = new Set<string>()
+    starredItems.forEach(item => {
+      if (item.lemma) set.add(item.lemma)
+    })
+    return set
   }, [starredItems])
 
   // Navigation
@@ -104,36 +119,45 @@ function Reader() {
     setViewMode('words')
   }
 
-  // Toggle star status for the selected token
-  const handleToggleStar = () => {
-    if (!selectedToken?.lemma || !selectedToken?.gloss) return
+  // Toggle star status for any token
+  const handleToggleStar = async (tokenToStar?: Token) => {
+    // Use passed token or selected token
+    const token = tokenToStar || selectedToken
 
-    const isCurrentlyStarred = isTokenStarred(selectedToken)
+    if (!token?.lemma || !token?.gloss) return
 
-    if (isCurrentlyStarred) {
-      // Find and remove the starred item
-      const itemToRemove = starredItems.find(item => item.lemma === selectedToken.lemma)
-      if (itemToRemove) {
-        removeItem(itemToRemove.id)
+    try {
+      setStarringError(null)
+      const isCurrentlyStarred = isTokenStarred(token)
+
+      if (isCurrentlyStarred) {
+        // Find and remove the starred item
+        const itemToRemove = starredItems.find(item => item.lemma === token.lemma)
+        if (itemToRemove) {
+          await removeItem(itemToRemove.id)
+          // Update local state
+          setStarredItems(prev => prev.filter(item => item.lemma !== token.lemma))
+        }
+      } else {
+        // Add new starred item
+        const newItem = {
+          id: `${token.lemma}-${Date.now()}`,
+          lemma: token.lemma,
+          gloss: token.gloss || 'Unknown',
+          sourceRef: textId ? {
+            textId,
+            chunkId: selectedChunk?.id || '',
+          } : undefined,
+          createdAt: Date.now(),
+        }
+
+        await starItem(newItem)
         // Update local state
-        setStarredItems(prev => prev.filter(item => item.lemma !== selectedToken.lemma))
+        setStarredItems(prev => [newItem, ...prev])
       }
-    } else {
-      // Add new starred item
-      const newItem = {
-        id: `${selectedToken.lemma}-${Date.now()}`,
-        lemma: selectedToken.lemma,
-        gloss: selectedToken.gloss || 'Unknown',
-        sourceRef: textId ? {
-          textId,
-          chunkId: selectedChunk?.id || '',
-        } : undefined,
-        createdAt: Date.now(),
-      }
-
-      starItem(newItem)
-      // Update local state
-      setStarredItems(prev => [newItem, ...prev])
+    } catch (error) {
+      console.error('Error toggling star status:', error)
+      setStarringError((error as Error).message || 'Failed to update vocabulary')
     }
   }
 
@@ -168,89 +192,41 @@ function Reader() {
 
   return (
     <div className="container pb-16">
-      <div className="mb-4">
-        <h1 className="text-xl font-bold mb-2">{text.title || 'Untitled Text'}</h1>
+      <h1 className="text-xl font-bold mb-4">{text.title || 'Untitled Text'}</h1>
 
-        <div className="flex flex-wrap gap-2 mb-4">
-          {/* Reading controls */}
-          <button
-            className={`btn btn-small ${showNikud ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setShowNikud(!showNikud)}
-          >
-            {showNikud ? 'Hide Nikud' : 'Show Nikud'}
-          </button>
-          <button
-            className={`btn btn-small ${showTransliteration ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setShowTransliteration(!showTransliteration)}
-          >
-            {showTransliteration ? 'Hide Transliteration' : 'Show Transliteration'}
-          </button>
+      <ReadingControlBar
+        showNikud={showNikud}
+        setShowNikud={setShowNikud}
+        showTransliteration={showTransliteration}
+        setShowTransliteration={setShowTransliteration}
+        displayMode={displayMode}
+        setDisplayMode={setDisplayMode}
+        translationDisplay={translationDisplay}
+        setTranslationDisplay={setTranslationDisplay}
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+      />
 
-          {/* Display mode selector */}
-          <div className="toggle-group ml-auto">
-            <button
-              className={`toggle-button ${displayMode === 'fullText' ? 'active' : ''}`}
-              onClick={() => setDisplayMode('fullText')}
-            >
-              Full Text
-            </button>
-            <button
-              className={`toggle-button ${displayMode === 'sentence' ? 'active' : ''}`}
-              onClick={() => setDisplayMode('sentence')}
-            >
-              Sentence
-            </button>
-            <button
-              className={`toggle-button ${displayMode === 'word' ? 'active' : ''}`}
-              onClick={() => setDisplayMode('word')}
-            >
-              Word
-            </button>
-          </div>
+      <ErrorMessage
+        error={loadError}
+        onRetry={() => {
+          setIsLoading(true)
+          getTextById(textId!).then(text => {
+            setText(text)
+            setLoadError(null)
+            setIsLoading(false)
+          }).catch(err => {
+            setLoadError((err as Error).message)
+            setIsLoading(false)
+          })
+        }}
+        onDismiss={() => setLoadError(null)}
+      />
 
-          {/* Translation display mode (only visible in fullText mode) */}
-          {displayMode === 'fullText' && (
-            <div className="toggle-group w-full">
-              <button
-                className={`toggle-button ${translationDisplay === 'hidden' ? 'active' : ''}`}
-                onClick={() => setTranslationDisplay('hidden')}
-              >
-                Hebrew Only
-              </button>
-              <button
-                className={`toggle-button ${translationDisplay === 'inline' ? 'active' : ''}`}
-                onClick={() => setTranslationDisplay('inline')}
-              >
-                English Only
-              </button>
-              <button
-                className={`toggle-button ${translationDisplay === 'interlinear' ? 'active' : ''}`}
-                onClick={() => setTranslationDisplay('interlinear')}
-              >
-                Interlinear
-              </button>
-            </div>
-          )}
-
-          {/* Word/Phrase view mode selector (only visible in word mode) */}
-          {displayMode === 'word' && (
-            <div className="toggle-group w-full">
-              <button
-                className={`toggle-button ${viewMode === 'words' ? 'active' : ''}`}
-                onClick={() => setViewMode('words')}
-              >
-                Words
-              </button>
-              <button
-                className={`toggle-button ${viewMode === 'phrases' ? 'active' : ''}`}
-                onClick={() => setViewMode('phrases')}
-              >
-                Phrases
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
+      <ErrorMessage
+        error={starringError}
+        onDismiss={() => setStarringError(null)}
+      />
 
       {/* Full Text Mode */}
       {displayMode === 'fullText' && text && (
@@ -336,6 +312,9 @@ function Reader() {
               chunk={selectedChunk}
               onSelectToken={handleSelectToken}
               showNikud={showNikud}
+              onStarToken={handleToggleStar}
+              starredTokens={starredLemmaSet}
+              textId={textId}
             />
           </div>
 

@@ -2,17 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { openDB } from 'idb'
 import { StarredItem } from '../types'
-
-// Database initialization
-const initDB = async () => {
-  return openDB('readlearn-db', 1, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains('vocab')) {
-        db.createObjectStore('vocab', { keyPath: 'id' });
-      }
-    },
-  });
-};
+import { initAppDB } from '../lib/database';
 
 interface VocabState {
   vocab: StarredItem[];
@@ -39,7 +29,7 @@ export const useVocabStore = create<VocabState>()(
       getVocab: async () => {
         try {
           set({ isLoading: true, error: null });
-          const db = await initDB();
+          const db = await initAppDB();
           const vocab = await db.getAll('vocab');
 
           // Sort by createdAt in descending order (newest first)
@@ -56,7 +46,7 @@ export const useVocabStore = create<VocabState>()(
       starItem: async (item: StarredItem) => {
         try {
           set({ isLoading: true, error: null });
-          const db = await initDB();
+          const db = await initAppDB();
 
           // Check if the lemma already exists
           const vocab = get().vocab;
@@ -94,7 +84,7 @@ export const useVocabStore = create<VocabState>()(
       removeItem: async (id: string) => {
         try {
           set({ isLoading: true, error: null });
-          const db = await initDB();
+          const db = await initAppDB();
           await db.delete('vocab', id);
 
           // Update the vocab list
@@ -152,7 +142,7 @@ export const useVocabStore = create<VocabState>()(
           }
 
           // Store in database
-          const db = await initDB();
+          const db = await initAppDB();
           const tx = db.transaction('vocab', 'readwrite');
 
           // Add all items to database
@@ -181,7 +171,7 @@ export const useVocabStore = create<VocabState>()(
         try {
           set({ isLoading: true, error: null });
 
-          const db = await initDB();
+          const db = await initAppDB();
           const tx = db.transaction('vocab', 'readwrite');
           await tx.store.clear();
           await tx.done;

@@ -3,6 +3,7 @@ import { useVocabStore } from '../state/useVocabStore'
 import { StarredItem } from '../types'
 import { toggleNikud } from '../lib/nikud'
 import { transliterate } from '../lib/translit'
+import ErrorMessage from '../components/ErrorMessage'
 
 function Vocab() {
   const {
@@ -205,17 +206,14 @@ function Vocab() {
         </div>
       )}
 
-      {importError && (
-        <div className="bg-red-100 text-red-800 p-2 rounded mb-4">
-          {importError}
-        </div>
-      )}
+      <ErrorMessage
+        error={importError}
+        onDismiss={() => setImportError(null)}
+      />
 
-      {error && (
-        <div className="bg-red-100 text-red-800 p-2 rounded mb-4">
-          {error}
-        </div>
-      )}
+      <ErrorMessage
+        error={error}
+      />
 
       {/* Confirmation dialog */}
       {showConfirmClear && (

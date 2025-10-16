@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
 import ImagePicker from '../components/ImagePicker'
 import InstallPrompt from '../components/InstallPrompt'
 import TranslationSettings from '../components/TranslationSettings'
+import TextPreviewCard from '../components/TextPreviewCard'
+import ErrorMessage from '../components/ErrorMessage'
 import { useTextStore } from '../state/useTextStore'
 import { TextDoc } from '../types'
 
@@ -11,11 +12,19 @@ function Home() {
   const [isLoading, setIsLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [showSettings, setShowSettings] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     const loadTexts = async () => {
-      await getTexts()
-      setIsLoading(false)
+      try {
+        await getTexts()
+        setLoadError(null)
+      } catch (error) {
+        console.error('Error loading texts:', error)
+        setLoadError((error as Error).message || 'Failed to load texts')
+      } finally {
+        setIsLoading(false)
+      }
     }
 
     loadTexts()
@@ -31,9 +40,7 @@ function Home() {
     }
   }, [getTexts])
 
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString()
-  }
+  // We no longer need this function as it's now handled by the TextPreviewCard component
 
   const toggleSettings = () => {
     setShowSettings(!showSettings);
@@ -76,6 +83,22 @@ function Home() {
         </div>
       )}
 
+      {/* Error message */}
+      <ErrorMessage
+        error={loadError}
+        onRetry={() => {
+          setIsLoading(true)
+          getTexts().then(() => {
+            setLoadError(null)
+            setIsLoading(false)
+          }).catch(err => {
+            setLoadError((err as Error).message)
+            setIsLoading(false)
+          })
+        }}
+        onDismiss={() => setLoadError(null)}
+      />
+
       <div className="card mb-4">
         <h2 className="text-lg font-bold mb-2">Scan Text to Read</h2>
         <ImagePicker />
@@ -91,29 +114,9 @@ function Home() {
             </div>
           </div>
         ) : texts.length > 0 ? (
-          <ul className="divide-y">
+          <ul className="space-y-3">
             {texts.map((text: TextDoc) => (
-              <li key={text.id}>
-                <Link
-                  to={`/reader/${text.id}`}
-                  className="block p-3 hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="font-medium">{text.title || 'Untitled Text'}</span>
-                    <small className="text-sm text-gray-500">{formatDate(text.createdAt)}</small>
-                  </div>
-                  <div className="flex mt-1">
-                    <small className="text-sm text-gray-500 mr-2">
-                      {text.chunks.length} {text.chunks.length === 1 ? 'sentence' : 'sentences'}
-                    </small>
-                    {text.source && (
-                      <small className="text-sm text-gray-500">
-                        Source: {text.source}
-                      </small>
-                    )}
-                  </div>
-                </Link>
-              </li>
+              <TextPreviewCard key={text.id} text={text} />
             ))}
           </ul>
         ) : (

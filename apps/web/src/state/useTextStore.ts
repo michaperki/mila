@@ -1,17 +1,7 @@
 import { create } from 'zustand'
 import { openDB } from 'idb'
 import { TextDoc, Chunk } from '../types'
-
-// Database initialization
-const initDB = async () => {
-  return openDB('readlearn-db', 1, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains('texts')) {
-        db.createObjectStore('texts', { keyPath: 'id' });
-      }
-    },
-  });
-};
+import { initAppDB } from '../lib/database';
 
 interface TextState {
   texts: TextDoc[];
@@ -35,12 +25,12 @@ export const useTextStore = create<TextState>((set, get) => ({
   getTexts: async () => {
     try {
       set({ isLoading: true, error: null });
-      const db = await initDB();
+      const db = await initAppDB();
       const texts = await db.getAll('texts');
-      
+
       // Sort by createdAt in descending order (newest first)
       const sortedTexts = texts.sort((a, b) => b.createdAt - a.createdAt);
-      
+
       set({ texts: sortedTexts, isLoading: false });
       return sortedTexts;
     } catch (error) {
@@ -52,7 +42,7 @@ export const useTextStore = create<TextState>((set, get) => ({
   getTextById: async (id: string) => {
     try {
       set({ isLoading: true, error: null });
-      const db = await initDB();
+      const db = await initAppDB();
       const text = await db.get('texts', id);
       set({ isLoading: false, currentText: text || null });
       return text || null;
@@ -65,7 +55,7 @@ export const useTextStore = create<TextState>((set, get) => ({
   saveText: async (text: TextDoc) => {
     try {
       set({ isLoading: true, error: null });
-      const db = await initDB();
+      const db = await initAppDB();
       await db.put('texts', text);
       
       // Update the texts list if needed
@@ -89,7 +79,7 @@ export const useTextStore = create<TextState>((set, get) => ({
   deleteText: async (id: string) => {
     try {
       set({ isLoading: true, error: null });
-      const db = await initDB();
+      const db = await initAppDB();
       await db.delete('texts', id);
       
       // Update the texts list
@@ -109,7 +99,7 @@ export const useTextStore = create<TextState>((set, get) => ({
   updateText: async (id: string, updates: Partial<TextDoc>) => {
     try {
       set({ isLoading: true, error: null });
-      const db = await initDB();
+      const db = await initAppDB();
       const text = await db.get('texts', id);
       
       if (!text) {

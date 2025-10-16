@@ -3,6 +3,7 @@ import { Token } from '../types';
 import { toggleNikud } from '../lib/nikud';
 import { transliterate } from '../lib/translit';
 import { getRootMeaning } from '../lib/roots';
+import VocabStarButton from './VocabStarButton';
 
 interface WordCardProps {
   token: Token;
@@ -65,13 +66,12 @@ function WordCard({ token, showNikud, onStar, isStarred = false }: WordCardProps
         </div>
 
         {/* Star button */}
-        <button
-          className={`icon-btn text-xl ${isStarred ? 'text-yellow-500' : 'text-gray-300 hover:text-yellow-400'}`}
-          onClick={onStar}
-          title={isStarred ? "Remove from vocabulary" : "Add to vocabulary"}
-        >
-          ★
-        </button>
+        <VocabStarButton
+          token={token}
+          isStarred={isStarred}
+          onStar={() => onStar()}
+          className="text-xl"
+        />
       </div>
 
       <div className="word-details border-t pt-3 space-y-2">

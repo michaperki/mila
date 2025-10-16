@@ -1,14 +1,25 @@
 import { useMemo, useState } from 'react';
 import { Chunk, Token } from '../types';
 import { toggleNikud } from '../lib/nikud';
+import VocabStarButton from './VocabStarButton';
 
 interface PhraseChipsProps {
   chunk: Chunk;
   onSelectToken: (token: Token) => void;
   showNikud: boolean;
+  onStarToken?: (token: Token) => void;
+  starredTokens?: Set<string>;
+  textId?: string;
 }
 
-function PhraseChips({ chunk, onSelectToken, showNikud }: PhraseChipsProps) {
+function PhraseChips({
+  chunk,
+  onSelectToken,
+  showNikud,
+  onStarToken,
+  starredTokens = new Set(),
+  textId
+}: PhraseChipsProps) {
   const [selectedTokenIdx, setSelectedTokenIdx] = useState<number | null>(null);
 
   // Process tokens to apply nikud settings
@@ -31,17 +42,31 @@ function PhraseChips({ chunk, onSelectToken, showNikud }: PhraseChipsProps) {
         <h3 className="text-sm font-medium mb-1">Words:</h3>
         <div className="flex flex-wrap gap-2 mb-2" dir="rtl">
           {processedTokens.map((token) => (
-            <button
-              key={token.idx}
-              className={`chip hebrew-text px-2 py-1 rounded transition-all ${
-                selectedTokenIdx === token.idx
-                  ? 'bg-primary text-white'
-                  : 'bg-gray-100 hover:bg-gray-200'
-              }`}
-              onClick={() => handleTokenClick(token)}
-            >
-              {token.displayText}
-            </button>
+            <div className="word-item" key={token.idx}>
+              <button
+                className={`chip hebrew-text px-2 py-1 rounded transition-all ${
+                  selectedTokenIdx === token.idx
+                    ? 'bg-primary text-white'
+                    : 'bg-gray-100 hover:bg-gray-200'
+                }`}
+                onClick={() => handleTokenClick(token)}
+              >
+                {token.displayText}
+              </button>
+
+              {/* Only show star button for tokens with lemma and gloss */}
+              {token.lemma && token.gloss && onStarToken && (
+                <div className="inline-star">
+                  <VocabStarButton
+                    token={token}
+                    isStarred={starredTokens.has(token.lemma)}
+                    onStar={onStarToken}
+                    textId={textId}
+                    chunkId={chunk.id}
+                  />
+                </div>
+              )}
+            </div>
           ))}
         </div>
       </div>
