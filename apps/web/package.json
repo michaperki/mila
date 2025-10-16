@@ -30,6 +30,7 @@
   "devDependencies": {
     "@mui/icons-material": "^7.3.4",
     "@tailwindcss/postcss": "^4.1.14",
+    "@types/node": "^20.19.21",
     "@types/react": "^18.2.20",
     "@types/react-dom": "^18.2.7",
     "@types/uuid": "^9.0.2",
