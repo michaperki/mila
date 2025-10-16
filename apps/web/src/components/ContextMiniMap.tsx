@@ -36,7 +36,7 @@ function ContextMiniMap({ chunk, selectedToken, showNikud }: ContextMiniMapProps
       <React.Fragment key={token.idx}>
         {index > 0 && ' '}
         <span 
-          className={isSelected ? 'bg-primary text-white px-1 rounded font-bold' : ''} 
+          className={isSelected ? 'bg-blue-500 text-white px-1 rounded font-semibold' : 'text-gray-400'}
           dir="rtl" 
           lang="he"
         >

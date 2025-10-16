@@ -3,16 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useTextStore } from '../state/useTextStore'
 import { useVocabStore } from '../state/useVocabStore'
 import SentenceBlock from '../components/SentenceBlock'
-import PhraseChips from '../components/PhraseChips'
 import WordCard from '../components/WordCard'
-import ContextMiniMap from '../components/ContextMiniMap'
 import FullTextDisplay from '../components/FullTextDisplay'
 import ReadingControlBar from '../components/ReadingControlBar'
 import ErrorMessage from '../components/ErrorMessage'
+import TopNavBar from '../components/TopNavBar'
 import { toggleNikud } from '../lib/nikud'
 import { Chunk, Token, StarredItem } from '../types'
-
-type ViewMode = 'words' | 'phrases'
 type DisplayMode = 'fullText' | 'sentence' | 'word'
 
 function Reader() {
@@ -22,19 +19,19 @@ function Reader() {
   const { vocab, starItem, removeItem, getVocab } = useVocabStore()
 
   // State
-  const [viewMode, setViewMode] = useState<ViewMode>('words')
   const [displayMode, setDisplayMode] = useState<DisplayMode>('sentence')
   const [selectedChunk, setSelectedChunk] = useState<Chunk | null>(null)
   const [selectedToken, setSelectedToken] = useState<Token | null>(null)
   const [currentChunkIndex, setCurrentChunkIndex] = useState(0)
   const [showNikud, setShowNikud] = useState(true)
-  const [showTransliteration, setShowTransliteration] = useState(false)
+  const showTransliteration = true
   const [text, setText] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [starredItems, setStarredItems] = useState<StarredItem[]>([])
-  const [translationDisplay, setTranslationDisplay] = useState<'hidden' | 'inline' | 'interlinear'>('inline')
+  const [translationDisplay, setTranslationDisplay] = useState<'hidden' | 'inline' | 'interlinear'>('interlinear')
   const [loadError, setLoadError] = useState<string | null>(null)
   const [starringError, setStarringError] = useState<string | null>(null)
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false)
 
   // Load text and vocab data
   useEffect(() => {
@@ -149,8 +146,7 @@ function Reader() {
 
   const handleSelectToken = (token: Token) => {
     setSelectedToken(token)
-    // Auto-switch to word view when selecting a token
-    setViewMode('words')
+    setDisplayMode('word')
   }
 
   // Get the first token in the current chunk (for default word selection)
@@ -261,50 +257,131 @@ function Reader() {
     }
   }
 
+  const viewTitle = displayMode === 'word'
+    ? 'Word View'
+    : displayMode === 'sentence'
+      ? 'Sentence View'
+      : 'Full Text'
+
+  const handleBack = () => {
+    if (displayMode === 'word') {
+      setDisplayMode('sentence')
+      setShowSettingsPanel(false)
+      return
+    }
+
+    if (displayMode === 'sentence' && text?.chunks.length) {
+      setDisplayMode('fullText')
+      setShowSettingsPanel(false)
+      return
+    }
+
+    if (window.history.length > 1) {
+      navigate(-1)
+    } else {
+      navigate('/')
+    }
+  }
+
+  const navBar = (
+    <TopNavBar
+      title={viewTitle}
+      subtitle={text?.title || undefined}
+      onBack={handleBack}
+      actions={
+        <div className="relative">
+          <button
+            className="btn btn-icon bg-gray-100 hover:bg-gray-200"
+            onClick={() => setShowSettingsPanel(prev => !prev)}
+            aria-label="Toggle reading settings"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+
+          {showSettingsPanel && (
+            <div className="absolute right-0 mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-lg p-3 space-y-3">
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Display</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    className={`btn btn-small ${showNikud ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 border'}`}
+                    onClick={() => setShowNikud(!showNikud)}
+                    aria-pressed={showNikud}
+                  >
+                    {showNikud ? 'Hide Nikud' : 'Show Nikud'}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Translation</p>
+                <div className="flex flex-wrap gap-2">
+                  {(['hidden', 'inline', 'interlinear'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      className={`btn btn-small ${translationDisplay === mode ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 border'}`}
+                      onClick={() => setTranslationDisplay(mode)}
+                      aria-pressed={translationDisplay === mode}
+                    >
+                      {mode === 'hidden' ? 'Hebrew' : mode === 'inline' ? 'English' : 'Both'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      }
+    />
+  )
+
   // Loading states
   if (isLoading) {
     return (
-      <div className="container flex items-center justify-center" style={{ minHeight: 'calc(100vh - 64px)' }}>
-        <div className="text-center">
-          <div className="mb-4 text-primary text-xl">Loading...</div>
-          <div className="text-sm text-secondary">Please wait while we load the text</div>
+      <>
+        {navBar}
+        <div className="container flex items-center justify-center" style={{ minHeight: 'calc(100vh - 96px)' }}>
+          <div className="text-center">
+            <div className="mb-4 text-primary text-xl">Loading...</div>
+            <div className="text-sm text-secondary">Please wait while we load the text</div>
+          </div>
         </div>
-      </div>
+      </>
     )
   }
 
   if (!text) {
     return (
-      <div className="container">
-        <div className="card">
-          <h2 className="text-xl font-bold mb-2">Text not found</h2>
-          <p>The requested text could not be found.</p>
-          <button
-            className="btn mt-4"
-            onClick={() => navigate('/')}
-          >
-            Return to Home
-          </button>
+      <>
+        {navBar}
+        <div className="container">
+          <div className="card">
+            <h2 className="text-xl font-bold mb-2">Text not found</h2>
+            <p>The requested text could not be found.</p>
+            <button
+              className="btn mt-4"
+              onClick={() => navigate('/')}
+            >
+              Return to Home
+            </button>
+          </div>
         </div>
-      </div>
+      </>
     )
   }
 
+  const activeToken = selectedToken || getFirstTokenInChunk();
+
   return (
-    <div className="container pb-16">
-      <h1 className="text-xl font-bold mb-4">{text.title || 'Untitled Text'}</h1>
+    <>
+      {navBar}
+      <div className="container pb-16">
 
       <ReadingControlBar
-        showNikud={showNikud}
-        setShowNikud={setShowNikud}
-        showTransliteration={showTransliteration}
-        setShowTransliteration={setShowTransliteration}
         displayMode={displayMode}
         setDisplayMode={setDisplayMode}
-        translationDisplay={translationDisplay}
-        setTranslationDisplay={setTranslationDisplay}
-        viewMode={viewMode}
-        setViewMode={setViewMode}
       />
 
       <ErrorMessage
@@ -358,91 +435,70 @@ function Reader() {
               currentIndex={currentChunkIndex}
               totalChunks={text.chunks.length}
               translationDisplay={translationDisplay}
+              selectedToken={selectedToken}
+              onTokenSelect={handleSelectToken}
             />
           </div>
 
           {/* Navigation controls */}
           <div className="mb-4 flex items-center justify-between">
             <button
-              className="btn flex items-center"
+              className="inline-flex items-center gap-1 px-3 py-2 rounded-full border border-gray-200 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-50"
               onClick={handlePrevious}
               disabled={currentChunkIndex <= 0}
             >
-              <span className="mr-1">◀</span> Previous Word
+              <span aria-hidden>◀</span>
+              <span>Previous</span>
             </button>
 
             <button
-              className="btn flex items-center"
+              className="inline-flex items-center gap-1 px-3 py-2 rounded-full border border-gray-200 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-50"
               onClick={handleNext}
               disabled={currentChunkIndex >= text.chunks.length - 1}
             >
-              Next Word <span className="ml-1">▶</span>
+              <span>Next</span>
+              <span aria-hidden>▶</span>
             </button>
           </div>
 
-          {/* Button to view word details */}
-          <div className="mb-4 text-center">
-            <button
-              className="btn"
-              onClick={() => setDisplayMode('word')}
-            >
-              View Word Details
-            </button>
-          </div>
         </>
       )}
 
       {/* Word Mode */}
       {displayMode === 'word' && selectedChunk && (
         <>
-          {/* Progress indicator */}
-          <div className="mb-4 flex items-center justify-between">
-            <div className="text-secondary text-sm">
-              Sentence {currentChunkIndex + 1} of {text.chunks.length}
-            </div>
-            <div className="progress-indicator w-24 h-1 bg-gray-200 rounded-full">
-              <div
-                className="h-1 bg-primary rounded-full"
-                style={{ width: `${((currentChunkIndex + 1) / text.chunks.length) * 100}%` }}
+          <div className="text-sm text-gray-500 text-center mb-4">
+            Sentence {currentChunkIndex + 1} of {text.chunks.length}
+          </div>
+
+          {activeToken && (
+            <div className="mb-6">
+              <WordCard
+                token={activeToken}
+                onStar={handleToggleStar}
+                showNikud={showNikud}
+                isStarred={isTokenStarred(activeToken)}
+                translationDisplay={translationDisplay}
               />
             </div>
-          </div>
+          )}
 
-          {/* Word card - always show a token, default to first if none selected */}
-          <div className="mb-4">
-            {(selectedToken || getFirstTokenInChunk()) && (
-              <>
-                <h2 className="text-lg font-semibold mb-2">🟦 Word Focus</h2>
-                <WordCard
-                  token={selectedToken || getFirstTokenInChunk()!}
-                  onStar={handleToggleStar}
-                  showNikud={showNikud}
-                  isStarred={isTokenStarred(selectedToken || getFirstTokenInChunk()!)}
-                  translationDisplay={translationDisplay}
-                />
-
-                {/* Context mini-map */}
-                <ContextMiniMap
-                  chunk={selectedChunk}
-                  selectedToken={selectedToken || getFirstTokenInChunk()}
-                  showNikud={showNikud}
-                />
-              </>
-            )}
-          </div>
-
-          {/* Word selector (compact version - just shows small chips) */}
-          <div className="card mb-4 p-3">
-            <div className="flex flex-wrap gap-2 justify-center" dir="rtl">
-              {selectedChunk.tokens.map((token) => (
-                <button
-                  key={token.idx}
-                  className={`text-sm px-2 py-1 rounded ${selectedToken?.idx === token.idx ? 'bg-primary text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
-                  onClick={() => handleSelectToken(token)}
-                >
-                  {toggleNikud(token.surface, showNikud)}
-                </button>
-              ))}
+          <div className="context-chip-strip">
+            <div className="context-chip-strip__inner" dir="rtl" lang="he">
+              {selectedChunk.tokens.map((token) => {
+                const surface = toggleNikud(token.surface, showNikud);
+                const isActive = activeToken?.idx === token.idx;
+                return (
+                  <button
+                    key={token.idx}
+                    type="button"
+                    onClick={() => handleSelectToken(token)}
+                    className={`word-chip${isActive ? ' word-chip--active' : ''}`}
+                  >
+                    {surface}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -466,7 +522,8 @@ function Reader() {
           </div>
         </>
       )}
-    </div>
+      </div>
+    </>
   )
 }
 

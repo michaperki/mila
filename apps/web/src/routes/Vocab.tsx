@@ -1,13 +1,25 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useVocabStore } from '../state/useVocabStore'
 import { StarredItem } from '../types'
-import { toggleNikud } from '../lib/nikud'
-import { transliterate } from '../lib/translit'
 import { groupItemsByDate, formatGroupName } from '../lib/dateUtils'
 import VocabItem from '../components/VocabItem'
 import ErrorMessage from '../components/ErrorMessage'
+import TopNavBar from '../components/TopNavBar'
+
+const SORT_LABELS: Record<string, string> = {
+  'date-desc': 'Newest First',
+  'date-asc': 'Oldest First',
+  'alpha-he-asc': 'Hebrew A → Z',
+  'alpha-he-desc': 'Hebrew Z → A',
+  'alpha-en-asc': 'English A → Z',
+  'alpha-en-desc': 'English Z → A',
+  'freq-desc': 'Most Frequent',
+  'freq-asc': 'Least Frequent',
+};
 
 function Vocab() {
+  const navigate = useNavigate()
   const {
     vocab,
     getVocab,
@@ -28,6 +40,8 @@ function Vocab() {
   const [showConfirmClear, setShowConfirmClear] = useState(false)
   const [importSuccess, setImportSuccess] = useState(false)
   const [exportSuccess, setExportSuccess] = useState(false)
+  const [sortOrder, setSortOrder] = useState('date-desc');
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -64,20 +78,58 @@ function Vocab() {
     ? vocab
     : searchVocab(searchTerm)
 
-  // Group the vocabulary items by date
-  const groupedVocab = useMemo(() => {
-    if (filteredVocab.length === 0) return [];
+  // Group and sort the vocabulary items
+  const sortedAndGroupedVocab = useMemo(() => {
+    const itemsToSort = [...filteredVocab];
 
-    const groups = groupItemsByDate(filteredVocab);
+    // Sorting logic
+    switch (sortOrder) {
+      case 'date-asc':
+        itemsToSort.sort((a, b) => a.createdAt - b.createdAt);
+        break;
+      case 'date-desc':
+        itemsToSort.sort((a, b) => b.createdAt - a.createdAt);
+        break;
+      case 'alpha-he-asc':
+        itemsToSort.sort((a, b) => a.lemma.localeCompare(b.lemma));
+        break;
+      case 'alpha-he-desc':
+        itemsToSort.sort((a, b) => b.lemma.localeCompare(a.lemma));
+        break;
+      case 'alpha-en-asc':
+        itemsToSort.sort((a, b) => a.gloss.localeCompare(b.gloss));
+        break;
+      case 'alpha-en-desc':
+        itemsToSort.sort((a, b) => b.gloss.localeCompare(a.gloss));
+        break;
+      case 'freq-desc':
+        itemsToSort.sort((a, b) => (b.frequency || 1) - (a.frequency || 1));
+        break;
+      case 'freq-asc':
+        itemsToSort.sort((a, b) => (a.frequency || 1) - (b.frequency || 1));
+        break;
+      default:
+        break;
+    }
 
-    return Object.entries(groups)
-      .filter(([_, items]) => items.length > 0)
-      .map(([groupName, items]) => ({
-        groupName,
-        displayName: formatGroupName(groupName),
-        items,
-      }));
-  }, [filteredVocab, showNikud, showTranslit])
+    if (sortOrder.startsWith('date')) {
+      const groups = groupItemsByDate(itemsToSort);
+      return Object.entries(groups)
+        .filter(([_, items]) => items.length > 0)
+        .map(([groupName, items]) => ({
+          groupName,
+          displayName: formatGroupName(groupName),
+          items,
+        }));
+    } else {
+      // Return a single group for non-date-based sorting
+      return [{
+        groupName: sortOrder,
+        displayName: SORT_LABELS[sortOrder] || 'Custom Order',
+        items: itemsToSort,
+      }];
+    }
+  }, [filteredVocab, sortOrder]);
 
   // Handle removing a vocabulary item
   const handleRemoveItem = (id: string) => {
@@ -161,76 +213,131 @@ function Vocab() {
   }
 
   return (
-    <div className="container">
-      <h1 className="text-xl font-bold mb-4">My Vocabulary List</h1>
+    <>
+      <TopNavBar
+        title="Vocabulary"
+        subtitle="Saved Words"
+        onBack={handleBack}
+        actions={
+          <button
+            className="btn btn-icon bg-gray-100 hover:bg-gray-200"
+            onClick={() => setShowAdvanced(prev => !prev)}
+            aria-label="Toggle advanced tools"
+            aria-expanded={showAdvanced}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+        }
+      />
 
-      <p className="text-gray-600 mb-4">
-        Words you've starred while reading will appear here. Use this list to review and practice your vocabulary.
-      </p>
+      <main className="container">
+        <p className="text-gray-600 mb-4">
+          Words you've starred while reading will appear here. Use this list to review and practice your vocabulary.
+        </p>
 
       {/* Search and view options */}
-      <div className="flex flex-col md:flex-row gap-2 mb-4">
-        <div className="flex-grow">
-          <input
-            type="search"
-            placeholder="Search vocabulary..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full p-2 border rounded"
-          />
+      <div className="mb-4 p-3 bg-gray-50 rounded-lg border">
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Search Input */}
+          <div className="flex-grow">
+            <input
+              type="search"
+              placeholder="Search vocabulary..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full p-2 border rounded-md shadow-sm"
+            />
+          </div>
+
+          {/* View Options */}
+          {/* Sort Dropdown */}
+          <div className="flex-shrink-0">
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value)}
+              className="p-2 border rounded-md shadow-sm bg-white"
+            >
+              <option value="date-desc">Newest First</option>
+              <option value="date-asc">Oldest First</option>
+              <option value="alpha-he-asc">Hebrew (A-Z)</option>
+              <option value="alpha-he-desc">Hebrew (Z-A)</option>
+              <option value="alpha-en-asc">English (A-Z)</option>
+              <option value="alpha-en-desc">English (Z-A)</option>
+              <option value="freq-desc">Frequency (High-Low)</option>
+              <option value="freq-asc">Frequency (Low-High)</option>
+            </select>
+          </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Display
+          </span>
           <button
-            className={`btn btn-small ${showNikud ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn btn-small ${showNikud ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 border'}`}
             onClick={() => setShowNikud(!showNikud)}
+            aria-pressed={showNikud}
           >
             {showNikud ? 'Hide Nikud' : 'Show Nikud'}
           </button>
-
           <button
-            className={`btn btn-small ${showTranslit ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn btn-small ${showTranslit ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 border'}`}
             onClick={() => setShowTranslit(!showTranslit)}
+            aria-pressed={showTranslit}
           >
             {showTranslit ? 'Hide Translit' : 'Show Translit'}
           </button>
         </div>
       </div>
 
-      {/* Export/Import buttons */}
-      <div className="flex gap-2 mb-4">
-        <button
-          className="btn btn-secondary"
-          onClick={handleExport}
-          disabled={storeLoading || vocab.length === 0}
+      {/* Advanced Tools Section */}
+      <div className="mb-4">
+        <button 
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="text-sm text-blue-600 hover:underline"
+          aria-expanded={showAdvanced}
         >
-          Export Vocabulary
+          {showAdvanced ? 'Hide' : 'Show'} Advanced Tools
         </button>
 
-        <button
-          className="btn btn-secondary"
-          onClick={handleImportClick}
-          disabled={storeLoading}
-        >
-          Import Vocabulary
-        </button>
+        {showAdvanced && (
+          <div className="mt-2 p-3 bg-gray-50 rounded-lg border flex flex-wrap gap-2">
+            <button
+              className="btn btn-small btn-secondary"
+              onClick={handleExport}
+              disabled={storeLoading || vocab.length === 0}
+            >
+              Export JSON
+            </button>
 
-        <button
-          className="btn btn-secondary text-red-500"
-          onClick={handleClearConfirm}
-          disabled={storeLoading || vocab.length === 0}
-        >
-          Clear All
-        </button>
+            <button
+              className="btn btn-small btn-secondary"
+              onClick={handleImportClick}
+              disabled={storeLoading}
+            >
+              Import JSON
+            </button>
 
-        {/* Hidden file input for import */}
-        <input
-          type="file"
-          ref={fileInputRef}
-          accept="application/json"
-          onChange={handleImportFile}
-          style={{ display: 'none' }}
-        />
+            <button
+              className="btn btn-small bg-red-100 text-red-700 hover:bg-red-200"
+              onClick={handleClearConfirm}
+              disabled={storeLoading || vocab.length === 0}
+            >
+              Clear All
+            </button>
+
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="application/json"
+              onChange={handleImportFile}
+              style={{ display: 'none' }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Status messages */}
@@ -300,7 +407,7 @@ function Vocab() {
           </div>
         ) : filteredVocab.length > 0 ? (
           <div>
-            {groupedVocab.map((group) => (
+            {sortedAndGroupedVocab.map((group) => (
               <div key={group.groupName} className="mb-6">
                 <h3 className="text-md font-semibold text-gray-700 mb-3 border-b pb-1">
                   {group.displayName} ({group.items.length})
@@ -341,7 +448,8 @@ function Vocab() {
           </div>
         )}
       </div>
-    </div>
+    </main>
+    </>
   )
 }
 

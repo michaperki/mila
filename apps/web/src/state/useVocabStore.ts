@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import { openDB } from 'idb'
+import { openDB, IDBPDatabase } from 'idb'
 import { StarredItem } from '../types'
 import { initAppDB } from '../lib/database';
 
@@ -18,6 +18,28 @@ interface VocabState {
   clearVocab: () => Promise<void>;
 }
 
+async function ensureFrequency(
+  items: StarredItem[],
+  db: IDBPDatabase<unknown>
+): Promise<StarredItem[]> {
+  let changed = false;
+  const normalized = items.map((item) => {
+    if (!item.frequency || item.frequency < 1) {
+      changed = true;
+      return { ...item, frequency: 1 };
+    }
+    return item;
+  });
+
+  if (changed) {
+    const tx = db.transaction('vocab', 'readwrite');
+    await Promise.all(normalized.map((item) => tx.store.put(item)));
+    await tx.done;
+  }
+
+  return normalized;
+}
+
 export const useVocabStore = create<VocabState>()(
   persist(
     (set, get) => ({
@@ -33,10 +55,11 @@ export const useVocabStore = create<VocabState>()(
           // Ensure database is initialized properly
           try {
             const db = await initAppDB();
-            const vocab = await db.getAll('vocab');
+            const rawVocab = await db.getAll<StarredItem>('vocab');
+            const normalizedVocab = await ensureFrequency(rawVocab, db);
 
             // Sort by createdAt in descending order (newest first)
-            const sortedVocab = vocab.sort((a, b) => b.createdAt - a.createdAt);
+            const sortedVocab = normalizedVocab.sort((a, b) => b.createdAt - a.createdAt);
 
             set({ vocab: sortedVocab, isLoading: false, lastUpdated: Date.now(), error: null });
             return sortedVocab;
@@ -63,8 +86,10 @@ export const useVocabStore = create<VocabState>()(
 
               // Try the original connection again
               const db = await initAppDB();
-              const vocab = await db.getAll('vocab');
-              const sortedVocab = vocab.sort((a, b) => b.createdAt - a.createdAt);
+              const rawVocab = await db.getAll<StarredItem>('vocab');
+              const normalizedVocab = await ensureFrequency(rawVocab, db);
+
+              const sortedVocab = normalizedVocab.sort((a, b) => b.createdAt - a.createdAt);
 
               set({ vocab: sortedVocab, isLoading: false, lastUpdated: Date.now(), error: null });
               return sortedVocab;
@@ -94,9 +119,10 @@ export const useVocabStore = create<VocabState>()(
           if (existingItem) {
             // Update the existing item with the new data but keep the original ID
             const updatedItem = {
-              ...item,
-              id: existingItem.id,
-              createdAt: Date.now() // Update timestamp to move it to top
+              ...existingItem,
+              gloss: item.gloss, // Update gloss in case it has changed
+              createdAt: Date.now(), // Update timestamp to move it to top
+              frequency: (existingItem.frequency || 1) + 1, // Increment frequency
             };
 
             await db.put('vocab', updatedItem);
@@ -107,10 +133,11 @@ export const useVocabStore = create<VocabState>()(
 
             set({ vocab: updatedVocab, isLoading: false, lastUpdated: Date.now(), error: null });
           } else {
-            // Add new item
-            await db.put('vocab', item);
+            // Add new item with frequency 1
+            const newItem = { ...item, frequency: 1 };
+            await db.put('vocab', newItem);
             set({
-              vocab: [item, ...vocab],
+              vocab: [newItem, ...vocab],
               isLoading: false,
               lastUpdated: Date.now(),
               error: null
@@ -196,7 +223,13 @@ export const useVocabStore = create<VocabState>()(
 
           // Add all items to database
           await Promise.all(
-            validItems.map((item: StarredItem) => tx.store.put(item))
+            validItems.map((item: StarredItem) => {
+              const itemToStore: StarredItem = {
+                ...item,
+                frequency: item.frequency && item.frequency > 0 ? item.frequency : 1
+              };
+              return tx.store.put(itemToStore);
+            })
           );
 
           await tx.done;

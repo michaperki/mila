@@ -160,8 +160,17 @@ body {
   font-size: 1.125rem;
 }
 
+.text-center {
+  text-align: center;
+}
+
 .text-xl {
   font-size: 1.25rem;
+}
+
+.text-7xl {
+  font-size: 4.5rem;
+  line-height: 1.1;
 }
 
 .font-bold {
@@ -324,6 +333,144 @@ body {
   0% { transform: scale(1); }
   50% { transform: scale(1.2); }
   100% { transform: scale(1); }
+}
+
+.reading-mode-toggle {
+  margin-bottom: 1.5rem;
+  display: flex;
+  justify-content: center;
+}
+
+.mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background-color: var(--card-background-color);
+  box-shadow: 0 1px 2px rgba(45, 55, 72, 0.12);
+  overflow: hidden;
+}
+
+.mode-toggle__btn {
+  padding: 0.45rem 1.25rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-light-color);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.mode-toggle__btn + .mode-toggle__btn {
+  border-left: 1px solid var(--border-color);
+}
+
+.mode-toggle__btn--active {
+  background-color: var(--primary-color);
+  color: #ffffff;
+}
+
+.mode-toggle__btn:hover:not(.mode-toggle__btn--active) {
+  background-color: rgba(49, 130, 206, 0.1);
+  color: var(--text-color);
+}
+
+.word-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background-color: #ffffff;
+  margin: 0 0.3rem 0.45rem 0.3rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.word-chip:hover {
+  background-color: rgba(49, 130, 206, 0.08);
+  border-color: var(--primary-color);
+}
+
+.word-chip--active {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #ffffff;
+}
+
+.context-chip-strip {
+  padding: 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  background-color: #f7fafc;
+  margin-bottom: 1.5rem;
+}
+
+.context-chip-strip__inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.sentence-content {
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.75rem;
+}
+
+.sentence-content__hebrew {
+  display: inline-block;
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text-color);
+  line-height: 1.6;
+  text-align: center;
+}
+
+.sentence-token {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  transition: color 0.2s ease, text-decoration-color 0.2s ease;
+}
+
+.sentence-token--static {
+  cursor: default;
+}
+
+.sentence-token--active {
+  color: var(--primary-color);
+  text-decoration: underline;
+  text-decoration-thickness: 0.15em;
+  text-decoration-color: rgba(49, 130, 206, 0.6);
+}
+
+.sentence-token:hover:not(.sentence-token--static):not(.sentence-token--active) {
+  color: var(--primary-color);
+}
+
+.sentence-space {
+  white-space: pre;
+}
+
+.sentence-content__transliteration {
+  font-size: 1rem;
+  font-style: italic;
+  color: var(--text-light-color);
+}
+
+.sentence-content__translation {
+  font-size: 1.2rem;
+  color: var(--text-color);
 }
 
 /* Inline star button that appears on hover */

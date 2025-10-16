@@ -16,123 +16,118 @@ interface WordCardProps {
 function WordCard({ token, showNikud, onStar, isStarred = false, translationDisplay = 'interlinear' }: WordCardProps) {
   const [copied, setCopied] = useState(false);
 
-  // Process text based on nikud setting
-  const processedSurface = useMemo(() => {
-    return toggleNikud(token.surface, showNikud);
-  }, [token.surface, showNikud]);
+  const processedSurface = useMemo(() => toggleNikud(token.surface, showNikud), [token.surface, showNikud]);
+  const processedLemma = useMemo(
+    () => (token.lemma ? toggleNikud(token.lemma, showNikud) : processedSurface),
+    [token.lemma, processedSurface, showNikud]
+  );
+  const transliteration = useMemo(() => transliterate(processedSurface), [processedSurface]);
+  const rootMeaning = useMemo(() => (token.root ? getRootMeaning(token.root) : null), [token.root]);
 
-  const processedLemma = useMemo(() => {
-    return token.lemma ? toggleNikud(token.lemma, showNikud) : processedSurface;
-  }, [token.lemma, processedSurface, showNikud]);
+  const showHebrew = translationDisplay !== 'inline';
+  const showTranslation = translationDisplay !== 'hidden';
+  const rootText = token.root ? toggleNikud(token.root, showNikud) : null;
+  const hasDistinctSurface = showHebrew && Boolean(token.lemma) && token.surface !== token.lemma;
 
-  // Generate transliteration
-  const transliteration = useMemo(() => {
-    return transliterate(processedSurface);
-  }, [processedSurface]);
+  const actionButtonClasses =
+    'w-10 h-10 flex items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 hover:border-blue-400 hover:text-blue-600 transition-colors';
 
-  // Get root meaning if available
-  const rootMeaning = useMemo(() => {
-    return token.root ? getRootMeaning(token.root) : null;
-  }, [token.root]);
-
-  // Handle copy to clipboard
   const handleCopy = () => {
-    // Copy both Hebrew and English
     const textToCopy = `${processedLemma} - ${token.gloss || 'unknown'}`;
     navigator.clipboard.writeText(textToCopy).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopied(false), 1500);
     });
   };
 
-  // Handle text-to-speech (placeholder)
   const handleSpeak = () => {
-    // In a full implementation, this would use Web Speech API
     alert('Text-to-speech will be implemented in a future version');
   };
 
   return (
-    <div className="word-card bg-white rounded-lg p-4 shadow-sm border-primary">
-      {/* Word Focus Card - Primary Visual Element */}
-      <div className="text-center mb-4">
-        {/* Only show Hebrew text if not in English Only mode */}
-        {translationDisplay !== 'inline' && (
-          <div className="mb-2">
-            {/* Main word in Hebrew */}
-            <div className="hebrew-text text-3xl font-bold text-primary" dir="rtl" lang="he">
-              {processedLemma}
-            </div>
-
-            {/* Transliteration */}
-            <div className="text-lg text-secondary italic">
-              {transliteration}
-            </div>
-          </div>
+    <article className="w-full max-w-xl mx-auto bg-gradient-to-b from-blue-50 to-white border border-blue-100 rounded-2xl p-6 shadow-md text-center">
+      <div className="space-y-3">
+        {showHebrew && (
+          <h1 className="text-7xl font-bold text-gray-900 text-center" dir="rtl" lang="he">
+            {processedLemma}
+          </h1>
         )}
 
-        {/* Translation directly below the main word */}
-        <div className="text-lg text-secondary">
-          {token.gloss || '—'}
-        </div>
+        {showTranslation && (
+          <p className="text-2xl text-gray-700">
+            {token.gloss || '—'}
+          </p>
+        )}
 
-        {/* Action buttons in center */}
-        <div className="flex justify-center gap-4 mt-2">
+        <div className="flex items-center justify-center gap-3">
           <button
-            className="btn btn-icon"
+            className={actionButtonClasses}
             onClick={handleSpeak}
-            aria-label="Speak word"
+            aria-label="Play pronunciation"
           >
             🔊
           </button>
-
           <VocabStarButton
             token={token}
             isStarred={isStarred}
-            onStar={() => onStar()}
-            className="text-xl"
+            onStar={onStar}
+            className={`${actionButtonClasses} text-lg`}
           />
-        </div>
-      </div>
-
-      <div className="word-details border-t pt-3 space-y-2">
-        {/* Part of speech - only show if not in English Only mode */}
-        {translationDisplay !== 'inline' && token.lemma && (
-          <div className="mb-2">
-            <div className="text-sm text-secondary">Part of Speech:</div>
-            <div className="font-medium">Not available</div>
-          </div>
-        )}
-
-        {/* Surface form if different from lemma - only show if not in English Only mode */}
-        {token.surface !== token.lemma && translationDisplay !== 'inline' && (
-          <div className="mb-2">
-            <div className="text-sm text-secondary">Form:</div>
-            <div className="hebrew-text" dir="rtl">{processedSurface}</div>
-          </div>
-        )}
-
-        {/* Root if available - only show if not in English Only mode */}
-        {token.root && translationDisplay !== 'inline' && (
-          <div className="mb-2">
-            <div className="text-sm text-secondary">Root:</div>
-            <div className="hebrew-text" dir="rtl">{toggleNikud(token.root, showNikud)}</div>
-            <div className="text-xs text-gray-600 italic mt-1">
-              {rootMeaning || 'No root translation available'}
-            </div>
-          </div>
-        )}
-
-        {/* Copy button at bottom */}
-        <div className="mt-4">
           <button
-            className={`btn btn-small ${copied ? 'bg-green-500' : 'btn-secondary'} w-full`}
+            className={`${actionButtonClasses} ${copied ? 'border-green-400 text-green-600' : ''}`}
             onClick={handleCopy}
+            aria-label="Copy word"
           >
-            {copied ? 'Copied!' : 'Copy Word'}
+            {copied ? '✓' : '📋'}
           </button>
         </div>
       </div>
-    </div>
+
+      <div className="mt-6 space-y-3 text-sm text-gray-600">
+        {(rootText || transliteration) && (
+          <div>
+            {rootText && (
+              <p className="uppercase text-xs font-semibold text-gray-500 tracking-wide mb-1">
+                Root
+              </p>
+            )}
+            {rootText && (
+              <p className="text-lg font-semibold text-gray-800 text-center" dir="rtl" lang="he">
+                {rootText}
+              </p>
+            )}
+            <p className="text-sm italic text-gray-500 mt-1">
+              {transliteration}
+            </p>
+            {rootMeaning && (
+              <p className="text-xs text-gray-500 mt-1">{rootMeaning}</p>
+            )}
+          </div>
+        )}
+
+        {token.pos && (
+          <div>
+            <p className="uppercase text-xs font-semibold text-gray-500 tracking-wide mb-1">
+              Part of Speech
+            </p>
+            <p className="text-sm font-medium text-gray-800">
+              {token.pos}
+            </p>
+          </div>
+        )}
+
+        {hasDistinctSurface && (
+          <div>
+            <p className="uppercase text-xs font-semibold text-gray-500 tracking-wide mb-1">
+              Surface Form
+            </p>
+            <p className="text-lg font-semibold text-gray-800 text-center" dir="rtl" lang="he">
+              {processedSurface}
+            </p>
+          </div>
+        )}
+      </div>
+    </article>
   );
 }
 

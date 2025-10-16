@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { Chunk } from '../types';
+import { Fragment, useMemo } from 'react';
+import { Chunk, Token } from '../types';
 import { toggleNikud } from '../lib/nikud';
 import { transliterate } from '../lib/translit';
 
@@ -10,6 +10,8 @@ interface SentenceBlockProps {
   currentIndex?: number;
   totalChunks?: number;
   translationDisplay?: 'hidden' | 'inline' | 'interlinear';
+  selectedToken?: Token | null;
+  onTokenSelect?: (token: Token) => void;
 }
 
 function SentenceBlock({
@@ -18,7 +20,9 @@ function SentenceBlock({
   showTransliteration,
   currentIndex,
   totalChunks,
-  translationDisplay = 'inline'
+  translationDisplay = 'interlinear',
+  selectedToken,
+  onTokenSelect
 }: SentenceBlockProps) {
   const processedText = useMemo(() => {
     return toggleNikud(chunk.text, showNikud);
@@ -29,57 +33,78 @@ function SentenceBlock({
     return transliterate(processedText);
   }, [processedText, showTransliteration]);
 
+  const showHebrew = translationDisplay !== 'inline';
+  const showTranslation = translationDisplay !== 'hidden';
+  const hasProgress = typeof currentIndex === 'number' && Boolean(totalChunks);
+  const currentPosition = typeof currentIndex === 'number' ? currentIndex : 0;
+  const progressPercent =
+    hasProgress && totalChunks
+      ? Math.min(100, Math.max(0, ((currentPosition + 1) / totalChunks) * 100))
+      : 0;
+
   return (
-    <div className="sentence-block">
-      {/* Progress indicator if index is provided */}
-      {currentIndex !== undefined && totalChunks && (
-        <div className="text-secondary text-sm mb-2 flex justify-between items-center">
-          <div>
-            {chunk.type === 'sentence' ? 'Sentence' : 'Phrase'} {currentIndex + 1} of {totalChunks}
-          </div>
-          <div className="progress-indicator w-16 h-1 bg-gray-200 rounded-full">
+    <div className="sentence-block p-6 bg-white rounded-xl shadow-sm border border-gray-200">
+      {hasProgress && totalChunks && (
+        <div className="flex items-center justify-between text-sm text-gray-500 mb-4">
+          <span className="font-medium">
+            Sentence {currentPosition + 1} / {totalChunks}
+          </span>
+          <div className="w-24 h-1 bg-gray-200 rounded-full overflow-hidden">
             <div
-              className="h-1 bg-primary rounded-full"
-              style={{ width: `${((currentIndex + 1) / totalChunks) * 100}%` }}
+              className="h-1 bg-blue-500 rounded-full"
+              style={{ width: `${progressPercent}%` }}
             />
           </div>
         </div>
       )}
 
-      <div className="text-content-wrapper">
-        {/* Main Hebrew text - only show if not in English Only mode */}
-        {translationDisplay !== 'inline' && (
-          <div
-            className="hebrew-text text-lg mb-2 p-2 bg-gray-50 rounded"
-            dir="rtl"
-            lang="he"
-          >
-            {processedText}
-          </div>
-        )}
+      <div className="sentence-content">
+        {showHebrew && (
+          <div className="sentence-content__hebrew" dir="rtl" lang="he">
+            {chunk.tokens.length > 0 ? (
+              chunk.tokens.map((token, index) => {
+                const displayText = toggleNikud(token.surface, showNikud);
+                const isActive = selectedToken && selectedToken.idx === token.idx;
 
-        {/* Transliteration if enabled - only show if not in English Only mode */}
-        {showTransliteration && translationDisplay !== 'inline' && (
-          <div className="transliteration text-sm mb-2 italic">
-            {transliteratedText}
-          </div>
-        )}
+                const element = onTokenSelect ? (
+                  <button
+                    type="button"
+                    onClick={() => onTokenSelect(token)}
+                    className={`sentence-token${isActive ? ' sentence-token--active' : ''}`}
+                  >
+                    {displayText}
+                  </button>
+                ) : (
+                  <span className="sentence-token sentence-token--static">
+                    {displayText}
+                  </span>
+                );
 
-        {/* Translation */}
-        {translationDisplay !== 'hidden' && (
-          <div className={`translation p-2 ${translationDisplay === 'inline' ? 'border-t mt-2 pt-2' : ''}`}>
-            {translationDisplay === 'inline' && (
-              <div className="text-sm text-secondary mb-1">Translation:</div>
+                return (
+                  <Fragment key={`fragment-${token.idx}`}>
+                    {element}
+                    {index < chunk.tokens.length - 1 && <span className="sentence-space"> </span>}
+                  </Fragment>
+                );
+              })
+            ) : (
+              <span>{processedText}</span>
             )}
-            <div>{chunk.translation || '—'}</div>
           </div>
+        )}
+
+        {showHebrew && showTransliteration && (
+          <p className="sentence-content__transliteration">
+            {transliteratedText}
+          </p>
+        )}
+
+        {showTranslation && (
+          <p className="sentence-content__translation">
+            {chunk.translation || '—'}
+          </p>
         )}
       </div>
-
-      {/* Audio button (placeholder for future implementation) */}
-      <button className="icon-btn mt-2 text-secondary" disabled title="Text-to-speech (Coming soon)">
-        🔊
-      </button>
     </div>
   );
 }
