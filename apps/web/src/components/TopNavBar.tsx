@@ -43,7 +43,11 @@ function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
   const centerContent = isCamera ? (
     <nav className="top-nav__links" aria-label="Primary">
       {TOP_LEVEL_LINKS.map((link) => (
-        <Link key={link.key} to={link.to} className="top-nav__link">
+        <Link
+          key={link.key}
+          to={link.to}
+          className={`top-nav__link${current === link.key ? ' top-nav__link--active' : ''}`}
+        >
           {link.label}
         </Link>
       ))}

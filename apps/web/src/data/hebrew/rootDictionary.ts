@@ -190,66 +190,67 @@ export function extractRootFromDictionary(word: string): string | null {
     return specialCases[word];
   }
   
-  // Common words mapping
-  const commonRoots: Record<string, string> = {
+  const commonRootEntries: Array<[string, string]> = [
     // Time expressions
-    "עתה": "עת",     // now (ata) - from root meaning "time"
-    "היום": "יום",   // today - from root "day"
-    "אתמול": "אתמול", // yesterday
-    "מחר": "מחר",    // tomorrow
-    
+    ["עתה", "עת"],     // now (ata) - from root meaning "time"
+    ["היום", "יום"],   // today - from root "day"
+    ["אתמול", "אתמול"], // yesterday
+    ["מחר", "מחר"],    // tomorrow
+
     // Common nouns
-    "דבר": "דבר",    // word/thing
-    "מלך": "מלך",    // king
-    "איש": "איש",    // man
-    "אשה": "איש",    // woman (from root "man")
-    "בית": "בית",    // house
-    "יום": "יום",    // day
-    "עיר": "עיר",    // city
-    "עם": "עמם",     // people
-    "ארץ": "ארץ",    // land
-    "שמים": "שמים",  // heaven/sky
-    "מים": "מים",    // water
-    "שם": "שם",      // name
-    "יד": "יד",      // hand
-    "רגל": "רגל",    // foot
-    "פה": "פה",      // mouth
-    "לב": "לבב",     // heart
-    "ספר": "ספר",    // book
-    "זמן": "זמן",    // time
-    
+    ["דבר", "דבר"],    // word/thing
+    ["מלך", "מלך"],    // king
+    ["איש", "איש"],    // man
+    ["אשה", "איש"],    // woman (from root "man")
+    ["בית", "בית"],    // house
+    ["יום", "יום"],    // day
+    ["עיר", "עיר"],    // city
+    ["עם", "עמם"],     // people
+    ["ארץ", "ארץ"],    // land
+    ["שמים", "שמים"],  // heaven/sky
+    ["מים", "מים"],    // water
+    ["שם", "שם"],      // name
+    ["יד", "יד"],      // hand
+    ["רגל", "רגל"],    // foot
+    ["פה", "פה"],      // mouth
+    ["לב", "לבב"],     // heart
+    ["ספר", "ספר"],    // book
+    ["זמן", "זמן"],    // time
+
     // Common verbs
-    "אמר": "אמר",    // say
-    "הלך": "הלך",    // walk
-    "בוא": "בוא",    // come
-    "ראה": "ראה",    // see
-    "שמע": "שמע",    // hear
-    "ידע": "ידע",    // know
-    "עשה": "עשה",    // do
-    "לקח": "לקח",    // take
-    "נתן": "נתן",    // give
-    "היה": "היה",    // be
-    "דבר": "דבר",    // speak
-    "שאל": "שאל",    // ask
-    "קרא": "קרא",    // read/call
-    "כתב": "כתב",    // write
-    "לבש": "לבש",    // wear
-    "אכל": "אכל",    // eat
-    "שתה": "שתה",    // drink
-    "שיר": "שיר",    // sing
-    "למד": "למד",    // learn
-    
+    ["אמר", "אמר"],    // say
+    ["הלך", "הלך"],    // walk
+    ["בוא", "בוא"],    // come
+    ["ראה", "ראה"],    // see
+    ["שמע", "שמע"],    // hear
+    ["ידע", "ידע"],    // know
+    ["עשה", "עשה"],    // do
+    ["לקח", "לקח"],    // take
+    ["נתן", "נתן"],    // give
+    ["היה", "היה"],    // be
+    ["דבר", "דבר"],    // speak
+    ["שאל", "שאל"],    // ask
+    ["קרא", "קרא"],    // read/call
+    ["כתב", "כתב"],    // write
+    ["לבש", "לבש"],    // wear
+    ["אכל", "אכל"],    // eat
+    ["שתה", "שתה"],    // drink
+    ["שיר", "שיר"],    // sing
+    ["למד", "למד"],    // learn
+
     // With common prefixes
-    "הדבר": "דבר",
-    "ודבר": "דבר",
-    "לדבר": "דבר",
-    "בדבר": "דבר",
-    "מדבר": "דבר",
-    "המלך": "מלך",
-    "ומלך": "מלך",
-    "למלך": "מלך",
-    "במלך": "מלך",
-  };
-  
+    ["הדבר", "דבר"],
+    ["ודבר", "דבר"],
+    ["לדבר", "דבר"],
+    ["בדבר", "דבר"],
+    ["מדבר", "דבר"],
+    ["המלך", "מלך"],
+    ["ומלך", "מלך"],
+    ["למלך", "מלך"],
+    ["במלך", "מלך"],
+  ];
+
+  const commonRoots = Object.fromEntries(commonRootEntries);
+
   return commonRoots[word] || null;
 }

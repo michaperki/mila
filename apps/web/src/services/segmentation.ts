@@ -12,7 +12,7 @@ import { extractRoot, categorizeWord } from '../lib/roots';
 const HEBREW_LETTER_PATTERN = /[\u0590-\u05FF\uFB1D-\uFB4F]/;
 
 // Hebrew clitics (prefixes that should be separated for tokenization)
-const HEBREW_CLITICS = {
+const HEBREW_CLITICS: Record<string, string> = {
   'ו': 'and',
   'ה': 'the',
   'ב': 'in',

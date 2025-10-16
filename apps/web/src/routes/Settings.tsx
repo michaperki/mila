@@ -31,7 +31,6 @@ function Settings() {
     <>
       <TopNavBar current="settings" title="Settings" subtitle="Preferences" />
       <div className="container pb-16">
-      <h1 className="text-xl font-bold mb-6">Settings</h1>
 
       {clearSuccess && (
         <div className="bg-green-100 text-green-800 p-3 rounded mb-4">

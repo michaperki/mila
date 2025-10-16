@@ -424,6 +424,12 @@ body {
   color: var(--text-color);
 }
 
+.top-nav__link--active {
+  background-color: var(--primary-color);
+  border-color: transparent;
+  color: #ffffff;
+}
+
 .top-nav__back {
   display: inline-flex;
   align-items: center;

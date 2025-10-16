@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 // OCR Worker manager for Tesseract.js
 // This file manages communication with the actual web worker
 
