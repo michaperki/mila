@@ -22,6 +22,130 @@ const HEBREW_CLITICS: Record<string, string> = {
   'ש': 'that',
 };
 
+const MEM_SHIN_PREFIXES = new Set(['מ', 'ש']);
+
+const PRONOUN_BASES = new Set([
+  'אני', 'אנכי', 'אתה', 'את', 'הוא', 'היא',
+  'אנחנו', 'אתם', 'אתן', 'הם', 'הן',
+  'אותי', 'אותך', 'אותו', 'אותה', 'אותנו', 'אתכם', 'אתכן', 'אותם', 'אותן',
+  'מני', 'ממך', 'ממני', 'ממנו', 'ממנה', 'ממכם', 'ממכן', 'מהם', 'מהן',
+  'לי', 'לך', 'לו', 'לה', 'לנו', 'לכם', 'לכן', 'להם', 'להן',
+  'עלי', 'עליך', 'עליו', 'עליה', 'עלינו', 'עליכם', 'עליכן', 'עליהם', 'עליהן',
+  'איתי', 'איתך', 'איתו', 'איתה', 'איתנו', 'איתכם', 'איתכן', 'איתם', 'איתן'
+]);
+
+const VERB_SUFFIXES = ['תי', 'נו', 'תם', 'תן', 'ני', 'ו', 'ן'];
+const VERB_PREFIXES = ['הת', 'מת', 'ית', 'ת', 'י', 'נ', 'א'];
+
+function isHebrewLetters(word: string): boolean {
+  return /^[\u0590-\u05FF\uFB1D-\uFB4F]+$/.test(word);
+}
+
+function startsWithArticle(word: string): boolean {
+  return word.startsWith('ה');
+}
+
+function hasInfinitivePrefix(word: string): boolean {
+  return word.startsWith('ל') && word.length > 3;
+}
+
+function isPronounForm(word: string): boolean {
+  return PRONOUN_BASES.has(word);
+}
+
+function hasVerbSuffix(word: string): boolean {
+  return VERB_SUFFIXES.some(suffix => {
+    if (!word.endsWith(suffix) || word.length <= suffix.length + 1) {
+      return false;
+    }
+
+    if (suffix === 'ו') {
+      const precedingChar = word.charAt(word.length - suffix.length - 1);
+      if (precedingChar === 'ה') {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
+function hasVerbPrefix(word: string): boolean {
+  return VERB_PREFIXES.some(prefix => word.startsWith(prefix) && word.length > prefix.length + 1);
+}
+
+function isLikelyVerbForm(word: string): boolean {
+  if (word.length <= 2) {
+    return false;
+  }
+  return hasVerbSuffix(word) || hasVerbPrefix(word);
+}
+
+function baseLooksLikeStandaloneWord(base: string): boolean {
+  if (!isHebrewLetters(base)) {
+    return false;
+  }
+
+  if (base.length <= 1) {
+    return false;
+  }
+
+  if (base.length === 2) {
+    return isPronounForm(base);
+  }
+
+  return true;
+}
+
+function shouldSplitMemOrShin(normalizedBase: string): boolean {
+  if (!baseLooksLikeStandaloneWord(normalizedBase)) {
+    return false;
+  }
+
+  let score = 0;
+
+  if (startsWithArticle(normalizedBase)) {
+    score += 3;
+  }
+
+  if (hasInfinitivePrefix(normalizedBase)) {
+    score += 2;
+  }
+
+  if (isPronounForm(normalizedBase)) {
+    score += 3;
+  }
+
+  if (isLikelyVerbForm(normalizedBase)) {
+    score += 2;
+  }
+
+  if (normalizedBase.endsWith('ים') || normalizedBase.endsWith('ות')) {
+    // Plural noun likely starts with pattern rather than clitic
+    score -= 1;
+  }
+
+  if (normalizedBase.length === 3 && score < 3) {
+    // Three-letter base words are often pure roots (e.g. מכתב, משפט)
+    return false;
+  }
+
+  return score >= 2;
+}
+
+function shouldSplitGeneral(normalizedBase: string): boolean {
+  if (!baseLooksLikeStandaloneWord(normalizedBase)) {
+    return false;
+  }
+
+  // Allow short heuristic-based guard for other prefixes
+  if (normalizedBase.length <= 1) {
+    return false;
+  }
+
+  return true;
+}
+
 /**
  * Segments Hebrew text into sentences and phrases
  */
@@ -148,7 +272,8 @@ function tokenizeHebrew(text: string): Token[] {
  */
 function getInitialClitic(word: string): string | null {
   // Get first character
-  const firstChar = word.charAt(0);
+  const normalizedWord = removeNikud(word);
+  const firstChar = normalizedWord.charAt(0);
 
   // Skip processing for very short words - they're likely standalone
   if (word.length <= 2) {
@@ -160,32 +285,20 @@ function getInitialClitic(word: string): string | null {
     HEBREW_CLITICS[firstChar] &&
     HEBREW_LETTER_PATTERN.test(word.charAt(1))
   ) {
-    // Common Hebrew words that start with these letters but aren't prefixed
-    // This is a dictionary of words that should NOT be split
-    const nonPrefixWords: Record<string, string[]> = {
-      'מ': ['מת', 'מי', 'מה', 'מתי', 'מאד', 'מעט', 'מים', 'מלך', 'מקום', 'מדבר', 'משה', 'מאוד'],
-      'ב': ['בית', 'בן', 'בת', 'בא', 'בר', 'בד'],
-      'ל': ['לב', 'לא', 'לחם', 'ליל', 'לשון'],
-      'כ': ['כל', 'כן', 'כי', 'כף', 'כח'],
-      'ש': ['שם', 'שמש', 'שר', 'שיר', 'שלום']
-    };
+    const base = word.substring(1);
+    const normalizedBase = removeNikud(base);
 
-    // Check if this word is in our exception list
-    const wordWithoutNikud = removeNikud(word);
-    if (
-      nonPrefixWords[firstChar] &&
-      nonPrefixWords[firstChar].some(w => wordWithoutNikud === w || wordWithoutNikud.startsWith(w))
-    ) {
-      return null;
+    if (MEM_SHIN_PREFIXES.has(firstChar)) {
+      if (!shouldSplitMemOrShin(normalizedBase)) {
+        return null;
+      }
+    } else {
+      if (!shouldSplitGeneral(normalizedBase)) {
+        return null;
+      }
     }
 
-    // Additional heuristic - if remaining part after prefix would be too short (1 letter),
-    // it's likely not a prefix
-    if (word.length <= 3) {
-      return null;
-    }
-
-    return firstChar;
+    return word.substring(0, 1);
   }
 
   return null;
