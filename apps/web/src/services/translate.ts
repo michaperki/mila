@@ -252,14 +252,16 @@ const translationCache = new Map<string, string>();
  */
 export async function translateSentence(text: string): Promise<string> {
   // Check cache first
-  if (translationCache.has(text)) {
+  if (!useRealTranslate && translationCache.has(text)) {
     return translationCache.get(text)!;
   }
 
   if (useRealTranslate) {
     // This would call the real translation API if implemented
     const translation = await realTranslateSentence(text);
-    translationCache.set(text, translation);
+    if (!useRealTranslate) {
+      translationCache.set(text, translation);
+    }
     return translation;
   }
 
@@ -306,7 +308,9 @@ export async function translateSentence(text: string): Promise<string> {
     translation += '.';
   }
 
-  translationCache.set(text, translation);
+  if (!useRealTranslate) {
+    translationCache.set(text, translation);
+  }
   return translation;
 }
 
