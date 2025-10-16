@@ -64,6 +64,21 @@ function Vocab() {
     ? vocab
     : searchVocab(searchTerm)
 
+  // Group the vocabulary items by date
+  const groupedVocab = useMemo(() => {
+    if (filteredVocab.length === 0) return [];
+
+    const groups = groupItemsByDate(filteredVocab);
+
+    return Object.entries(groups)
+      .filter(([_, items]) => items.length > 0)
+      .map(([groupName, items]) => ({
+        groupName,
+        displayName: formatGroupName(groupName),
+        items,
+      }));
+  }, [filteredVocab, showNikud, showTranslit])
+
   // Handle removing a vocabulary item
   const handleRemoveItem = (id: string) => {
     removeItem(id)
@@ -285,32 +300,24 @@ function Vocab() {
           </div>
         ) : filteredVocab.length > 0 ? (
           <div>
-            {useMemo(() => {
-              // Group the vocabulary items by date
-              const groups = groupItemsByDate(filteredVocab);
-
-              // Return groups with items
-              return Object.entries(groups)
-                .filter(([_, items]) => items.length > 0)
-                .map(([groupName, items]) => (
-                  <div key={groupName} className="mb-6">
-                    <h3 className="text-md font-semibold text-gray-700 mb-3 border-b pb-1">
-                      {formatGroupName(groupName)} ({items.length})
-                    </h3>
-                    <ul className="space-y-2">
-                      {items.map((item: StarredItem) => (
-                        <VocabItem
-                          key={item.id}
-                          item={item}
-                          showNikud={showNikud}
-                          showTranslit={showTranslit}
-                          onRemove={handleRemoveItem}
-                        />
-                      ))}
-                    </ul>
-                  </div>
-                ));
-            }, [filteredVocab, showNikud, showTranslit])}
+            {groupedVocab.map((group) => (
+              <div key={group.groupName} className="mb-6">
+                <h3 className="text-md font-semibold text-gray-700 mb-3 border-b pb-1">
+                  {group.displayName} ({group.items.length})
+                </h3>
+                <ul className="space-y-2">
+                  {group.items.map((item: StarredItem) => (
+                    <VocabItem
+                      key={item.id}
+                      item={item}
+                      showNikud={showNikud}
+                      showTranslit={showTranslit}
+                      onRemove={handleRemoveItem}
+                    />
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
         ) : searchTerm ? (
           <p className="p-4 text-center text-gray-500">
