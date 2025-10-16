@@ -10,6 +10,7 @@ interface PhraseChipsProps {
   onStarToken?: (token: Token) => void;
   starredTokens?: Set<string>;
   textId?: string;
+  translationDisplay?: 'hidden' | 'inline' | 'interlinear';
 }
 
 function PhraseChips({
@@ -18,7 +19,8 @@ function PhraseChips({
   showNikud,
   onStarToken,
   starredTokens = new Set(),
-  textId
+  textId,
+  translationDisplay = 'interlinear'
 }: PhraseChipsProps) {
   const [selectedTokenIdx, setSelectedTokenIdx] = useState<number | null>(null);
 
@@ -38,50 +40,55 @@ function PhraseChips({
 
   return (
     <div className="phrase-chips">
-      <div className="mb-2">
-        <h3 className="text-sm font-medium mb-1">Words:</h3>
-        <div className="flex flex-wrap gap-2 mb-2" dir="rtl">
-          {processedTokens.map((token) => (
-            <div className="word-item" key={token.idx}>
-              <button
-                className={`chip hebrew-text px-2 py-1 rounded transition-all ${
-                  selectedTokenIdx === token.idx
-                    ? 'bg-primary text-white'
-                    : 'bg-gray-100 hover:bg-gray-200'
-                }`}
-                onClick={() => handleTokenClick(token)}
-              >
-                {token.displayText}
-              </button>
+      {/* Only show Hebrew words if not in English Only mode */}
+      {translationDisplay !== 'inline' && (
+        <div className="mb-2">
+          <h3 className="text-sm font-medium mb-1">Words:</h3>
+          <div className="flex flex-wrap gap-2 mb-2" dir="rtl">
+            {processedTokens.map((token) => (
+              <div className="word-item" key={token.idx}>
+                <button
+                  className={`chip hebrew-text px-2 py-1 rounded transition-all ${
+                    selectedTokenIdx === token.idx
+                      ? 'bg-primary text-white'
+                      : 'bg-gray-100 hover:bg-gray-200'
+                  }`}
+                  onClick={() => handleTokenClick(token)}
+                >
+                  {token.displayText}
+                </button>
 
-              {/* Only show star button for tokens with lemma and gloss */}
-              {token.lemma && token.gloss && onStarToken && (
-                <div className="inline-star">
-                  <VocabStarButton
-                    token={token}
-                    isStarred={starredTokens.has(token.lemma)}
-                    onStar={onStarToken}
-                    textId={textId}
-                    chunkId={chunk.id}
-                  />
-                </div>
-              )}
-            </div>
-          ))}
+                {/* Only show star button for tokens with lemma and gloss */}
+                {token.lemma && token.gloss && onStarToken && (
+                  <div className="inline-star">
+                    <VocabStarButton
+                      token={token}
+                      isStarred={starredTokens.has(token.lemma)}
+                      onStar={onStarToken}
+                      textId={textId}
+                      chunkId={chunk.id}
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Selected token info */}
       {selectedTokenIdx !== null && (
         <div className="selected-token bg-gray-50 p-2 rounded">
           <div className="flex justify-between items-start">
-            <div>
-              <div className="text-sm text-secondary">Selected word:</div>
-              <div className="hebrew-text font-bold" dir="rtl">
-                {processedTokens.find(t => t.idx === selectedTokenIdx)?.displayText}
+            {translationDisplay !== 'inline' && (
+              <div>
+                <div className="text-sm text-secondary">Selected word:</div>
+                <div className="hebrew-text font-bold" dir="rtl">
+                  {processedTokens.find(t => t.idx === selectedTokenIdx)?.displayText}
+                </div>
               </div>
-            </div>
-            <div>
+            )}
+            <div className={translationDisplay === 'inline' ? 'w-full' : ''}>
               <div className="text-sm text-secondary">Translation:</div>
               <div>
                 {processedTokens.find(t => t.idx === selectedTokenIdx)?.gloss || '—'}

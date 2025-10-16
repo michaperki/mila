@@ -367,6 +367,7 @@ function Reader() {
               onStarToken={handleToggleStar}
               starredTokens={starredLemmaSet}
               textId={textId}
+              translationDisplay={translationDisplay}
             />
           </div>
 
@@ -378,6 +379,7 @@ function Reader() {
                 onStar={handleToggleStar}
                 showNikud={showNikud}
                 isStarred={isTokenStarred(selectedToken)}
+                translationDisplay={translationDisplay}
               />
             </div>
           )}

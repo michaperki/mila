@@ -47,17 +47,19 @@ function SentenceBlock({
       )}
 
       <div className="text-content-wrapper">
-        {/* Main Hebrew text */}
-        <div
-          className="hebrew-text text-lg mb-2 p-2 bg-gray-50 rounded"
-          dir="rtl"
-          lang="he"
-        >
-          {processedText}
-        </div>
+        {/* Main Hebrew text - only show if not in English Only mode */}
+        {translationDisplay !== 'inline' && (
+          <div
+            className="hebrew-text text-lg mb-2 p-2 bg-gray-50 rounded"
+            dir="rtl"
+            lang="he"
+          >
+            {processedText}
+          </div>
+        )}
 
-        {/* Transliteration if enabled */}
-        {showTransliteration && (
+        {/* Transliteration if enabled - only show if not in English Only mode */}
+        {showTransliteration && translationDisplay !== 'inline' && (
           <div className="transliteration text-sm mb-2 italic">
             {transliteratedText}
           </div>

@@ -10,9 +10,10 @@ interface WordCardProps {
   showNikud: boolean;
   onStar: () => void;
   isStarred?: boolean;
+  translationDisplay?: 'hidden' | 'inline' | 'interlinear';
 }
 
-function WordCard({ token, showNikud, onStar, isStarred = false }: WordCardProps) {
+function WordCard({ token, showNikud, onStar, isStarred = false, translationDisplay = 'interlinear' }: WordCardProps) {
   const [copied, setCopied] = useState(false);
 
   // Process text based on nikud setting
@@ -53,19 +54,22 @@ function WordCard({ token, showNikud, onStar, isStarred = false }: WordCardProps
   return (
     <div className="word-card bg-white rounded-lg p-4 shadow-sm">
       <div className="flex justify-between items-start mb-4">
-        <div>
-          {/* Main word in Hebrew */}
-          <div className="hebrew-text text-xl font-bold mb-1" dir="rtl" lang="he">
-            {processedLemma}
-          </div>
+        {/* Only show Hebrew text if not in English Only mode */}
+        {translationDisplay !== 'inline' && (
+          <div>
+            {/* Main word in Hebrew */}
+            <div className="hebrew-text text-xl font-bold mb-1" dir="rtl" lang="he">
+              {processedLemma}
+            </div>
 
-          {/* Transliteration */}
-          <div className="text-sm text-secondary italic">
-            {transliteration}
+            {/* Transliteration */}
+            <div className="text-sm text-secondary italic">
+              {transliteration}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Star button */}
+        {/* Always show star button */}
         <VocabStarButton
           token={token}
           isStarred={isStarred}
@@ -75,16 +79,16 @@ function WordCard({ token, showNikud, onStar, isStarred = false }: WordCardProps
       </div>
 
       <div className="word-details border-t pt-3 space-y-2">
-        {/* Surface form if different from lemma */}
-        {token.surface !== token.lemma && (
+        {/* Surface form if different from lemma - only show if not in English Only mode */}
+        {token.surface !== token.lemma && translationDisplay !== 'inline' && (
           <div className="mb-2">
             <div className="text-sm text-secondary">Form:</div>
             <div className="hebrew-text" dir="rtl">{processedSurface}</div>
           </div>
         )}
 
-        {/* Root if available */}
-        {token.root && (
+        {/* Root if available - only show if not in English Only mode */}
+        {token.root && translationDisplay !== 'inline' && (
           <div className="mb-2">
             <div className="text-sm text-secondary">Root:</div>
             <div className="hebrew-text" dir="rtl">{toggleNikud(token.root, showNikud)}</div>
