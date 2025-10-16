@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useVocabStore } from '../state/useVocabStore'
 import { StarredItem } from '../types'
 import { groupItemsByDate, formatGroupName } from '../lib/dateUtils'
@@ -19,7 +18,6 @@ const SORT_LABELS: Record<string, string> = {
 };
 
 function Vocab() {
-  const navigate = useNavigate()
   const {
     vocab,
     getVocab,
@@ -215,9 +213,9 @@ function Vocab() {
   return (
     <>
       <TopNavBar
+        current="vocab"
         title="Vocabulary"
         subtitle="Saved Words"
-        onBack={handleBack}
         actions={
           <button
             className="btn btn-icon bg-gray-100 hover:bg-gray-200"

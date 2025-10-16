@@ -50,7 +50,8 @@ function Home() {
   return (
     <>
       <TopNavBar
-        title="Home"
+        current="camera"
+        title="Camera"
         subtitle="ReadLearn"
         actions={
           <button

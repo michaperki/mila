@@ -173,6 +173,11 @@ body {
   line-height: 1.1;
 }
 
+.text-7xl {
+  font-size: 4.5rem;
+  line-height: 1.1;
+}
+
 .font-bold {
   font-weight: 700;
 }
@@ -333,6 +338,114 @@ body {
   0% { transform: scale(1); }
   50% { transform: scale(1.2); }
   100% { transform: scale(1); }
+}
+
+.top-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background-color: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 1rem;
+}
+
+.top-nav__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0;
+}
+
+.top-nav__left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.top-nav__center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 0;
+}
+
+.top-nav__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  min-width: 3rem;
+}
+
+.top-nav__brand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.top-nav__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-color);
+  line-height: 1.2;
+}
+
+.top-nav__subtitle {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-light-color);
+}
+
+.top-nav__links {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.top-nav__link {
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-light-color);
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.top-nav__link:hover {
+  background-color: rgba(49, 130, 206, 0.08);
+  border-color: rgba(49, 130, 206, 0.3);
+  color: var(--text-color);
+}
+
+.top-nav__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background-color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-color);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.top-nav__back:hover {
+  background-color: rgba(49, 130, 206, 0.08);
+  border-color: rgba(49, 130, 206, 0.3);
+}
+
+.top-nav__back-icon {
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .reading-mode-toggle {

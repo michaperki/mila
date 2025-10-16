@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import SettingsCard, { SettingsIcons } from '../components/SettingsCard'
 import ErrorMessage from '../components/ErrorMessage'
+import TopNavBar from '../components/TopNavBar'
 
 function Settings() {
   const [theme, setTheme] = useState('light')
@@ -27,7 +28,9 @@ function Settings() {
   }
 
   return (
-    <div className="container pb-16">
+    <>
+      <TopNavBar current="settings" title="Settings" subtitle="Preferences" />
+      <div className="container pb-16">
       <h1 className="text-xl font-bold mb-6">Settings</h1>
 
       {clearSuccess && (
@@ -230,7 +233,8 @@ function Settings() {
           </div>
         </SettingsCard>
       </div>
-    </div>
+      </div>
+    </>
   )
 }
 

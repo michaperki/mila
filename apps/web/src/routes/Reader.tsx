@@ -257,37 +257,11 @@ function Reader() {
     }
   }
 
-  const viewTitle = displayMode === 'word'
-    ? 'Word View'
-    : displayMode === 'sentence'
-      ? 'Sentence View'
-      : 'Full Text'
-
-  const handleBack = () => {
-    if (displayMode === 'word') {
-      setDisplayMode('sentence')
-      setShowSettingsPanel(false)
-      return
-    }
-
-    if (displayMode === 'sentence' && text?.chunks.length) {
-      setDisplayMode('fullText')
-      setShowSettingsPanel(false)
-      return
-    }
-
-    if (window.history.length > 1) {
-      navigate(-1)
-    } else {
-      navigate('/')
-    }
-  }
-
   const navBar = (
     <TopNavBar
-      title={viewTitle}
+      current="current"
+      title="Current"
       subtitle={text?.title || undefined}
-      onBack={handleBack}
       actions={
         <div className="relative">
           <button

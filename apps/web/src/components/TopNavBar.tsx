@@ -1,47 +1,69 @@
-import { ReactNode } from 'react';
+import { Link } from 'react-router-dom'
+import { ReactNode } from 'react'
+
+export type TopNavSection = 'camera' | 'current' | 'vocab' | 'settings'
 
 interface TopNavBarProps {
-  title: string;
-  subtitle?: string;
-  onBack?: () => void;
-  actions?: ReactNode;
+  current: TopNavSection
+  title?: string
+  subtitle?: string
+  actions?: ReactNode
 }
 
-function TopNavBar({ title, subtitle, onBack, actions }: TopNavBarProps) {
+const TOP_LEVEL_LINKS: Array<{ key: TopNavSection; label: string; to: string }> = [
+  { key: 'current', label: 'Current', to: '/reader/latest' },
+  { key: 'vocab', label: 'Vocab', to: '/vocab' },
+  { key: 'settings', label: 'Settings', to: '/settings' },
+]
+
+const SECTION_LABELS: Record<TopNavSection, string> = {
+  camera: 'Camera',
+  current: 'Current',
+  vocab: 'Vocabulary',
+  settings: 'Settings',
+}
+
+function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
+  const resolvedTitle = title ?? SECTION_LABELS[current]
+
+  const isCamera = current === 'camera'
+
+  const leftContent = isCamera ? (
+    <div className="top-nav__brand">
+      <h1 className="top-nav__title">{resolvedTitle}</h1>
+      {subtitle && <p className="top-nav__subtitle">{subtitle}</p>}
+    </div>
+  ) : (
+    <Link to="/" className="top-nav__back" aria-label="Back to Camera">
+      <span className="top-nav__back-icon">←</span>
+      Camera
+    </Link>
+  )
+
+  const centerContent = isCamera ? (
+    <nav className="top-nav__links" aria-label="Primary">
+      {TOP_LEVEL_LINKS.map((link) => (
+        <Link key={link.key} to={link.to} className="top-nav__link">
+          {link.label}
+        </Link>
+      ))}
+    </nav>
+  ) : (
+    <div className="top-nav__brand">
+      <h1 className="top-nav__title">{resolvedTitle}</h1>
+      {subtitle && <p className="top-nav__subtitle">{subtitle}</p>}
+    </div>
+  )
+
   return (
-    <header className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-gray-200 mb-4">
-      <div className="container flex items-center justify-between gap-3 py-3">
-        <div className="flex items-center gap-3">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="btn btn-icon bg-gray-100 hover:bg-gray-200"
-              aria-label="Go back"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
-            </button>
-          )}
-
-          <div>
-            <h1 className="text-lg font-semibold leading-tight text-gray-900">{title}</h1>
-            {subtitle && (
-              <p className="text-xs text-gray-500 uppercase tracking-wide mt-0.5">
-                {subtitle}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {actions && (
-          <div className="flex items-center gap-2">
-            {actions}
-          </div>
-        )}
+    <header className="top-nav">
+      <div className="container top-nav__inner">
+        <div className="top-nav__left">{leftContent}</div>
+        <div className="top-nav__center">{centerContent}</div>
+        <div className="top-nav__actions">{actions}</div>
       </div>
     </header>
-  );
+  )
 }
 
-export default TopNavBar;
+export default TopNavBar
