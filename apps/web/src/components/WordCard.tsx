@@ -52,33 +52,57 @@ function WordCard({ token, showNikud, onStar, isStarred = false, translationDisp
   };
 
   return (
-    <div className="word-card bg-white rounded-lg p-4 shadow-sm">
-      <div className="flex justify-between items-start mb-4">
+    <div className="word-card bg-white rounded-lg p-4 shadow-sm border-primary">
+      {/* Word Focus Card - Primary Visual Element */}
+      <div className="text-center mb-4">
         {/* Only show Hebrew text if not in English Only mode */}
         {translationDisplay !== 'inline' && (
-          <div>
+          <div className="mb-2">
             {/* Main word in Hebrew */}
-            <div className="hebrew-text text-xl font-bold mb-1" dir="rtl" lang="he">
+            <div className="hebrew-text text-3xl font-bold text-primary" dir="rtl" lang="he">
               {processedLemma}
             </div>
 
             {/* Transliteration */}
-            <div className="text-sm text-secondary italic">
+            <div className="text-lg text-secondary italic">
               {transliteration}
             </div>
           </div>
         )}
 
-        {/* Always show star button */}
-        <VocabStarButton
-          token={token}
-          isStarred={isStarred}
-          onStar={() => onStar()}
-          className="text-xl"
-        />
+        {/* Translation directly below the main word */}
+        <div className="text-lg text-secondary">
+          {token.gloss || '—'}
+        </div>
+
+        {/* Action buttons in center */}
+        <div className="flex justify-center gap-4 mt-2">
+          <button
+            className="btn btn-icon"
+            onClick={handleSpeak}
+            aria-label="Speak word"
+          >
+            🔊
+          </button>
+
+          <VocabStarButton
+            token={token}
+            isStarred={isStarred}
+            onStar={() => onStar()}
+            className="text-xl"
+          />
+        </div>
       </div>
 
       <div className="word-details border-t pt-3 space-y-2">
+        {/* Part of speech - only show if not in English Only mode */}
+        {translationDisplay !== 'inline' && token.lemma && (
+          <div className="mb-2">
+            <div className="text-sm text-secondary">Part of Speech:</div>
+            <div className="font-medium">Not available</div>
+          </div>
+        )}
+
         {/* Surface form if different from lemma - only show if not in English Only mode */}
         {token.surface !== token.lemma && translationDisplay !== 'inline' && (
           <div className="mb-2">
@@ -98,28 +122,15 @@ function WordCard({ token, showNikud, onStar, isStarred = false, translationDisp
           </div>
         )}
 
-        {/* Translation */}
-        <div className="mb-2">
-          <div className="text-sm text-secondary">Translation:</div>
-          <div className="font-medium">{token.gloss || '—'}</div>
+        {/* Copy button at bottom */}
+        <div className="mt-4">
+          <button
+            className={`btn btn-small ${copied ? 'bg-green-500' : 'btn-secondary'} w-full`}
+            onClick={handleCopy}
+          >
+            {copied ? 'Copied!' : 'Copy Word'}
+          </button>
         </div>
-      </div>
-
-      {/* Action buttons */}
-      <div className="flex gap-2 mt-4">
-        <button
-          className={`btn btn-small ${copied ? 'bg-green-500' : 'btn-secondary'}`}
-          onClick={handleCopy}
-        >
-          {copied ? 'Copied!' : 'Copy'}
-        </button>
-
-        <button
-          className="btn btn-small btn-secondary"
-          onClick={handleSpeak}
-        >
-          🔊 Speak
-        </button>
       </div>
     </div>
   );

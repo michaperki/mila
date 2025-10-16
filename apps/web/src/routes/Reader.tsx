@@ -5,6 +5,7 @@ import { useVocabStore } from '../state/useVocabStore'
 import SentenceBlock from '../components/SentenceBlock'
 import PhraseChips from '../components/PhraseChips'
 import WordCard from '../components/WordCard'
+import ContextMiniMap from '../components/ContextMiniMap'
 import FullTextDisplay from '../components/FullTextDisplay'
 import ReadingControlBar from '../components/ReadingControlBar'
 import ErrorMessage from '../components/ErrorMessage'
@@ -316,19 +317,19 @@ function Reader() {
           {/* Navigation controls */}
           <div className="mb-4 flex items-center justify-between">
             <button
-              className="btn"
+              className="btn flex items-center"
               onClick={handlePrevious}
               disabled={currentChunkIndex <= 0}
             >
-              ← Previous
+              <span className="mr-1">◀</span> Previous Word
             </button>
 
             <button
-              className="btn"
+              className="btn flex items-center"
               onClick={handleNext}
               disabled={currentChunkIndex >= text.chunks.length - 1}
             >
-              Next →
+              Next Word <span className="ml-1">▶</span>
             </button>
           </div>
 
@@ -374,6 +375,7 @@ function Reader() {
           {/* Word card (if a token is selected in word mode) */}
           {viewMode === 'words' && selectedToken && (
             <div className="mb-4">
+              <h2 className="text-lg font-semibold mb-2">🟦 Word Focus</h2>
               <WordCard
                 token={selectedToken}
                 onStar={handleToggleStar}
@@ -381,25 +383,32 @@ function Reader() {
                 isStarred={isTokenStarred(selectedToken)}
                 translationDisplay={translationDisplay}
               />
+
+              {/* Context mini-map */}
+              <ContextMiniMap
+                chunk={selectedChunk}
+                selectedToken={selectedToken}
+                showNikud={showNikud}
+              />
             </div>
           )}
 
           {/* Navigation controls */}
           <div className="mb-4 flex items-center justify-between">
             <button
-              className="btn"
+              className="btn flex items-center"
               onClick={handlePrevious}
               disabled={currentChunkIndex <= 0}
             >
-              ← Previous
+              <span className="mr-1">◀</span> Previous Word
             </button>
 
             <button
-              className="btn"
+              className="btn flex items-center"
               onClick={handleNext}
               disabled={currentChunkIndex >= text.chunks.length - 1}
             >
-              Next →
+              Next Word <span className="ml-1">▶</span>
             </button>
           </div>
         </>

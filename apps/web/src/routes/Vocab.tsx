@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useVocabStore } from '../state/useVocabStore'
 import { StarredItem } from '../types'
 import { toggleNikud } from '../lib/nikud'
 import { transliterate } from '../lib/translit'
+import { groupItemsByDate, formatGroupName } from '../lib/dateUtils'
+import VocabItem from '../components/VocabItem'
 import ErrorMessage from '../components/ErrorMessage'
 
 function Vocab() {
@@ -273,7 +275,7 @@ function Vocab() {
       )}
 
       {/* Vocabulary list */}
-      <div className="card">
+      <div className="card p-4">
         {isLoading ? (
           <div className="p-4 text-center">
             <div className="mb-2 text-primary">Loading vocabulary...</div>
@@ -282,54 +284,34 @@ function Vocab() {
             </div>
           </div>
         ) : filteredVocab.length > 0 ? (
-          <ul className="divide-y">
-            {filteredVocab.map((item: StarredItem) => (
-              <li key={item.id} className="p-3 hover:bg-gray-50 transition-colors">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="hebrew-text font-bold mb-1" dir="rtl" lang="he">
-                      {showNikud ? item.lemma : toggleNikud(item.lemma, false)}
-                    </div>
+          <div>
+            {useMemo(() => {
+              // Group the vocabulary items by date
+              const groups = groupItemsByDate(filteredVocab);
 
-                    {showTranslit && (
-                      <div className="text-sm italic text-gray-500 mb-1">
-                        {transliterate(item.lemma)}
-                      </div>
-                    )}
-
-                    <div className="text-gray-700">{item.gloss}</div>
+              // Return groups with items
+              return Object.entries(groups)
+                .filter(([_, items]) => items.length > 0)
+                .map(([groupName, items]) => (
+                  <div key={groupName} className="mb-6">
+                    <h3 className="text-md font-semibold text-gray-700 mb-3 border-b pb-1">
+                      {formatGroupName(groupName)} ({items.length})
+                    </h3>
+                    <ul className="space-y-2">
+                      {items.map((item: StarredItem) => (
+                        <VocabItem
+                          key={item.id}
+                          item={item}
+                          showNikud={showNikud}
+                          showTranslit={showTranslit}
+                          onRemove={handleRemoveItem}
+                        />
+                      ))}
+                    </ul>
                   </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      className="btn btn-small btn-secondary text-sm"
-                      onClick={() => {
-                        // Copy to clipboard
-                        navigator.clipboard.writeText(`${item.lemma} - ${item.gloss}`);
-                      }}
-                      title="Copy to clipboard"
-                    >
-                      Copy
-                    </button>
-
-                    <button
-                      className="btn btn-small bg-red-100 text-red-700 hover:bg-red-200"
-                      onClick={() => handleRemoveItem(item.id)}
-                      title="Remove from vocabulary"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-
-                {item.sourceRef && (
-                  <div className="mt-2 text-xs text-gray-500">
-                    Added from text: {item.sourceRef.textId}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
+                ));
+            }, [filteredVocab, showNikud, showTranslit])}
+          </div>
         ) : searchTerm ? (
           <p className="p-4 text-center text-gray-500">
             No results matching "{searchTerm}". Try another search term.
