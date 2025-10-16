@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTextStore } from '../state/useTextStore'
 import { useVocabStore } from '../state/useVocabStore'
@@ -45,31 +45,63 @@ function Reader() {
       setIsLoading(true)
 
       try {
-        // Load text
-        const loadedText = await getTextById(textId)
-        if (!loadedText) {
-          navigate('/')
-          return
+        // Load in parallel for better performance
+        const textPromise = getTextById(textId)
+        const vocabPromise = getVocab()
+
+        // Wait for both to complete
+        const [loadedText, vocabItems] = await Promise.allSettled([textPromise, vocabPromise])
+
+        // Handle text loading result
+        if (loadedText.status === 'fulfilled') {
+          if (!loadedText.value) {
+            navigate('/')
+            return
+          }
+
+          setText(loadedText.value)
+          if (loadedText.value.chunks.length > 0) {
+            setSelectedChunk(loadedText.value.chunks[0])
+          }
+        } else {
+          console.error('Error loading text:', loadedText.reason)
+          setLoadError(`Failed to load text: ${loadedText.reason?.message || 'Unknown error'}`)
         }
 
-        setText(loadedText)
-        if (loadedText.chunks.length > 0) {
-          setSelectedChunk(loadedText.chunks[0])
+        // Handle vocab loading result
+        if (vocabItems.status === 'fulfilled') {
+          setStarredItems(vocabItems.value)
+          setLoadError(null) // Clear any previous errors if vocab loaded but text had an error
+        } else {
+          console.error('Error loading vocabulary:', vocabItems.reason)
+          // Don't set error just for vocab, as we can still show the text
         }
-
-        // Load vocabulary
-        const vocabItems = await getVocab()
-        setStarredItems(vocabItems)
-        setLoadError(null) // Clear any previous errors
       } catch (error) {
-        console.error('Error loading data:', error)
-        setLoadError((error as Error).message || 'Failed to load text data')
+        console.error('Error in load operation:', error)
+        setLoadError((error as Error).message || 'Failed to load data')
       } finally {
         setIsLoading(false)
       }
     }
 
     loadData()
+
+    // Reload starred items when returning to this page
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        getVocab().then(items => {
+          setStarredItems(items)
+        }).catch(error => {
+          console.error('Error reloading vocabulary:', error)
+        })
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [textId, getTextById, getVocab, navigate])
 
   // Check if a token is already starred
@@ -135,8 +167,18 @@ function Reader() {
         const itemToRemove = starredItems.find(item => item.lemma === token.lemma)
         if (itemToRemove) {
           await removeItem(itemToRemove.id)
-          // Update local state
+
+          // Update local state - this needs to happen here to provide immediate feedback
           setStarredItems(prev => prev.filter(item => item.lemma !== token.lemma))
+
+          // Also fetch from database to ensure consistency
+          try {
+            const updatedItems = await getVocab()
+            setStarredItems(updatedItems)
+          } catch (syncError) {
+            console.warn('Error synchronizing vocab after removal:', syncError)
+            // We already updated the local state, so no need to show an error
+          }
         }
       } else {
         // Add new starred item
@@ -152,8 +194,18 @@ function Reader() {
         }
 
         await starItem(newItem)
-        // Update local state
+
+        // Update local state - this needs to happen here to provide immediate feedback
         setStarredItems(prev => [newItem, ...prev])
+
+        // Also fetch from database to ensure consistency
+        try {
+          const updatedItems = await getVocab()
+          setStarredItems(updatedItems)
+        } catch (syncError) {
+          console.warn('Error synchronizing vocab after addition:', syncError)
+          // We already updated the local state, so no need to show an error
+        }
       }
     } catch (error) {
       console.error('Error toggling star status:', error)

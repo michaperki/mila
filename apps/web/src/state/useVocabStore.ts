@@ -29,14 +29,49 @@ export const useVocabStore = create<VocabState>()(
       getVocab: async () => {
         try {
           set({ isLoading: true, error: null });
-          const db = await initAppDB();
-          const vocab = await db.getAll('vocab');
 
-          // Sort by createdAt in descending order (newest first)
-          const sortedVocab = vocab.sort((a, b) => b.createdAt - a.createdAt);
+          // Ensure database is initialized properly
+          try {
+            const db = await initAppDB();
+            const vocab = await db.getAll('vocab');
 
-          set({ vocab: sortedVocab, isLoading: false, lastUpdated: Date.now() });
-          return sortedVocab;
+            // Sort by createdAt in descending order (newest first)
+            const sortedVocab = vocab.sort((a, b) => b.createdAt - a.createdAt);
+
+            set({ vocab: sortedVocab, isLoading: false, lastUpdated: Date.now(), error: null });
+            return sortedVocab;
+          } catch (dbError) {
+            console.error('Database initialization error:', dbError);
+
+            // Try reinitializing the database
+            try {
+              // Force a new connection by using a different version number temporarily
+              const tempDB = await openDB('readlearn-db', 2, {
+                upgrade(db) {
+                  // Create vocab store if it doesn't exist
+                  if (!db.objectStoreNames.contains('vocab')) {
+                    db.createObjectStore('vocab', { keyPath: 'id' });
+                  }
+                  if (!db.objectStoreNames.contains('texts')) {
+                    db.createObjectStore('texts', { keyPath: 'id' });
+                  }
+                },
+              });
+
+              // Close the temporary connection
+              tempDB.close();
+
+              // Try the original connection again
+              const db = await initAppDB();
+              const vocab = await db.getAll('vocab');
+              const sortedVocab = vocab.sort((a, b) => b.createdAt - a.createdAt);
+
+              set({ vocab: sortedVocab, isLoading: false, lastUpdated: Date.now(), error: null });
+              return sortedVocab;
+            } catch (retryError) {
+              throw new Error(`Database initialization failed. Please reload the app. Details: ${(retryError as Error).message}`);
+            }
+          }
         } catch (error) {
           set({ error: (error as Error).message, isLoading: false });
           return [];
@@ -46,6 +81,10 @@ export const useVocabStore = create<VocabState>()(
       starItem: async (item: StarredItem) => {
         try {
           set({ isLoading: true, error: null });
+
+          // Ensure database is initialized
+          await get().getVocab();
+
           const db = await initAppDB();
 
           // Check if the lemma already exists
@@ -66,17 +105,19 @@ export const useVocabStore = create<VocabState>()(
               v.id === existingItem.id ? updatedItem : v
             );
 
-            set({ vocab: updatedVocab, isLoading: false, lastUpdated: Date.now() });
+            set({ vocab: updatedVocab, isLoading: false, lastUpdated: Date.now(), error: null });
           } else {
             // Add new item
             await db.put('vocab', item);
             set({
               vocab: [item, ...vocab],
               isLoading: false,
-              lastUpdated: Date.now()
+              lastUpdated: Date.now(),
+              error: null
             });
           }
         } catch (error) {
+          console.error('Error starring item:', error);
           set({ error: (error as Error).message, isLoading: false });
         }
       },
@@ -84,13 +125,18 @@ export const useVocabStore = create<VocabState>()(
       removeItem: async (id: string) => {
         try {
           set({ isLoading: true, error: null });
+
+          // Ensure database is initialized
+          await get().getVocab();
+
           const db = await initAppDB();
           await db.delete('vocab', id);
 
           // Update the vocab list
           const vocab = get().vocab.filter(item => item.id !== id);
-          set({ vocab, isLoading: false, lastUpdated: Date.now() });
+          set({ vocab, isLoading: false, lastUpdated: Date.now(), error: null });
         } catch (error) {
+          console.error('Error removing item:', error);
           set({ error: (error as Error).message, isLoading: false });
         }
       },
@@ -124,6 +170,9 @@ export const useVocabStore = create<VocabState>()(
         try {
           set({ isLoading: true, error: null });
 
+          // Ensure database is initialized
+          await get().getVocab();
+
           // Parse JSON data
           const parsed = JSON.parse(jsonData);
 
@@ -154,10 +203,11 @@ export const useVocabStore = create<VocabState>()(
 
           // Update state
           await get().getVocab();
-          set({ isLoading: false, lastUpdated: Date.now() });
+          set({ isLoading: false, lastUpdated: Date.now(), error: null });
 
           return true;
         } catch (error) {
+          console.error('Import failed:', error);
           set({
             error: `Import failed: ${(error as Error).message}`,
             isLoading: false
@@ -171,6 +221,9 @@ export const useVocabStore = create<VocabState>()(
         try {
           set({ isLoading: true, error: null });
 
+          // Ensure database is initialized
+          await get().getVocab();
+
           const db = await initAppDB();
           const tx = db.transaction('vocab', 'readwrite');
           await tx.store.clear();
@@ -179,9 +232,11 @@ export const useVocabStore = create<VocabState>()(
           set({
             vocab: [],
             isLoading: false,
-            lastUpdated: Date.now()
+            lastUpdated: Date.now(),
+            error: null
           });
         } catch (error) {
+          console.error('Clear vocab failed:', error);
           set({
             error: `Clear failed: ${(error as Error).message}`,
             isLoading: false

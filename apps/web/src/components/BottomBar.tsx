@@ -35,22 +35,18 @@ function BottomBar() {
         <span className="text-sm">Current</span>
       </NavLink>
 
-      {/* Text List */}
+      {/* Vocabulary */}
       <NavLink
-        to="/texts"
+        to="/vocab"
         className={({ isActive }) =>
           `flex flex-col items-center ${isActive ? 'text-primary' : 'text-secondary'}`
         }
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="8" y1="6" x2="21" y2="6"></line>
-          <line x1="8" y1="12" x2="21" y2="12"></line>
-          <line x1="8" y1="18" x2="21" y2="18"></line>
-          <line x1="3" y1="6" x2="3.01" y2="6"></line>
-          <line x1="3" y1="12" x2="3.01" y2="12"></line>
-          <line x1="3" y1="18" x2="3.01" y2="18"></line>
+          <path d="M12 4.354a4 4 0 0 1 0 5.292M15 21H3v-1a6 6 0 0 1 6-6h1.5"></path>
+          <path d="M20.59 11.95a2.59 2.59 0 1 0-3.67 3.66l4.72 4.74L24 17.94l-3.4-6z"></path>
         </svg>
-        <span className="text-sm">List</span>
+        <span className="text-sm">Vocab</span>
       </NavLink>
 
       {/* Settings */}

@@ -31,11 +31,30 @@ function Vocab() {
 
   useEffect(() => {
     const loadVocab = async () => {
-      await getVocab()
-      setIsLoading(false)
+      try {
+        await getVocab()
+      } catch (err) {
+        console.error('Failed to load vocabulary:', err)
+      } finally {
+        setIsLoading(false)
+      }
     }
 
     loadVocab()
+
+    // Reload data when returning to this page
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadVocab()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    // Cleanup
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [getVocab])
 
   // Get filtered vocabulary items
@@ -126,7 +145,11 @@ function Vocab() {
 
   return (
     <div className="container">
-      <h1 className="text-xl font-bold mb-4">Vocabulary</h1>
+      <h1 className="text-xl font-bold mb-4">My Vocabulary List</h1>
+
+      <p className="text-gray-600 mb-4">
+        Words you've starred while reading will appear here. Use this list to review and practice your vocabulary.
+      </p>
 
       {/* Search and view options */}
       <div className="flex flex-col md:flex-row gap-2 mb-4">
@@ -213,6 +236,16 @@ function Vocab() {
 
       <ErrorMessage
         error={error}
+        onRetry={async () => {
+          setIsLoading(true)
+          try {
+            await getVocab()
+            setIsLoading(false)
+          } catch (err) {
+            console.error('Retry failed:', err)
+            setIsLoading(false)
+          }
+        }}
       />
 
       {/* Confirmation dialog */}
@@ -302,11 +335,20 @@ function Vocab() {
             No results matching "{searchTerm}". Try another search term.
           </p>
         ) : (
-          <div className="p-4 text-center">
-            <p className="mb-2">No vocabulary items found.</p>
-            <p className="text-sm text-gray-500">
-              Star words while reading to add them here.
+          <div className="p-6 text-center">
+            <div className="mb-4 text-4xl">📚</div>
+            <p className="mb-2 font-medium">Your vocabulary list is empty</p>
+            <p className="text-sm text-gray-500 mb-4">
+              Words you star while reading will appear here for review and practice.
             </p>
+            <div className="bg-blue-50 p-3 rounded-lg text-left max-w-md mx-auto mb-2">
+              <p className="text-sm font-medium text-blue-800 mb-1">How to add words:</p>
+              <ol className="text-sm text-blue-700 list-decimal pl-5 space-y-1">
+                <li>Use the Camera tab to capture and translate text</li>
+                <li>Tap on any word in the Reader to see its details</li>
+                <li>Click the star icon to save words to your vocabulary list</li>
+              </ol>
+            </div>
           </div>
         )}
       </div>

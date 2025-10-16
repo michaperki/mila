@@ -11,18 +11,21 @@ function ErrorMessage({ error, onRetry, onDismiss }: ErrorMessageProps) {
 
   // Map common error messages to user-friendly versions
   const getFriendlyErrorMessage = (errorText: string) => {
-    if (errorText.includes('Failed to execute \'transaction\'')) {
+    if (errorText.includes('Failed to execute \'transaction\'') ||
+        errorText.includes('The database connection is closing') ||
+        errorText.includes('database initialization failed') ||
+        errorText.includes('InvalidStateError')) {
       return 'Storage setup incomplete. Please reload the page to reinitialize the database.';
     }
-    
+
     if (errorText.includes('NetworkError') || errorText.includes('Failed to fetch')) {
       return 'Network connection issue. Please check your internet connection and try again.';
     }
-    
+
     if (errorText.includes('QuotaExceededError')) {
       return 'Storage space limit exceeded. Try clearing some saved texts.';
     }
-    
+
     if (errorText.includes('Permission denied') || errorText.includes('NotAllowedError')) {
       return 'Permission denied. Please allow access to required features.';
     }
@@ -31,7 +34,10 @@ function ErrorMessage({ error, onRetry, onDismiss }: ErrorMessageProps) {
   };
 
   const friendlyMessage = getFriendlyErrorMessage(error);
-  const needsReload = error.includes('Failed to execute \'transaction\'');
+  const needsReload = error.includes('Failed to execute \'transaction\'') ||
+                      error.includes('The database connection is closing') ||
+                      error.includes('database initialization failed') ||
+                      error.includes('InvalidStateError');
 
   return (
     <div className="error-message bg-red-50 border border-red-200 text-red-800 rounded p-3 mb-4">
