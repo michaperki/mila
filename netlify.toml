@@ -2,9 +2,15 @@
   base = "apps/web"
   command = "pnpm approve-builds && pnpm install --frozen-lockfile && pnpm build"
   publish = "dist"
+  functions = "netlify/functions"
 
 [build.environment]
   NODE_VERSION = "20"
   PNPM_HOME = "/opt/buildhome/.pnpm"
   PNPM_CACHE_DIR = "/opt/buildhome/.pnpm-store"
   PNPM_ENABLE_PREPOSTINSTALL_SCRIPTS = "1"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
