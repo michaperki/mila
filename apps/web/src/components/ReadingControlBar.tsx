@@ -1,6 +1,6 @@
 interface ReadingControlBarProps {
   displayMode: 'fullText' | 'sentence' | 'word';
-  setDisplayMode: (mode: 'fullText' | 'sentence' | 'word') => void;
+  onChange: (mode: 'fullText' | 'sentence' | 'word') => void;
 }
 
 const MODE_LABELS: Record<'fullText' | 'sentence' | 'word', string> = {
@@ -9,26 +9,26 @@ const MODE_LABELS: Record<'fullText' | 'sentence' | 'word', string> = {
   word: 'Word',
 };
 
-function ReadingControlBar({ displayMode, setDisplayMode }: ReadingControlBarProps) {
+function ReadingControlBar({ displayMode, onChange }: ReadingControlBarProps) {
   return (
-    <nav className="reading-mode-toggle">
-      <div className="mode-toggle">
-        {(['fullText', 'sentence', 'word'] as const).map((mode, index) => {
-          const isActive = displayMode === mode;
-          return (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setDisplayMode(mode)}
-            className={`mode-toggle__btn${isActive ? ' mode-toggle__btn--active' : ''}`}
-              aria-pressed={isActive}
-            >
-              {MODE_LABELS[mode]}
-            </button>
-          );
-        })}
-      </div>
-    </nav>
+    <div className="reader-tabs" role="tablist" aria-label="Reader view modes">
+      {(['fullText', 'sentence', 'word'] as const).map((mode) => {
+        const isActive = displayMode === mode;
+        return (
+          <button
+            key={mode}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            aria-controls={`reader-section-${mode}`}
+            className={`reader-tabs__btn${isActive ? ' reader-tabs__btn--active' : ''}`}
+            onClick={() => onChange(mode)}
+          >
+            {MODE_LABELS[mode]}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

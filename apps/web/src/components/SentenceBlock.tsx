@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from 'react';
+import { Fragment, useMemo, useRef } from 'react';
 import { Chunk, Token } from '../types';
 import { toggleNikud } from '../lib/nikud';
 import { transliterate } from '../lib/translit';
@@ -12,6 +12,10 @@ interface SentenceBlockProps {
   translationDisplay?: 'hidden' | 'inline' | 'interlinear';
   selectedToken?: Token | null;
   onTokenSelect?: (token: Token) => void;
+  onPrevious?: () => void;
+  onNext?: () => void;
+  disablePrevious?: boolean;
+  disableNext?: boolean;
 }
 
 function SentenceBlock({
@@ -22,7 +26,11 @@ function SentenceBlock({
   totalChunks,
   translationDisplay = 'interlinear',
   selectedToken,
-  onTokenSelect
+  onTokenSelect,
+  onPrevious,
+  onNext,
+  disablePrevious,
+  disableNext,
 }: SentenceBlockProps) {
   const processedText = useMemo(() => {
     return toggleNikud(chunk.text, showNikud);
@@ -42,23 +50,64 @@ function SentenceBlock({
       ? Math.min(100, Math.max(0, ((currentPosition + 1) / totalChunks) * 100))
       : 0;
 
-  return (
-    <div className="sentence-block p-6 bg-white rounded-xl shadow-sm border border-gray-200">
-      {hasProgress && totalChunks && (
-        <div className="flex items-center justify-between text-sm text-gray-500 mb-4">
-          <span className="font-medium">
-            Sentence {currentPosition + 1} / {totalChunks}
-          </span>
-          <div className="w-24 h-1 bg-gray-200 rounded-full overflow-hidden">
-            <div
-              className="h-1 bg-blue-500 rounded-full"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-        </div>
-      )}
+  const pointerStart = useRef<number | null>(null);
 
-      <div className="sentence-content">
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+      pointerStart.current = event.clientX;
+    } else {
+      pointerStart.current = null;
+    }
+  };
+
+  const handlePointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerStart.current === null) return;
+    const deltaX = event.clientX - pointerStart.current;
+    pointerStart.current = null;
+
+    if (Math.abs(deltaX) < 48) return;
+    if (deltaX < 0) {
+      onNext?.();
+    } else {
+      onPrevious?.();
+    }
+  };
+
+  const resetPointer = () => {
+    pointerStart.current = null;
+  };
+
+  return (
+    <div
+      className="sentence-shell"
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={resetPointer}
+      onPointerLeave={resetPointer}
+    >
+      <button
+        type="button"
+        className="reader-arrow reader-arrow--left"
+        onClick={onPrevious}
+        disabled={disablePrevious}
+        aria-label="Previous sentence"
+      >
+        ◀
+      </button>
+
+      <article className="sentence-card">
+        {hasProgress && totalChunks && (
+          <header className="sentence-card__header">
+            <span className="progress-chip">
+              Sentence&nbsp;{currentPosition + 1}/{totalChunks}
+            </span>
+            <div className="sentence-card__progress">
+              <div className="sentence-card__progress-fill" style={{ width: `${progressPercent}%` }} />
+            </div>
+          </header>
+        )}
+
+        <div className="sentence-content">
         {showHebrew && (
           <div className="sentence-content__hebrew" dir="rtl" lang="he">
             {chunk.tokens.length > 0 ? (
@@ -104,7 +153,22 @@ function SentenceBlock({
             {chunk.translation || '—'}
           </p>
         )}
-      </div>
+        </div>
+
+        {onTokenSelect && (
+          <p className="sentence-card__hint">Tap a word to open word view</p>
+        )}
+      </article>
+
+      <button
+        type="button"
+        className="reader-arrow reader-arrow--right"
+        onClick={onNext}
+        disabled={disableNext}
+        aria-label="Next sentence"
+      >
+        ▶
+      </button>
     </div>
   );
 }

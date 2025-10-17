@@ -8,9 +8,10 @@ import FullTextDisplay from '../components/FullTextDisplay'
 import ReadingControlBar from '../components/ReadingControlBar'
 import ErrorMessage from '../components/ErrorMessage'
 import TopNavBar from '../components/TopNavBar'
-import { toggleNikud } from '../lib/nikud'
 import { Chunk, Token, StarredItem } from '../types'
 type DisplayMode = 'fullText' | 'sentence' | 'word'
+
+const READER_VIEW_STORAGE_KEY = 'mila:reader:last-view';
 
 function Reader() {
   const { textId } = useParams<{ textId: string }>()
@@ -19,7 +20,11 @@ function Reader() {
   const { vocab, starItem, removeItem, getVocab } = useVocabStore()
 
   // State
-  const [displayMode, setDisplayMode] = useState<DisplayMode>('sentence')
+  const [displayMode, setDisplayMode] = useState<DisplayMode>(() => {
+    if (typeof window === 'undefined') return 'fullText';
+    const stored = window.sessionStorage.getItem(READER_VIEW_STORAGE_KEY);
+    return stored === 'sentence' || stored === 'word' || stored === 'fullText' ? stored : 'fullText';
+  })
   const [selectedChunk, setSelectedChunk] = useState<Chunk | null>(null)
   const [selectedToken, setSelectedToken] = useState<Token | null>(null)
   const [currentChunkIndex, setCurrentChunkIndex] = useState(0)
@@ -32,6 +37,25 @@ function Reader() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [starringError, setStarringError] = useState<string | null>(null)
   const [showSettingsPanel, setShowSettingsPanel] = useState(false)
+
+  const updateDisplayMode = useCallback((mode: DisplayMode) => {
+    if (mode === 'word' && selectedChunk) {
+      setSelectedToken((prev) => {
+        if (prev) return prev;
+        return selectedChunk.tokens[0] ?? null;
+      });
+    }
+
+    setDisplayMode(mode);
+
+    if (typeof window !== 'undefined') {
+      try {
+        window.sessionStorage.setItem(READER_VIEW_STORAGE_KEY, mode);
+      } catch (err) {
+        console.warn('Unable to persist reader view mode:', err);
+      }
+    }
+  }, [selectedChunk]);
 
   // Load text and vocab data
   useEffect(() => {
@@ -146,8 +170,20 @@ function Reader() {
 
   const handleSelectToken = (token: Token) => {
     setSelectedToken(token)
-    setDisplayMode('word')
+    updateDisplayMode('word')
   }
+
+  const handleWordOpenFromFullText = useCallback((token: Token, chunk: Chunk) => {
+    setSelectedChunk(chunk)
+    if (text) {
+      const index = text.chunks.findIndex((c: Chunk) => c.id === chunk.id)
+      if (index !== -1) {
+        setCurrentChunkIndex(index)
+      }
+    }
+    setSelectedToken(token)
+    updateDisplayMode('word')
+  }, [text, updateDisplayMode])
 
   // Get the first token in the current chunk (for default word selection)
   const getFirstTokenInChunk = useCallback(() => {
@@ -265,7 +301,7 @@ function Reader() {
       actions={
         <div className="relative">
           <button
-            className="btn btn-icon bg-gray-100 hover:bg-gray-200"
+            className="btn-icon"
             onClick={() => setShowSettingsPanel(prev => !prev)}
             aria-label="Toggle reading settings"
           >
@@ -347,16 +383,27 @@ function Reader() {
   }
 
   const activeToken = selectedToken || getFirstTokenInChunk();
+  const activeTokenIndex = selectedChunk && activeToken
+    ? selectedChunk.tokens.findIndex((token) => token.idx === activeToken.idx)
+    : -1;
+  const atStartOfText = selectedChunk
+    ? activeTokenIndex <= 0 && currentChunkIndex <= 0
+    : true;
+  const atEndOfText = selectedChunk
+    ? activeTokenIndex >= (selectedChunk.tokens.length - 1) && currentChunkIndex >= text.chunks.length - 1
+    : true;
 
   return (
     <>
       {navBar}
       <div className="container pb-16">
 
-      <ReadingControlBar
-        displayMode={displayMode}
-        setDisplayMode={setDisplayMode}
-      />
+      <div className="reader-toolbar">
+        <ReadingControlBar
+          displayMode={displayMode}
+          onChange={updateDisplayMode}
+        />
+      </div>
 
       <ErrorMessage
         error={loadError}
@@ -381,7 +428,7 @@ function Reader() {
 
       {/* Full Text Mode */}
       {displayMode === 'fullText' && text && (
-        <div className="card mb-4 p-4">
+        <section id="reader-section-fullText" className="card mb-4 p-4">
           <FullTextDisplay
             chunks={text.chunks}
             showNikud={showNikud}
@@ -392,109 +439,52 @@ function Reader() {
               if (index !== -1) {
                 setCurrentChunkIndex(index);
               }
-              setDisplayMode('sentence');
+              updateDisplayMode('sentence');
             }}
+            onWordOpen={handleWordOpenFromFullText}
+            onWordStar={handleToggleStar}
+            isWordStarred={isTokenStarred}
+            textScale={1}
           />
-        </div>
+        </section>
       )}
 
       {/* Sentence Mode */}
       {displayMode === 'sentence' && selectedChunk && (
-        <>
-          <div className="card mb-4">
-            <SentenceBlock
-              chunk={selectedChunk}
-              showNikud={showNikud}
-              showTransliteration={showTransliteration}
-              currentIndex={currentChunkIndex}
-              totalChunks={text.chunks.length}
-              translationDisplay={translationDisplay}
-              selectedToken={selectedToken}
-              onTokenSelect={handleSelectToken}
-            />
-          </div>
-
-          {/* Navigation controls */}
-          <div className="mb-4 flex items-center justify-between">
-            <button
-              className="inline-flex items-center gap-1 px-3 py-2 rounded-full border border-gray-200 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-50"
-              onClick={handlePrevious}
-              disabled={currentChunkIndex <= 0}
-            >
-              <span aria-hidden>◀</span>
-              <span>Previous</span>
-            </button>
-
-            <button
-              className="inline-flex items-center gap-1 px-3 py-2 rounded-full border border-gray-200 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-50"
-              onClick={handleNext}
-              disabled={currentChunkIndex >= text.chunks.length - 1}
-            >
-              <span>Next</span>
-              <span aria-hidden>▶</span>
-            </button>
-          </div>
-
-        </>
+        <section id="reader-section-sentence">
+          <SentenceBlock
+            chunk={selectedChunk}
+            showNikud={showNikud}
+            showTransliteration={showTransliteration}
+            currentIndex={currentChunkIndex}
+            totalChunks={text.chunks.length}
+            translationDisplay={translationDisplay}
+            selectedToken={selectedToken}
+            onTokenSelect={handleSelectToken}
+            onPrevious={handlePrevious}
+            onNext={handleNext}
+            disablePrevious={currentChunkIndex <= 0}
+            disableNext={currentChunkIndex >= text.chunks.length - 1}
+          />
+        </section>
       )}
 
       {/* Word Mode */}
-      {displayMode === 'word' && selectedChunk && (
-        <>
-          <div className="text-sm text-gray-500 text-center mb-4">
-            Sentence {currentChunkIndex + 1} of {text.chunks.length}
-          </div>
-
-          {activeToken && (
-            <div className="mb-6">
-              <WordCard
-                token={activeToken}
-                onStar={handleToggleStar}
-                showNikud={showNikud}
-                isStarred={isTokenStarred(activeToken)}
-                translationDisplay={translationDisplay}
-              />
-            </div>
-          )}
-
-          <div className="context-chip-strip">
-            <div className="context-chip-strip__inner" dir="rtl" lang="he">
-              {selectedChunk.tokens.map((token) => {
-                const surface = toggleNikud(token.surface, showNikud);
-                const isActive = activeToken?.idx === token.idx;
-                return (
-                  <button
-                    key={token.idx}
-                    type="button"
-                    onClick={() => handleSelectToken(token)}
-                    className={`word-chip${isActive ? ' word-chip--active' : ''}`}
-                  >
-                    {surface}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Word navigation controls */}
-          <div className="mb-4 flex items-center justify-between">
-            <button
-              className="btn flex items-center"
-              onClick={() => navigateToTokenByOffset(-1)}
-              disabled={currentChunkIndex <= 0 && (!selectedToken || selectedChunk?.tokens.indexOf(selectedToken) <= 0)}
-            >
-              <span className="mr-1">◀</span> Previous Word
-            </button>
-
-            <button
-              className="btn flex items-center"
-              onClick={() => navigateToTokenByOffset(1)}
-              disabled={currentChunkIndex >= text.chunks.length - 1 && (!selectedToken || selectedChunk?.tokens.indexOf(selectedToken) >= (selectedChunk?.tokens.length || 0) - 1)}
-            >
-              Next Word <span className="ml-1">▶</span>
-            </button>
-          </div>
-        </>
+      {displayMode === 'word' && selectedChunk && activeToken && (
+        <section id="reader-section-word">
+          <WordCard
+            token={activeToken}
+            chunk={selectedChunk}
+            showNikud={showNikud}
+            onStar={() => handleToggleStar(activeToken)}
+            isStarred={isTokenStarred(activeToken)}
+            onSelectToken={handleSelectToken}
+            onNavigatePrevious={() => navigateToTokenByOffset(-1)}
+            onNavigateNext={() => navigateToTokenByOffset(1)}
+            disablePrevious={atStartOfText}
+            disableNext={atEndOfText}
+          />
+        </section>
       )}
       </div>
     </>

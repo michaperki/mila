@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import BrandMark from './BrandMark';
 
 // PWA install prompt component
 function InstallPrompt() {
@@ -60,10 +61,14 @@ function InstallPrompt() {
   if (!showInstallPrompt && !isIOS) return null;
   
   return (
-    <div className="install-prompt card mb-4 bg-blue-50">
+    <div className="install-prompt card mb-4 bg-muted">
       {isIOS ? (
         <div className="p-3">
-          <h3 className="font-bold mb-2">Install ReadLearn</h3>
+          <div className="flex items-center justify-between mb-2">
+            <BrandMark size="sm" />
+            <span className="text-muted text-sm uppercase tracking-wide">Install</span>
+          </div>
+          <h3 className="font-bold mb-2">Add Mila to your Home Screen</h3>
           <p className="mb-2">
             To install this app on your iOS device, tap the share icon
             <span className="mx-1">
@@ -77,13 +82,14 @@ function InstallPrompt() {
           </p>
         </div>
       ) : (
-        <div className="p-3 flex justify-between items-center">
-          <div>
-            <h3 className="font-bold">Install ReadLearn</h3>
-            <p className="text-sm">Install this app on your device for offline use</p>
+        <div className="p-3 flex justify-between items-center gap-3 flex-wrap">
+          <div className="space-y-1">
+            <BrandMark size="sm" />
+            <h3 className="font-semibold text-primary">Install Mila</h3>
+            <p className="text-sm text-secondary">Keep Mila ready offline and launch it like a native app.</p>
           </div>
           <button 
-            className="btn btn-primary"
+            className="btn"
             onClick={handleInstall}
           >
             Install

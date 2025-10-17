@@ -217,7 +217,7 @@ function Settings() {
           color="bg-gray-50"
         >
           <div className="mb-3">
-            <h3 className="font-medium mb-1">ReadLearn</h3>
+            <h3 className="font-medium mb-1">Mila</h3>
             <p className="text-sm text-gray-600">Version 0.2.0</p>
           </div>
 

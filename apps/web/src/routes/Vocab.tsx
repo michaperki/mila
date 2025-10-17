@@ -146,7 +146,7 @@ function Vocab() {
       // Create a download link and click it
       const a = document.createElement('a')
       a.href = url
-      a.download = `readlearn-vocab-${new Date().toISOString().slice(0, 10)}.json`
+      a.download = `mila-vocab-${new Date().toISOString().slice(0, 10)}.json`
       document.body.appendChild(a)
       a.click()
 
@@ -218,7 +218,7 @@ function Vocab() {
         subtitle="Saved Words"
         actions={
           <button
-            className="btn btn-icon bg-gray-100 hover:bg-gray-200"
+            className="btn-icon"
             onClick={() => setShowAdvanced(prev => !prev)}
             aria-label="Toggle advanced tools"
             aria-expanded={showAdvanced}

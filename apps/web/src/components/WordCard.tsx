@@ -1,20 +1,37 @@
-import { useState, useMemo } from 'react';
-import { Token } from '../types';
+import { useMemo, useState, useRef, useEffect } from 'react';
+import { Chunk, Token } from '../types';
 import { toggleNikud } from '../lib/nikud';
 import { transliterate } from '../lib/translit';
 import { getRootMeaning } from '../lib/roots';
-import VocabStarButton from './VocabStarButton';
 
 interface WordCardProps {
   token: Token;
+  chunk: Chunk;
   showNikud: boolean;
   onStar: () => void;
+  onSelectToken?: (token: Token) => void;
+  onNavigatePrevious?: () => void;
+  onNavigateNext?: () => void;
+  disablePrevious?: boolean;
+  disableNext?: boolean;
   isStarred?: boolean;
-  translationDisplay?: 'hidden' | 'inline' | 'interlinear';
 }
 
-function WordCard({ token, showNikud, onStar, isStarred = false, translationDisplay = 'interlinear' }: WordCardProps) {
+function WordCard({
+  token,
+  chunk,
+  showNikud,
+  onStar,
+  onSelectToken,
+  onNavigatePrevious,
+  onNavigateNext,
+  disablePrevious,
+  disableNext,
+  isStarred = false,
+}: WordCardProps) {
   const [copied, setCopied] = useState(false);
+  const contextRef = useRef<HTMLDivElement | null>(null);
+  const swipeStart = useRef<number | null>(null);
 
   const processedSurface = useMemo(() => toggleNikud(token.surface, showNikud), [token.surface, showNikud]);
   const processedLemma = useMemo(
@@ -22,21 +39,26 @@ function WordCard({ token, showNikud, onStar, isStarred = false, translationDisp
     [token.lemma, processedSurface, showNikud]
   );
   const transliteration = useMemo(() => transliterate(processedSurface), [processedSurface]);
+  const rootText = useMemo(() => (token.root ? toggleNikud(token.root, showNikud) : null), [token.root, showNikud]);
   const rootMeaning = useMemo(() => (token.root ? getRootMeaning(token.root) : null), [token.root]);
+  const hasDistinctSurface = useMemo(
+    () => Boolean(token.lemma) && token.surface !== token.lemma,
+    [token.lemma, token.surface]
+  );
 
-  const showHebrew = translationDisplay !== 'inline';
-  const showTranslation = translationDisplay !== 'hidden';
-  const rootText = token.root ? toggleNikud(token.root, showNikud) : null;
-  const hasDistinctSurface = showHebrew && Boolean(token.lemma) && token.surface !== token.lemma;
-
-  const actionButtonClasses =
-    'w-10 h-10 flex items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 hover:border-blue-400 hover:text-blue-600 transition-colors';
+  useEffect(() => {
+    if (!contextRef.current) return;
+    const activeElement = contextRef.current.querySelector<HTMLButtonElement>(`[data-word-idx="${token.idx}"]`);
+    if (activeElement) {
+      activeElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }, [token.idx]);
 
   const handleCopy = () => {
-    const textToCopy = `${processedLemma} - ${token.gloss || 'unknown'}`;
+    const textToCopy = `${processedLemma} — ${token.gloss || 'unknown'}`;
     navigator.clipboard.writeText(textToCopy).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      window.setTimeout(() => setCopied(false), 1500);
     });
   };
 
@@ -44,90 +66,147 @@ function WordCard({ token, showNikud, onStar, isStarred = false, translationDisp
     alert('Text-to-speech will be implemented in a future version');
   };
 
+  const handleContextSelect = (contextToken: Token) => {
+    if (!onSelectToken) return;
+    onSelectToken(contextToken);
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+      swipeStart.current = event.clientX;
+    } else {
+      swipeStart.current = null;
+    }
+  };
+
+  const handlePointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (swipeStart.current === null) return;
+    const deltaX = event.clientX - swipeStart.current;
+    swipeStart.current = null;
+    if (Math.abs(deltaX) < 48) return;
+
+    if (deltaX < 0) {
+      onNavigateNext?.();
+    } else {
+      onNavigatePrevious?.();
+    }
+  };
+
+  const resetSwipe = () => {
+    swipeStart.current = null;
+  };
+
   return (
-    <article className="w-full max-w-xl mx-auto bg-gradient-to-b from-blue-50 to-white border border-blue-100 rounded-2xl p-6 shadow-md text-center">
-      <div className="space-y-3">
-        {showHebrew && (
-          <h1 className="text-7xl font-bold text-gray-900 text-center" dir="rtl" lang="he">
+    <div
+      className="word-shell"
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={resetSwipe}
+      onPointerLeave={resetSwipe}
+    >
+      <button
+        type="button"
+        className="reader-arrow reader-arrow--left"
+        onClick={onNavigatePrevious}
+        disabled={disablePrevious}
+        aria-label="Previous word"
+      >
+        ◀
+      </button>
+
+      <article className="word-card">
+        <header className="word-card__header">
+          <h1 className="word-card__lemma" dir="rtl" lang="he">
             {processedLemma}
           </h1>
-        )}
+          <p className="word-card__translit">{transliteration}</p>
+          <p className="word-card__gloss">{token.gloss || '—'}</p>
+        </header>
 
-        {showTranslation && (
-          <p className="text-2xl text-gray-700">
-            {token.gloss || '—'}
-          </p>
-        )}
+        <div className="word-card__meta">
+          {rootText && (
+            <div className="word-card__row">
+              <span className="word-card__label">Root</span>
+              <span className="word-card__value word-card__value--mono" dir="rtl" lang="he">
+                {rootText}
+              </span>
+              {rootMeaning && <span className="word-card__note">{rootMeaning}</span>}
+            </div>
+          )}
 
-        <div className="flex items-center justify-center gap-3">
-          <button
-            className={actionButtonClasses}
-            onClick={handleSpeak}
-            aria-label="Play pronunciation"
-          >
+          {hasDistinctSurface && (
+            <div className="word-card__row">
+              <span className="word-card__label">Surface Form</span>
+              <span className="word-card__value" dir="rtl" lang="he">
+                {processedSurface}
+              </span>
+            </div>
+          )}
+
+          {token.pos && (
+            <div className="word-card__row">
+              <span className="word-card__label">Part of Speech</span>
+              <span className="word-card__value">{token.pos}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="word-card__actions">
+          <button type="button" className="word-action" onClick={handleSpeak} aria-label="Play pronunciation">
             🔊
           </button>
-          <VocabStarButton
-            token={token}
-            isStarred={isStarred}
-            onStar={onStar}
-            className={`${actionButtonClasses} text-lg`}
-          />
           <button
-            className={`${actionButtonClasses} ${copied ? 'border-green-400 text-green-600' : ''}`}
+            type="button"
+            className={`word-action${isStarred ? ' word-action--active' : ''}`}
+            onClick={onStar}
+            aria-pressed={isStarred}
+          >
+            {isStarred ? '★ Saved' : '☆ Save'}
+          </button>
+          <button
+            type="button"
+            className={`word-action${copied ? ' word-action--success' : ''}`}
             onClick={handleCopy}
             aria-label="Copy word"
           >
-            {copied ? '✓' : '📋'}
+            {copied ? '✓ Copied' : '📋 Copy'}
           </button>
         </div>
-      </div>
 
-      <div className="mt-6 space-y-3 text-sm text-gray-600">
-        {(rootText || transliteration) && (
-          <div>
-            {rootText && (
-              <p className="uppercase text-xs font-semibold text-gray-500 tracking-wide mb-1">
-                Root
-              </p>
-            )}
-            {rootText && (
-              <p className="text-lg font-semibold text-gray-800 text-center" dir="rtl" lang="he">
-                {rootText}
-              </p>
-            )}
-            <p className="text-sm italic text-gray-500 mt-1">
-              {transliteration}
-            </p>
-            {rootMeaning && (
-              <p className="text-xs text-gray-500 mt-1">{rootMeaning}</p>
-            )}
+        <section className="word-context" aria-label="Sentence context">
+          <div className="word-context__list" ref={contextRef}>
+            {chunk.tokens.map((contextToken) => {
+              const displayToken = toggleNikud(contextToken.surface, showNikud);
+              const isActive = contextToken.idx === token.idx;
+              return (
+                <button
+                  key={contextToken.idx}
+                  type="button"
+                  data-word-idx={contextToken.idx}
+                  className={`word-context__button${isActive ? ' word-context__button--active' : ''}`}
+                  onClick={() => handleContextSelect(contextToken)}
+                  dir="rtl"
+                  lang="he"
+                >
+                  {displayToken}
+                </button>
+              );
+            })}
           </div>
-        )}
+          <p className="word-context__hint">Swipe or tap to explore every word in this sentence.</p>
+        </section>
+      </article>
 
-        {token.pos && (
-          <div>
-            <p className="uppercase text-xs font-semibold text-gray-500 tracking-wide mb-1">
-              Part of Speech
-            </p>
-            <p className="text-sm font-medium text-gray-800">
-              {token.pos}
-            </p>
-          </div>
-        )}
-
-        {hasDistinctSurface && (
-          <div>
-            <p className="uppercase text-xs font-semibold text-gray-500 tracking-wide mb-1">
-              Surface Form
-            </p>
-            <p className="text-lg font-semibold text-gray-800 text-center" dir="rtl" lang="he">
-              {processedSurface}
-            </p>
-          </div>
-        )}
-      </div>
-    </article>
+      <button
+        type="button"
+        className="reader-arrow reader-arrow--right"
+        onClick={onNavigateNext}
+        disabled={disableNext}
+        aria-label="Next word"
+      >
+        ▶
+      </button>
+    </div>
   );
 }
 

@@ -52,10 +52,10 @@ function Home() {
       <TopNavBar
         current="camera"
         title="Camera"
-        subtitle="ReadLearn"
+        subtitle="Capture or upload text"
         actions={
           <button
-            className="btn btn-icon bg-gray-100 hover:bg-gray-200"
+            className="btn-icon"
             onClick={toggleSettings}
             aria-label="Open settings"
           >

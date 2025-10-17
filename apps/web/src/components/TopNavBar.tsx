@@ -1,5 +1,6 @@
-import { Link } from 'react-router-dom'
-import { ReactNode } from 'react'
+import { Link } from 'react-router-dom';
+import { ReactNode } from 'react';
+import BrandMark from './BrandMark';
 
 export type TopNavSection = 'camera' | 'current' | 'vocab' | 'settings'
 
@@ -14,31 +15,32 @@ const TOP_LEVEL_LINKS: Array<{ key: TopNavSection; label: string; to: string }> 
   { key: 'current', label: 'Current', to: '/reader/latest' },
   { key: 'vocab', label: 'Vocab', to: '/vocab' },
   { key: 'settings', label: 'Settings', to: '/settings' },
-]
+];
 
 const SECTION_LABELS: Record<TopNavSection, string> = {
   camera: 'Camera',
   current: 'Current',
   vocab: 'Vocabulary',
   settings: 'Settings',
-}
+};
 
 function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
-  const resolvedTitle = title ?? SECTION_LABELS[current]
+  const resolvedTitle = title ?? SECTION_LABELS[current];
 
-  const isCamera = current === 'camera'
+  const isCamera = current === 'camera';
 
   const leftContent = isCamera ? (
     <div className="top-nav__brand">
-      <h1 className="top-nav__title">{resolvedTitle}</h1>
-      {subtitle && <p className="top-nav__subtitle">{subtitle}</p>}
+      <BrandMark size="lg" />
+      {resolvedTitle && <p className="top-nav__subtitle">{resolvedTitle}</p>}
+      {subtitle && <p className="top-nav__aux">{subtitle}</p>}
     </div>
   ) : (
     <Link to="/" className="top-nav__back" aria-label="Back to Camera">
       <span className="top-nav__back-icon">←</span>
       Camera
     </Link>
-  )
+  );
 
   const centerContent = isCamera ? (
     <nav className="top-nav__links" aria-label="Primary">
@@ -53,11 +55,14 @@ function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
       ))}
     </nav>
   ) : (
-    <div className="top-nav__brand">
-      <h1 className="top-nav__title">{resolvedTitle}</h1>
-      {subtitle && <p className="top-nav__subtitle">{subtitle}</p>}
+    <div className="top-nav__page">
+      <BrandMark size="sm" />
+      <div>
+        <h1 className="top-nav__title">{resolvedTitle}</h1>
+        {subtitle && <p className="top-nav__subtitle">{subtitle}</p>}
+      </div>
     </div>
-  )
+  );
 
   return (
     <header className="top-nav">
@@ -67,7 +72,7 @@ function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
         <div className="top-nav__actions">{actions}</div>
       </div>
     </header>
-  )
+  );
 }
 
-export default TopNavBar
+export default TopNavBar;
