@@ -125,7 +125,7 @@ function ImagePicker() {
           setProgress(100)
 
           // Navigate to the reader view
-          navigate(`/reader/${textDoc.id}`)
+          navigate(`/read/${textDoc.id}`)
         } catch (err) {
           // Clear the timeout since processing failed
           if (processingTimeoutRef.current) {

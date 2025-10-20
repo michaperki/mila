@@ -1,8 +1,8 @@
-import { Link } from 'react-router-dom';
-import { ReactNode } from 'react';
-import BrandMark from './BrandMark';
+import { Link, NavLink } from 'react-router-dom'
+import { ReactNode } from 'react'
+import BrandMark from './BrandMark'
 
-export type TopNavSection = 'camera' | 'current' | 'vocab' | 'settings'
+export type TopNavSection = 'home' | 'read' | 'reader' | 'camera' | 'review' | 'vocab' | 'settings'
 
 interface TopNavBarProps {
   current: TopNavSection
@@ -11,47 +11,64 @@ interface TopNavBarProps {
   actions?: ReactNode
 }
 
-const TOP_LEVEL_LINKS: Array<{ key: TopNavSection; label: string; to: string }> = [
-  { key: 'current', label: 'Current', to: '/reader/latest' },
+const PRIMARY_LINKS: Array<{ key: Exclude<TopNavSection, 'reader' | 'settings'>; label: string; to: string }> = [
+  { key: 'home', label: 'Home', to: '/' },
+  { key: 'read', label: 'Read', to: '/read' },
+  { key: 'camera', label: 'Camera', to: '/camera' },
+  { key: 'review', label: 'Review', to: '/review' },
   { key: 'vocab', label: 'Vocab', to: '/vocab' },
-  { key: 'settings', label: 'Settings', to: '/settings' },
-];
+]
 
 const SECTION_LABELS: Record<TopNavSection, string> = {
+  home: 'Home',
+  read: 'Read',
+  reader: 'Reader',
   camera: 'Camera',
-  current: 'Current',
+  review: 'Review',
   vocab: 'Vocabulary',
   settings: 'Settings',
-};
+}
+
+const BACK_LINKS: Partial<Record<TopNavSection, { label: string; to: string }>> = {
+  reader: { label: 'Back to Read', to: '/read' },
+  settings: { label: 'Back to Home', to: '/' },
+}
 
 function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
-  const resolvedTitle = title ?? SECTION_LABELS[current];
+  const resolvedTitle = title ?? SECTION_LABELS[current]
+  const isPrimarySection = current === 'home' || current === 'read' || current === 'camera' || current === 'review' || current === 'vocab'
+  const backLink = BACK_LINKS[current]
 
-  const isCamera = current === 'camera';
-
-  const leftContent = isCamera ? (
+  const leftContent = isPrimarySection ? (
     <div className="top-nav__brand">
       <BrandMark size="lg" />
-      {resolvedTitle && <p className="top-nav__subtitle">{resolvedTitle}</p>}
-      {subtitle && <p className="top-nav__aux">{subtitle}</p>}
+      <div className="top-nav__brand-copy">
+        {resolvedTitle && <p className="top-nav__subtitle">{resolvedTitle}</p>}
+        {subtitle && <p className="top-nav__aux">{subtitle}</p>}
+      </div>
     </div>
-  ) : (
-    <Link to="/" className="top-nav__back" aria-label="Back to Camera">
+  ) : backLink ? (
+    <Link to={backLink.to} className="top-nav__back" aria-label={backLink.label}>
       <span className="top-nav__back-icon">←</span>
-      Camera
+      {backLink.label}
     </Link>
-  );
+  ) : (
+    <div className="top-nav__brand">
+      <BrandMark size="sm" />
+    </div>
+  )
 
-  const centerContent = isCamera ? (
+  const centerContent = isPrimarySection ? (
     <nav className="top-nav__links" aria-label="Primary">
-      {TOP_LEVEL_LINKS.map((link) => (
-        <Link
+      {PRIMARY_LINKS.map((link) => (
+        <NavLink
           key={link.key}
           to={link.to}
-          className={`top-nav__link${current === link.key ? ' top-nav__link--active' : ''}`}
+          className={({ isActive }) => `top-nav__link${isActive ? ' top-nav__link--active' : ''}`}
+          end={link.to === '/'}
         >
           {link.label}
-        </Link>
+        </NavLink>
       ))}
     </nav>
   ) : (
@@ -62,7 +79,7 @@ function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
         {subtitle && <p className="top-nav__subtitle">{subtitle}</p>}
       </div>
     </div>
-  );
+  )
 
   return (
     <header className="top-nav">
@@ -72,7 +89,7 @@ function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
         <div className="top-nav__actions">{actions}</div>
       </div>
     </header>
-  );
+  )
 }
 
-export default TopNavBar;
+export default TopNavBar

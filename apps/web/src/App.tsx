@@ -5,7 +5,10 @@ import { checkDatabaseHealth } from './lib/database'
 
 // Lazy loaded routes for better initial load performance
 const Home = lazy(() => import('./routes/Home'))
+const Read = lazy(() => import('./routes/Read'))
 const Reader = lazy(() => import('./routes/Reader'))
+const Camera = lazy(() => import('./routes/Camera'))
+const Review = lazy(() => import('./routes/Review'))
 const Vocab = lazy(() => import('./routes/Vocab'))
 const Settings = lazy(() => import('./routes/Settings'))
 
@@ -128,7 +131,11 @@ function App() {
         <Suspense fallback={<LoadingFallback />}>
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/read" element={<Read />} />
+            <Route path="/read/:textId" element={<Reader />} />
             <Route path="/reader/:textId" element={<Reader />} />
+            <Route path="/camera" element={<Camera />} />
+            <Route path="/review" element={<Review />} />
             <Route path="/vocab" element={<Vocab />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />

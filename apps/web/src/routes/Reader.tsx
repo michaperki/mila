@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTextStore } from '../state/useTextStore';
 import { useVocabStore } from '../state/useVocabStore';
+import { useProgressStore } from '../state/useProgressStore';
 import FullTextDisplay from '../components/FullTextDisplay';
 import ErrorMessage from '../components/ErrorMessage';
 import TopNavBar from '../components/TopNavBar';
@@ -17,6 +18,7 @@ function Reader() {
   const navigate = useNavigate();
   const { getTextById } = useTextStore();
   const { starItem, removeItem, getVocab } = useVocabStore();
+  const recordReading = useProgressStore((state) => state.recordReading);
 
   const [text, setText] = useState<TextDoc | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -28,6 +30,7 @@ function Reader() {
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
+  const sessionStartRef = useRef<number | null>(null);
 
   const showToast = useCallback((message: string, variant: ToastState['variant'] = 'success') => {
     if (toastTimeoutRef.current) {
@@ -53,6 +56,19 @@ function Reader() {
       window.clearTimeout(toastTimeoutRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    sessionStartRef.current = Date.now();
+    return () => {
+      if (sessionStartRef.current) {
+        const durationMs = Date.now() - sessionStartRef.current;
+        const minutes = Math.max(1, Math.round(durationMs / 60000));
+        if (minutes > 0) {
+          recordReading(minutes);
+        }
+      }
+    };
+  }, [recordReading]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -174,7 +190,7 @@ function Reader() {
 
   const navBar = (
     <TopNavBar
-      current="current"
+      current="reader"
       title="Current"
       subtitle={text?.title || undefined}
       actions={

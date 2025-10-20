@@ -38,7 +38,7 @@ function TextPreviewCard({ text, showNikud = true }: TextPreviewCardProps) {
   return (
     <li key={text.id}>
       <Link
-        to={`/reader/${text.id}`}
+        to={`/read/${text.id}`}
         className="block p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-sm hover:shadow"
       >
         <div className="flex items-start gap-4">

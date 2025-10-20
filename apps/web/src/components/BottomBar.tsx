@@ -1,13 +1,57 @@
-import { NavLink, useLocation } from 'react-router-dom';
-import ActiveTabIndicator from './ActiveTabIndicator';
+import { NavLink, useLocation } from 'react-router-dom'
+import ActiveTabIndicator from './ActiveTabIndicator'
 
 function BottomBar() {
-  const location = useLocation();
-  const isReaderActive = location.pathname.includes('/reader');
+  const location = useLocation()
+  const pathname = location.pathname
+  const isReaderActive = pathname.startsWith('/read/') || pathname.startsWith('/reader/')
 
   return (
     <nav className="bottom-bar" aria-label="Primary navigation">
-      <NavLink to="/" end className={({ isActive }) => `bottom-bar__link${isActive ? ' bottom-bar__link--active' : ''}`}>
+      <NavLink
+        to="/"
+        end
+        className={({ isActive }) => `bottom-bar__link${isActive ? ' bottom-bar__link--active' : ''}`}
+      >
+        {({ isActive }) => (
+          <>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 12L2 12L12 3L22 12L21 12" />
+              <path d="M5 12V20H19V12" />
+            </svg>
+            <span>Home</span>
+            {isActive && <ActiveTabIndicator />}
+          </>
+        )}
+      </NavLink>
+
+      <NavLink
+        to="/read"
+        className={({ isActive }) => {
+          const active = isActive || isReaderActive
+          return `bottom-bar__link${active ? ' bottom-bar__link--active' : ''}`
+        }}
+      >
+        {({ isActive }) => {
+          const active = isActive || isReaderActive
+          return (
+            <>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H5z" />
+                <path d="M5 4v16" />
+                <path d="M19 4v16" />
+              </svg>
+              <span>Read</span>
+              {active && <ActiveTabIndicator />}
+            </>
+          )
+        }}
+      </NavLink>
+
+      <NavLink
+        to="/camera"
+        className={({ isActive }) => `bottom-bar__link${isActive ? ' bottom-bar__link--active' : ''}`}
+      >
         {({ isActive }) => (
           <>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -21,28 +65,9 @@ function BottomBar() {
       </NavLink>
 
       <NavLink
-        to={isReaderActive ? location.pathname : '/reader/latest'}
-        className={({ isActive }) => {
-          const active = isReaderActive || isActive;
-          return `bottom-bar__link${active ? ' bottom-bar__link--active' : ''}`;
-        }}
+        to="/vocab"
+        className={({ isActive }) => `bottom-bar__link${isActive ? ' bottom-bar__link--active' : ''}`}
       >
-        {({ isActive }) => {
-          const active = isReaderActive || isActive;
-          return (
-            <>
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-              </svg>
-              <span>Current</span>
-              {active && <ActiveTabIndicator />}
-            </>
-          );
-        }}
-      </NavLink>
-
-      <NavLink to="/vocab" className={({ isActive }) => `bottom-bar__link${isActive ? ' bottom-bar__link--active' : ''}`}>
         {({ isActive }) => (
           <>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -55,7 +80,26 @@ function BottomBar() {
         )}
       </NavLink>
 
-      <NavLink to="/settings" className={({ isActive }) => `bottom-bar__link${isActive ? ' bottom-bar__link--active' : ''}`}>
+      <NavLink
+        to="/review"
+        className={({ isActive }) => `bottom-bar__link${isActive ? ' bottom-bar__link--active' : ''}`}
+      >
+        {({ isActive }) => (
+          <>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 11l3 3L22 4" />
+              <path d="M21 12v7a2 2 0 0 1-2 2H5l-4 4V6a2 2 0 0 1 2-2h7" />
+            </svg>
+            <span>Review</span>
+            {isActive && <ActiveTabIndicator />}
+          </>
+        )}
+      </NavLink>
+
+      <NavLink
+        to="/settings"
+        className={({ isActive }) => `bottom-bar__link${isActive ? ' bottom-bar__link--active' : ''}`}
+      >
         {({ isActive }) => (
           <>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -68,7 +112,7 @@ function BottomBar() {
         )}
       </NavLink>
     </nav>
-  );
+  )
 }
 
-export default BottomBar;
+export default BottomBar

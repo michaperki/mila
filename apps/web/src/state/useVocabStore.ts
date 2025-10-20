@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import { openDB, IDBPDatabase } from 'idb'
 import { StarredItem } from '../types'
 import { initAppDB } from '../lib/database';
+import { useReviewStore } from './useReviewStore'
 
 interface VocabState {
   vocab: StarredItem[];
@@ -62,6 +63,8 @@ export const useVocabStore = create<VocabState>()(
             const sortedVocab = normalizedVocab.sort((a, b) => b.createdAt - a.createdAt);
 
             set({ vocab: sortedVocab, isLoading: false, lastUpdated: Date.now(), error: null });
+            const reviewState = useReviewStore.getState();
+            sortedVocab.forEach((item) => reviewState.queueFromStarred(item));
             return sortedVocab;
           } catch (dbError) {
             console.error('Database initialization error:', dbError);
@@ -92,6 +95,8 @@ export const useVocabStore = create<VocabState>()(
               const sortedVocab = normalizedVocab.sort((a, b) => b.createdAt - a.createdAt);
 
               set({ vocab: sortedVocab, isLoading: false, lastUpdated: Date.now(), error: null });
+              const reviewState = useReviewStore.getState();
+              sortedVocab.forEach((item) => reviewState.queueFromStarred(item));
               return sortedVocab;
             } catch (retryError) {
               throw new Error(`Database initialization failed. Please reload the app. Details: ${(retryError as Error).message}`);
@@ -126,6 +131,7 @@ export const useVocabStore = create<VocabState>()(
             };
 
             await db.put('vocab', updatedItem);
+            useReviewStore.getState().queueFromStarred(updatedItem);
 
             const updatedVocab = vocab.map(v =>
               v.id === existingItem.id ? updatedItem : v
@@ -136,6 +142,7 @@ export const useVocabStore = create<VocabState>()(
             // Add new item with frequency 1
             const newItem = { ...item, frequency: 1 };
             await db.put('vocab', newItem);
+            useReviewStore.getState().queueFromStarred(newItem);
             set({
               vocab: [newItem, ...vocab],
               isLoading: false,
@@ -161,6 +168,7 @@ export const useVocabStore = create<VocabState>()(
 
           // Update the vocab list
           const vocab = get().vocab.filter(item => item.id !== id);
+          useReviewStore.getState().removeCard(id);
           set({ vocab, isLoading: false, lastUpdated: Date.now(), error: null });
         } catch (error) {
           console.error('Error removing item:', error);
@@ -217,22 +225,25 @@ export const useVocabStore = create<VocabState>()(
             throw new Error('No valid vocabulary items found');
           }
 
+          const itemsToStore: StarredItem[] = validItems.map((item: StarredItem) => ({
+            ...item,
+            frequency: item.frequency && item.frequency > 0 ? item.frequency : 1,
+            createdAt: item.createdAt || Date.now(),
+          }));
+
           // Store in database
           const db = await initAppDB();
           const tx = db.transaction('vocab', 'readwrite');
 
           // Add all items to database
           await Promise.all(
-            validItems.map((item: StarredItem) => {
-              const itemToStore: StarredItem = {
-                ...item,
-                frequency: item.frequency && item.frequency > 0 ? item.frequency : 1
-              };
-              return tx.store.put(itemToStore);
-            })
+            itemsToStore.map((item) => tx.store.put(item))
           );
 
           await tx.done;
+
+          const reviewState = useReviewStore.getState();
+          itemsToStore.forEach((item) => reviewState.queueFromStarred(item));
 
           // Update state
           await get().getVocab();
@@ -261,6 +272,8 @@ export const useVocabStore = create<VocabState>()(
           const tx = db.transaction('vocab', 'readwrite');
           await tx.store.clear();
           await tx.done;
+
+          useReviewStore.getState().reset();
 
           set({
             vocab: [],
