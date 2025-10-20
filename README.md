@@ -55,9 +55,8 @@ apps/web
 │  │  └─ Vocab.tsx
 │  ├─ components
 │  │  ├─ ImagePicker.tsx
-│  │  ├─ SentenceBlock.tsx
 │  │  ├─ PhraseChips.tsx
-│  │  ├─ WordCard.tsx
+│  │  ├─ FullTextDisplay.tsx
 │  │  └─ BottomBar.tsx
 │  ├─ state
 │  │  ├─ useTextStore.ts

@@ -1,297 +1,176 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { useTextStore } from '../state/useTextStore'
-import { useVocabStore } from '../state/useVocabStore'
-import SentenceBlock from '../components/SentenceBlock'
-import WordCard from '../components/WordCard'
-import FullTextDisplay from '../components/FullTextDisplay'
-import ReadingControlBar from '../components/ReadingControlBar'
-import ErrorMessage from '../components/ErrorMessage'
-import TopNavBar from '../components/TopNavBar'
-import { Chunk, Token, StarredItem } from '../types'
-type DisplayMode = 'fullText' | 'sentence' | 'word'
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useTextStore } from '../state/useTextStore';
+import { useVocabStore } from '../state/useVocabStore';
+import FullTextDisplay from '../components/FullTextDisplay';
+import ErrorMessage from '../components/ErrorMessage';
+import TopNavBar from '../components/TopNavBar';
+import { Chunk, Token, StarredItem, TextDoc } from '../types';
 
-const READER_VIEW_STORAGE_KEY = 'mila:reader:last-view';
+type ToastState = {
+  message: string;
+  variant: 'success' | 'info';
+};
 
 function Reader() {
-  const { textId } = useParams<{ textId: string }>()
-  const navigate = useNavigate()
-  const { getTextById } = useTextStore()
-  const { vocab, starItem, removeItem, getVocab } = useVocabStore()
+  const { textId } = useParams<{ textId: string }>();
+  const navigate = useNavigate();
+  const { getTextById } = useTextStore();
+  const { starItem, removeItem, getVocab } = useVocabStore();
 
-  // State
-  const [displayMode, setDisplayMode] = useState<DisplayMode>(() => {
-    if (typeof window === 'undefined') return 'fullText';
-    const stored = window.sessionStorage.getItem(READER_VIEW_STORAGE_KEY);
-    return stored === 'sentence' || stored === 'word' || stored === 'fullText' ? stored : 'fullText';
-  })
-  const [selectedChunk, setSelectedChunk] = useState<Chunk | null>(null)
-  const [selectedToken, setSelectedToken] = useState<Token | null>(null)
-  const [currentChunkIndex, setCurrentChunkIndex] = useState(0)
-  const [showNikud, setShowNikud] = useState(true)
-  const showTransliteration = true
-  const [text, setText] = useState<any>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [starredItems, setStarredItems] = useState<StarredItem[]>([])
-  const [translationDisplay, setTranslationDisplay] = useState<'hidden' | 'inline' | 'interlinear'>('interlinear')
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [starringError, setStarringError] = useState<string | null>(null)
-  const [showSettingsPanel, setShowSettingsPanel] = useState(false)
+  const [text, setText] = useState<TextDoc | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [showNikud, setShowNikud] = useState(true);
+  const [translationDisplay, setTranslationDisplay] = useState<'hidden' | 'inline' | 'interlinear'>('interlinear');
+  const [starredItems, setStarredItems] = useState<StarredItem[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [starringError, setStarringError] = useState<string | null>(null);
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const toastTimeoutRef = useRef<number | null>(null);
 
-  const updateDisplayMode = useCallback((mode: DisplayMode) => {
-    if (mode === 'word' && selectedChunk) {
-      setSelectedToken((prev) => {
-        if (prev) return prev;
-        return selectedChunk.tokens[0] ?? null;
-      });
+  const showToast = useCallback((message: string, variant: ToastState['variant'] = 'success') => {
+    if (toastTimeoutRef.current) {
+      window.clearTimeout(toastTimeoutRef.current);
     }
+    setToast({ message, variant });
+    toastTimeoutRef.current = window.setTimeout(() => {
+      setToast(null);
+    }, 2400);
+  }, []);
 
-    setDisplayMode(mode);
-
-    if (typeof window !== 'undefined') {
-      try {
-        window.sessionStorage.setItem(READER_VIEW_STORAGE_KEY, mode);
-      } catch (err) {
-        console.warn('Unable to persist reader view mode:', err);
-      }
+  const refreshVocab = useCallback(async () => {
+    try {
+      const items = await getVocab();
+      setStarredItems(items);
+    } catch (error) {
+      console.error('Error reloading vocabulary:', error);
     }
-  }, [selectedChunk]);
+  }, [getVocab]);
 
-  // Load text and vocab data
+  useEffect(() => () => {
+    if (toastTimeoutRef.current) {
+      window.clearTimeout(toastTimeoutRef.current);
+    }
+  }, []);
+
   useEffect(() => {
     const loadData = async () => {
       if (!textId) {
-        navigate('/')
-        return
+        navigate('/');
+        return;
       }
 
-      setIsLoading(true)
+      setIsLoading(true);
 
       try {
-        // Load in parallel for better performance
-        const textPromise = getTextById(textId)
-        const vocabPromise = getVocab()
+        const textPromise = getTextById(textId);
+        const vocabPromise = getVocab();
+        const [loadedText, vocabItems] = await Promise.allSettled([textPromise, vocabPromise]);
 
-        // Wait for both to complete
-        const [loadedText, vocabItems] = await Promise.allSettled([textPromise, vocabPromise])
-
-        // Handle text loading result
         if (loadedText.status === 'fulfilled') {
           if (!loadedText.value) {
-            navigate('/')
-            return
+            navigate('/');
+            return;
           }
 
-          setText(loadedText.value)
-          if (loadedText.value.chunks.length > 0) {
-            setSelectedChunk(loadedText.value.chunks[0])
-          }
+          setText(loadedText.value);
         } else {
-          console.error('Error loading text:', loadedText.reason)
-          setLoadError(`Failed to load text: ${loadedText.reason?.message || 'Unknown error'}`)
+          console.error('Error loading text:', loadedText.reason);
+          setLoadError(`Failed to load text: ${loadedText.reason?.message || 'Unknown error'}`);
         }
 
-        // Handle vocab loading result
         if (vocabItems.status === 'fulfilled') {
-          setStarredItems(vocabItems.value)
-          setLoadError(null) // Clear any previous errors if vocab loaded but text had an error
+          setStarredItems(vocabItems.value);
+          setLoadError(null);
         } else {
-          console.error('Error loading vocabulary:', vocabItems.reason)
-          // Don't set error just for vocab, as we can still show the text
+          console.error('Error loading vocabulary:', vocabItems.reason);
         }
       } catch (error) {
-        console.error('Error in load operation:', error)
-        setLoadError((error as Error).message || 'Failed to load data')
+        console.error('Error in load operation:', error);
+        setLoadError((error as Error).message || 'Failed to load data');
       } finally {
-        setIsLoading(false)
+        setIsLoading(false);
       }
-    }
+    };
 
-    loadData()
+    loadData();
 
-    // Reload starred items when returning to this page
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        getVocab().then(items => {
-          setStarredItems(items)
-        }).catch(error => {
-          console.error('Error reloading vocabulary:', error)
-        })
+        refreshVocab();
       }
-    }
+    };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [textId, getTextById, getVocab, navigate])
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [textId, getTextById, getVocab, navigate, refreshVocab]);
 
-  // Check if a token is already starred
   const isTokenStarred = useCallback((token: Token): boolean => {
-    if (!token.lemma) return false
-    return starredItems.some(item => item.lemma === token.lemma)
-  }, [starredItems])
+    if (!token.lemma) return false;
+    return starredItems.some((item) => item.lemma === token.lemma);
+  }, [starredItems]);
 
-  // Get set of starred lemmas for faster lookup
-  const starredLemmaSet = useMemo(() => {
-    const set = new Set<string>()
-    starredItems.forEach(item => {
-      if (item.lemma) set.add(item.lemma)
-    })
-    return set
-  }, [starredItems])
-
-  // Navigation
-  const handlePrevious = () => {
-    if (!text || currentChunkIndex <= 0) return
-
-    setCurrentChunkIndex(currentChunkIndex - 1)
-    setSelectedChunk(text.chunks[currentChunkIndex - 1])
-    setSelectedToken(null) // Reset selected token on navigation
-  }
-
-  const handleNext = () => {
-    if (!text || currentChunkIndex >= text.chunks.length - 1) return
-
-    setCurrentChunkIndex(currentChunkIndex + 1)
-    setSelectedChunk(text.chunks[currentChunkIndex + 1])
-    setSelectedToken(null) // Reset selected token on navigation
-  }
-
-  const handleSelectChunk = (chunk: Chunk) => {
-    setSelectedChunk(chunk)
-    const index = text.chunks.findIndex((c: Chunk) => c.id === chunk.id)
-    if (index !== -1) {
-      setCurrentChunkIndex(index)
+  const resolveChunkIdForToken = useCallback((token: Token, chunk?: Chunk): string | undefined => {
+    if (chunk && chunk.tokens?.some((candidate) => candidate.idx === token.idx)) {
+      return chunk.id;
     }
-    setSelectedToken(null) // Reset selected token on chunk change
-  }
+    const fallbackChunk = text?.chunks.find((candidate) =>
+      candidate.tokens?.some((candidateToken) => candidateToken.idx === token.idx),
+    );
+    return fallbackChunk?.id;
+  }, [text]);
 
-  const handleSelectToken = (token: Token) => {
-    setSelectedToken(token)
-    updateDisplayMode('word')
-  }
-
-  const handleWordOpenFromFullText = useCallback((token: Token, chunk: Chunk) => {
-    setSelectedChunk(chunk)
-    if (text) {
-      const index = text.chunks.findIndex((c: Chunk) => c.id === chunk.id)
-      if (index !== -1) {
-        setCurrentChunkIndex(index)
-      }
-    }
-    setSelectedToken(token)
-    updateDisplayMode('word')
-  }, [text, updateDisplayMode])
-
-  // Get the first token in the current chunk (for default word selection)
-  const getFirstTokenInChunk = useCallback(() => {
-    if (selectedChunk && selectedChunk.tokens.length > 0) {
-      return selectedChunk.tokens[0];
-    }
-    return null;
-  }, [selectedChunk]);
-
-  // Get the next or previous token in the current chunk
-  const navigateToTokenByOffset = useCallback((offset: number) => {
-    if (!selectedChunk || !selectedToken) return;
-
-    // Find current token index in the tokens array
-    const currentIndex = selectedChunk.tokens.findIndex(t => t.idx === selectedToken.idx);
-    if (currentIndex === -1) return;
-
-    // Calculate new index with bounds checking
-    const newIndex = currentIndex + offset;
-    if (newIndex >= 0 && newIndex < selectedChunk.tokens.length) {
-      // We're still in the same chunk
-      setSelectedToken(selectedChunk.tokens[newIndex]);
-    } else if (newIndex < 0 && currentChunkIndex > 0) {
-      // Move to last token of previous chunk
-      const prevChunk = text.chunks[currentChunkIndex - 1];
-      setSelectedChunk(prevChunk);
-      setCurrentChunkIndex(currentChunkIndex - 1);
-      setSelectedToken(prevChunk.tokens[prevChunk.tokens.length - 1]);
-    } else if (newIndex >= selectedChunk.tokens.length && currentChunkIndex < text.chunks.length - 1) {
-      // Move to first token of next chunk
-      const nextChunk = text.chunks[currentChunkIndex + 1];
-      setSelectedChunk(nextChunk);
-      setCurrentChunkIndex(currentChunkIndex + 1);
-      setSelectedToken(nextChunk.tokens[0]);
-    }
-  }, [selectedChunk, selectedToken, currentChunkIndex, text]);
-
-  // Select first token in word view when no token is selected
-  useEffect(() => {
-    if (displayMode === 'word' && !selectedToken && selectedChunk) {
-      const firstToken = getFirstTokenInChunk();
-      if (firstToken) {
-        setSelectedToken(firstToken);
-      }
-    }
-  }, [displayMode, selectedChunk, selectedToken, getFirstTokenInChunk]);
-
-  // Toggle star status for any token
-  const handleToggleStar = async (tokenToStar?: Token) => {
-    // Use passed token or selected token
-    const token = tokenToStar || selectedToken
-
-    if (!token?.lemma || !token?.gloss) return
+  const handleToggleStar = useCallback(async (tokenToToggle?: Token, sourceChunk?: Chunk) => {
+    const token = tokenToToggle;
+    if (!token?.lemma || !token.gloss) return;
 
     try {
-      setStarringError(null)
-      const isCurrentlyStarred = isTokenStarred(token)
+      setStarringError(null);
+      const alreadyStarred = isTokenStarred(token);
 
-      if (isCurrentlyStarred) {
-        // Find and remove the starred item
-        const itemToRemove = starredItems.find(item => item.lemma === token.lemma)
-        if (itemToRemove) {
-          await removeItem(itemToRemove.id)
+      if (alreadyStarred) {
+        const itemToRemove = starredItems.find((item) => item.lemma === token.lemma);
+        if (!itemToRemove) return;
 
-          // Update local state - this needs to happen here to provide immediate feedback
-          setStarredItems(prev => prev.filter(item => item.lemma !== token.lemma))
+        await removeItem(itemToRemove.id);
+        setStarredItems((prev) => prev.filter((item) => item.lemma !== token.lemma));
 
-          // Also fetch from database to ensure consistency
-          try {
-            const updatedItems = await getVocab()
-            setStarredItems(updatedItems)
-          } catch (syncError) {
-            console.warn('Error synchronizing vocab after removal:', syncError)
-            // We already updated the local state, so no need to show an error
-          }
+        try {
+          await refreshVocab();
+        } catch (syncError) {
+          console.warn('Error synchronizing vocab after removal:', syncError);
         }
       } else {
-        // Add new starred item
-        const newItem = {
+        const chunkId = resolveChunkIdForToken(token, sourceChunk);
+        const newItem: StarredItem = {
           id: `${token.lemma}-${Date.now()}`,
           lemma: token.lemma,
           gloss: token.gloss || 'Unknown',
           sourceRef: textId ? {
             textId,
-            chunkId: selectedChunk?.id || '',
+            chunkId: chunkId ?? '',
           } : undefined,
           createdAt: Date.now(),
-        }
+        };
 
-        await starItem(newItem)
+        await starItem(newItem);
+        setStarredItems((prev) => [newItem, ...prev]);
+        showToast('Saved to vocab!');
 
-        // Update local state - this needs to happen here to provide immediate feedback
-        setStarredItems(prev => [newItem, ...prev])
-
-        // Also fetch from database to ensure consistency
         try {
-          const updatedItems = await getVocab()
-          setStarredItems(updatedItems)
+          await refreshVocab();
         } catch (syncError) {
-          console.warn('Error synchronizing vocab after addition:', syncError)
-          // We already updated the local state, so no need to show an error
+          console.warn('Error synchronizing vocab after addition:', syncError);
         }
       }
     } catch (error) {
-      console.error('Error toggling star status:', error)
-      setStarringError((error as Error).message || 'Failed to update vocabulary')
+      console.error('Error toggling star status:', error);
+      setStarringError((error as Error).message || 'Failed to update vocabulary');
     }
-  }
+  }, [isTokenStarred, starredItems, removeItem, refreshVocab, resolveChunkIdForToken, starItem, showToast, textId]);
 
   const navBar = (
     <TopNavBar
@@ -302,7 +181,7 @@ function Reader() {
         <div className="relative">
           <button
             className="btn-icon"
-            onClick={() => setShowSettingsPanel(prev => !prev)}
+            onClick={() => setShowSettingsPanel((prev) => !prev)}
             aria-label="Toggle reading settings"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -345,9 +224,8 @@ function Reader() {
         </div>
       }
     />
-  )
+  );
 
-  // Loading states
   if (isLoading) {
     return (
       <>
@@ -359,7 +237,7 @@ function Reader() {
           </div>
         </div>
       </>
-    )
+    );
   }
 
   if (!text) {
@@ -379,116 +257,54 @@ function Reader() {
           </div>
         </div>
       </>
-    )
+    );
   }
-
-  const activeToken = selectedToken || getFirstTokenInChunk();
-  const activeTokenIndex = selectedChunk && activeToken
-    ? selectedChunk.tokens.findIndex((token) => token.idx === activeToken.idx)
-    : -1;
-  const atStartOfText = selectedChunk
-    ? activeTokenIndex <= 0 && currentChunkIndex <= 0
-    : true;
-  const atEndOfText = selectedChunk
-    ? activeTokenIndex >= (selectedChunk.tokens.length - 1) && currentChunkIndex >= text.chunks.length - 1
-    : true;
 
   return (
     <>
       {navBar}
       <div className="container pb-16">
-
-      <div className="reader-toolbar">
-        <ReadingControlBar
-          displayMode={displayMode}
-          onChange={updateDisplayMode}
+        <ErrorMessage
+          error={loadError}
+          onRetry={() => {
+            if (!textId) return;
+            setIsLoading(true);
+            getTextById(textId).then((freshText) => {
+              setText(freshText);
+              setLoadError(null);
+              setIsLoading(false);
+            }).catch((err) => {
+              setLoadError((err as Error).message);
+              setIsLoading(false);
+            });
+          }}
+          onDismiss={() => setLoadError(null)}
         />
-      </div>
 
-      <ErrorMessage
-        error={loadError}
-        onRetry={() => {
-          setIsLoading(true)
-          getTextById(textId!).then(text => {
-            setText(text)
-            setLoadError(null)
-            setIsLoading(false)
-          }).catch(err => {
-            setLoadError((err as Error).message)
-            setIsLoading(false)
-          })
-        }}
-        onDismiss={() => setLoadError(null)}
-      />
+        <ErrorMessage
+          error={starringError}
+          onDismiss={() => setStarringError(null)}
+        />
 
-      <ErrorMessage
-        error={starringError}
-        onDismiss={() => setStarringError(null)}
-      />
-
-      {/* Full Text Mode */}
-      {displayMode === 'fullText' && text && (
         <section id="reader-section-fullText" className="card mb-4 p-4">
           <FullTextDisplay
             chunks={text.chunks}
             showNikud={showNikud}
             translationDisplay={translationDisplay}
-            onChunkClick={(chunk) => {
-              setSelectedChunk(chunk);
-              const index = text.chunks.findIndex((c: Chunk) => c.id === chunk.id);
-              if (index !== -1) {
-                setCurrentChunkIndex(index);
-              }
-              updateDisplayMode('sentence');
-            }}
-            onWordOpen={handleWordOpenFromFullText}
             onWordStar={handleToggleStar}
             isWordStarred={isTokenStarred}
             textScale={1}
           />
         </section>
-      )}
-
-      {/* Sentence Mode */}
-      {displayMode === 'sentence' && selectedChunk && (
-        <section id="reader-section-sentence">
-          <SentenceBlock
-            chunk={selectedChunk}
-            showNikud={showNikud}
-            showTransliteration={showTransliteration}
-            currentIndex={currentChunkIndex}
-            totalChunks={text.chunks.length}
-            translationDisplay={translationDisplay}
-            selectedToken={selectedToken}
-            onTokenSelect={handleSelectToken}
-            onPrevious={handlePrevious}
-            onNext={handleNext}
-            disablePrevious={currentChunkIndex <= 0}
-            disableNext={currentChunkIndex >= text.chunks.length - 1}
-          />
-        </section>
-      )}
-
-      {/* Word Mode */}
-      {displayMode === 'word' && selectedChunk && activeToken && (
-        <section id="reader-section-word">
-          <WordCard
-            token={activeToken}
-            chunk={selectedChunk}
-            showNikud={showNikud}
-            onStar={() => handleToggleStar(activeToken)}
-            isStarred={isTokenStarred(activeToken)}
-            onSelectToken={handleSelectToken}
-            onNavigatePrevious={() => navigateToTokenByOffset(-1)}
-            onNavigateNext={() => navigateToTokenByOffset(1)}
-            disablePrevious={atStartOfText}
-            disableNext={atEndOfText}
-          />
-        </section>
-      )}
       </div>
+
+      {toast && (
+        <div className={`toast${toast.variant === 'success' ? ' toast--success' : ''}`} role="status">
+          {toast.message}
+        </div>
+      )}
     </>
-  )
+  );
 }
 
-export default Reader
+export default Reader;
