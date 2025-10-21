@@ -496,41 +496,37 @@ function Home() {
             </div>
           </form>
         </section>
-        <section className="card rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-xl font-semibold text-slate-900">Recent activity</h2>
+        <section className="recent-activity">
+          <div className="recent-activity__header">
+            <h2 className="recent-activity__title">Recent activity</h2>
             {totalWords > 0 && (
-              <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
-                Total words · {totalWords}
-              </span>
+              <span className="recent-activity__total">Total words · {totalWords}</span>
             )}
           </div>
           {isBusy ? (
-            <div className="flex items-center justify-center py-10 text-slate-500">Loading your data…</div>
+            <div className="recent-activity__empty">Loading your data…</div>
           ) : recentWords.length > 0 ? (
-            <ul className="mt-4 space-y-4">
+            <ul className="recent-activity__list">
               {recentWords.map((item) => (
-                <li key={item.id} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3">
-                  <div>
-                    <p className="text-lg font-semibold text-slate-900" dir="rtl">{item.lemma}</p>
-                    <p className="text-sm text-slate-500">{item.gloss}</p>
+                <li key={item.id} className="recent-activity__item">
+                  <div className="recent-activity__item-left">
+                    <p className="recent-activity__lemma" dir="rtl">{item.lemma}</p>
+                    <p className="recent-activity__gloss">{item.gloss}</p>
                   </div>
-                  <span className="text-xs font-medium uppercase tracking-[0.25em] text-slate-400">{formatRelativeTime(item.createdAt)}</span>
+                  <span className="recent-activity__time">{formatRelativeTime(item.createdAt)}</span>
                 </li>
               ))}
             </ul>
           ) : (
-            <div className="py-10 text-center text-slate-500">
-              Capture a text or quick add a word to see activity here.
-            </div>
+            <div className="recent-activity__empty">Capture a text or quick add a word to see activity here.</div>
           )}
           {latestText && (
-            <div className="mt-6 rounded-2xl border border-dashed border-slate-200 px-5 py-4">
-              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-slate-400">Continue reading</p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">{latestText.title || 'Untitled capture'}</p>
-              <div className="mt-3 flex items-center justify-between text-sm text-slate-500">
+            <div className="recent-activity__continue">
+              <p className="recent-activity__continue-label">Continue reading</p>
+              <p className="recent-activity__continue-title">{latestText.title || 'Untitled capture'}</p>
+              <div className="flex items-center justify-between text-sm text-slate-500">
                 <span>{latestText.chunks.length} segments</span>
-                <Link className="btn btn-small" to={`/read/${latestText.id}`}>
+                <Link className="btn btn-outline btn-small" to={`/read/${latestText.id}`}>
                   Resume
                 </Link>
               </div>
