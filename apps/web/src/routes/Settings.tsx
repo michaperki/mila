@@ -30,169 +30,168 @@ function Settings() {
   return (
     <>
       <TopNavBar current="settings" title="Settings" subtitle="Preferences" />
-      <div className="mx-auto w-full max-w-5xl px-4 pb-16 sm:px-6">
-
-      {clearSuccess && (
-        <div className="bg-green-100 text-green-800 p-3 rounded mb-4">
-          All data cleared successfully!
-        </div>
-      )}
-
-      <ErrorMessage
-        error={clearError}
-        onDismiss={() => setClearError(null)}
-      />
-
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Display Settings */}
-        <SettingsCard
-          title="Display"
-          icon={SettingsIcons.Display}
-          color="bg-blue-50"
-        >
-          <div className="settings-section">
-            <div className="settings-option-label">Theme</div>
-            <div className="flex gap-2">
-              <button
-                className={`btn ${theme === 'light' ? '' : 'btn-secondary'}`}
-                onClick={() => setTheme('light')}
-                aria-pressed={theme === 'light'}
-              >
-                Light
-              </button>
-              <button
-                className={`btn ${theme === 'dark' ? '' : 'btn-secondary'}`}
-                onClick={() => setTheme('dark')}
-                aria-pressed={theme === 'dark'}
-              >
-                Dark
-              </button>
+      <main className="mx-auto w-full max-w-5xl px-4 pb-24 pt-8 space-y-8 sm:px-6">
+        <section className="settings-hero">
+          <div className="settings-hero__intro">
+            <span className="settings-hero__eyebrow">Personalise Mila</span>
+            <h1 className="settings-hero__title">Settings</h1>
+            <p className="settings-hero__subtitle">
+              Tune the experience to match your preferences, from appearance to pronunciation and data control.
+            </p>
+          </div>
+          <div className="settings-hero__metrics">
+            <div className="settings-hero__metric">
+              <span>Theme</span>
+              <strong>{theme === 'light' ? 'Light' : 'Dark'}</strong>
+              <small>Current appearance</small>
             </div>
-            <div className="text-xs text-gray-500 mt-1">
-              Changes app appearance to light or dark mode
+            <div className="settings-hero__metric">
+              <span>Direction</span>
+              <strong>{direction === 'he-en' ? 'Heb → Eng' : 'Eng → Heb'}</strong>
+              <small>Translation focus</small>
+            </div>
+            <div className="settings-hero__metric">
+              <span>Playback</span>
+              <strong>{playbackSpeed === 'slow' ? 'Slow' : 'Normal'}</strong>
+              <small>Pronunciation speed</small>
+            </div>
+            <div className="settings-hero__metric">
+              <span>OCR assist</span>
+              <strong>{autoCorrect ? 'Enabled' : 'Off'}</strong>
+              <small>Auto correction</small>
             </div>
           </div>
-        </SettingsCard>
+        </section>
 
-        {/* Language Settings */}
-        <SettingsCard
-          title="Language"
-          icon={SettingsIcons.Language}
-          color="bg-purple-50"
-        >
-          <div className="settings-section">
-            <div className="settings-option-label">Translation Direction</div>
-            <div className="flex gap-2 flex-wrap">
-              <button
-                className={`btn ${direction === 'he-en' ? '' : 'btn-secondary'}`}
-                onClick={() => setDirection('he-en')}
-                aria-pressed={direction === 'he-en'}
-              >
-                Hebrew → English
-              </button>
-              <button
-                className={`btn ${direction === 'en-he' ? '' : 'btn-secondary'}`}
-                onClick={() => setDirection('en-he')}
-                aria-pressed={direction === 'en-he'}
-              >
-                English → Hebrew
-              </button>
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              Choose which language direction to translate
-            </div>
-          </div>
-        </SettingsCard>
+        {clearSuccess && <div className="alert alert--success">All local Mila data cleared.</div>}
 
-        {/* Audio Settings */}
-        <SettingsCard
-          title="Audio"
-          icon={SettingsIcons.Audio}
-          color="bg-green-50"
-        >
-          <div className="settings-section">
-            <div className="settings-option-label">Playback Speed</div>
-            <div className="flex gap-2">
-              <button
-                className={`btn ${playbackSpeed === 'slow' ? '' : 'btn-secondary'}`}
-                onClick={() => setPlaybackSpeed('slow')}
-                aria-pressed={playbackSpeed === 'slow'}
-              >
-                Slow
-              </button>
-              <button
-                className={`btn ${playbackSpeed === 'normal' ? '' : 'btn-secondary'}`}
-                onClick={() => setPlaybackSpeed('normal')}
-                aria-pressed={playbackSpeed === 'normal'}
-              >
-                Normal
-              </button>
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              Controls the speed of audio pronunciation
-            </div>
-          </div>
-        </SettingsCard>
+        <ErrorMessage error={clearError} onDismiss={() => setClearError(null)} />
 
-        {/* OCR Options */}
-        <SettingsCard
-          title="OCR Options"
-          icon={SettingsIcons.OCR}
-          color="bg-orange-50"
-        >
-          <div className="settings-section">
-            <div className="settings-option-label">Text Recognition</div>
-            <div className="flex items-center gap-2 mb-2">
-              <input
-                type="checkbox"
-                id="autocorrect"
-                className="form-checkbox h-4 w-4 text-primary"
-                checked={autoCorrect}
-                onChange={() => setAutoCorrect(!autoCorrect)}
-              />
-              <label htmlFor="autocorrect">Apply auto-correction to OCR results</label>
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              Automatically attempt to fix minor OCR recognition mistakes
-            </div>
-          </div>
-        </SettingsCard>
-
-        {/* Storage Options */}
-        <SettingsCard
-          title="Storage"
-          icon={SettingsIcons.Storage}
-          color="bg-red-50"
-        >
-          <div className="settings-section mb-4">
-            <div className="flex justify-between items-center mb-3">
-              <div>
-                <div className="settings-option-label">Texts and Images</div>
-                <div className="text-xs text-gray-500">Stored in browser's local database</div>
+        <section className="settings-grid">
+          <SettingsCard title="Display" icon={SettingsIcons.Display} accent="display">
+            <div className="settings-group">
+              <p className="settings-group__label">Theme</p>
+              <div className="settings-choice">
+                <button
+                  type="button"
+                  className={`btn btn-small${theme === 'light' ? '' : ' btn-outline'}`}
+                  onClick={() => setTheme('light')}
+                  aria-pressed={theme === 'light'}
+                >
+                  Light
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-small${theme === 'dark' ? '' : ' btn-outline'}`}
+                  onClick={() => setTheme('dark')}
+                  aria-pressed={theme === 'dark'}
+                >
+                  Dark
+                </button>
               </div>
-              <span className="text-sm bg-gray-100 px-2 py-1 rounded">2.3 MB</span>
+              <p className="settings-group__hint">Switch between light and dark appearance.</p>
             </div>
+          </SettingsCard>
 
-            <div className="flex justify-between items-center mb-3">
-              <div>
-                <div className="settings-option-label">Vocabulary</div>
-                <div className="text-xs text-gray-500">Your starred words</div>
+          <SettingsCard title="Language" icon={SettingsIcons.Language} accent="language">
+            <div className="settings-group">
+              <p className="settings-group__label">Translation direction</p>
+              <div className="settings-choice">
+                <button
+                  type="button"
+                  className={`btn btn-small${direction === 'he-en' ? '' : ' btn-outline'}`}
+                  onClick={() => setDirection('he-en')}
+                  aria-pressed={direction === 'he-en'}
+                >
+                  Hebrew → English
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-small${direction === 'en-he' ? '' : ' btn-outline'}`}
+                  onClick={() => setDirection('en-he')}
+                  aria-pressed={direction === 'en-he'}
+                >
+                  English → Hebrew
+                </button>
               </div>
-              <span className="text-sm bg-gray-100 px-2 py-1 rounded">128 KB</span>
+              <p className="settings-group__hint">Choose which way translations flow by default.</p>
             </div>
+          </SettingsCard>
 
+          <SettingsCard title="Audio" icon={SettingsIcons.Audio} accent="audio">
+            <div className="settings-group">
+              <p className="settings-group__label">Playback speed</p>
+              <div className="settings-choice">
+                <button
+                  type="button"
+                  className={`btn btn-small${playbackSpeed === 'slow' ? '' : ' btn-outline'}`}
+                  onClick={() => setPlaybackSpeed('slow')}
+                  aria-pressed={playbackSpeed === 'slow'}
+                >
+                  Slow
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-small${playbackSpeed === 'normal' ? '' : ' btn-outline'}`}
+                  onClick={() => setPlaybackSpeed('normal')}
+                  aria-pressed={playbackSpeed === 'normal'}
+                >
+                  Normal
+                </button>
+              </div>
+              <p className="settings-group__hint">Control how quickly pronunciations are spoken.</p>
+            </div>
+          </SettingsCard>
+
+          <SettingsCard title="OCR options" icon={SettingsIcons.OCR} accent="ocr">
+            <div className="settings-group">
+              <p className="settings-group__label">Text recognition</p>
+              <button
+                type="button"
+                className={`settings-switch${autoCorrect ? ' settings-switch--active' : ''}`}
+                onClick={() => setAutoCorrect((prev) => !prev)}
+                aria-pressed={autoCorrect}
+              >
+                <span className="settings-switch__thumb" aria-hidden="true" />
+                <span className="settings-switch__label">
+                  {autoCorrect ? 'Auto-correction enabled' : 'Enable auto-correction'}
+                </span>
+              </button>
+              <p className="settings-group__hint">
+                Automatically fix common recognition mistakes when scanning captures.
+              </p>
+            </div>
+          </SettingsCard>
+
+          <SettingsCard title="Storage" icon={SettingsIcons.Storage} accent="storage">
+            <div className="settings-storage">
+              <div className="settings-storage__row">
+                <div>
+                  <p className="settings-storage__label">Texts & images</p>
+                  <p className="settings-storage__hint">Stored locally for offline access</p>
+                </div>
+                <span className="settings-storage__value">2.3&nbsp;MB</span>
+              </div>
+              <div className="settings-storage__row">
+                <div>
+                  <p className="settings-storage__label">Vocabulary</p>
+                  <p className="settings-storage__hint">Starred words and study data</p>
+                </div>
+                <span className="settings-storage__value">128&nbsp;KB</span>
+              </div>
+            </div>
             {clearConfirmation ? (
-              <div className="border rounded p-3 bg-white">
-                <p className="text-sm mb-2">Are you sure you want to clear all saved data? This cannot be undone.</p>
-                <div className="flex gap-2">
-                  <button
-                    className="btn bg-red-600 text-white"
-                    onClick={handleClearData}
-                  >
-                    Yes, Clear All Data
+              <div className="settings-danger">
+                <p className="settings-danger__text">
+                  Are you sure you want to remove all Mila data from this device? This cannot be undone.
+                </p>
+                <div className="settings-danger__actions">
+                  <button type="button" className="btn btn-danger btn-small" onClick={handleClearData}>
+                    Yes, clear everything
                   </button>
                   <button
-                    className="btn btn-secondary"
+                    type="button"
+                    className="btn btn-outline btn-small"
                     onClick={() => setClearConfirmation(false)}
                   >
                     Cancel
@@ -201,38 +200,33 @@ function Settings() {
               </div>
             ) : (
               <button
-                className="btn btn-secondary w-full"
+                type="button"
+                className="btn btn-outline btn-small settings-storage__clear"
                 onClick={() => setClearConfirmation(true)}
               >
-                Clear All Saved Data
+                Clear saved data
               </button>
             )}
-          </div>
-        </SettingsCard>
+          </SettingsCard>
 
-        {/* Feedback & About */}
-        <SettingsCard
-          title="About & Feedback"
-          icon={SettingsIcons.Feedback}
-          color="bg-gray-50"
-        >
-          <div className="mb-3">
-            <h3 className="font-medium mb-1">Mila</h3>
-            <p className="text-sm text-gray-600">Version 0.2.0</p>
-          </div>
-
-          <div className="mb-3">
-            <div className="settings-option-label">Send Feedback</div>
-            <p className="text-sm text-gray-600 mb-2">
-              Help us improve by sharing your experience.
-            </p>
-            <button className="btn btn-secondary">
-              Report Issue
-            </button>
-          </div>
-        </SettingsCard>
-      </div>
-      </div>
+          <SettingsCard title="About & feedback" icon={SettingsIcons.Feedback} accent="feedback">
+            <div className="settings-about">
+              <div>
+                <p className="settings-about__title">Mila</p>
+                <p className="settings-about__subtitle">Version 0.2.0 · Beta channel</p>
+              </div>
+              <div className="settings-about__actions">
+                <button type="button" className="btn btn-outline btn-small">
+                  Release notes
+                </button>
+                <button type="button" className="btn btn-small">
+                  Send feedback
+                </button>
+              </div>
+            </div>
+          </SettingsCard>
+        </section>
+      </main>
     </>
   )
 }
