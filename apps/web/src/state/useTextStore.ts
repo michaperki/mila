@@ -261,11 +261,10 @@ export const useTextStore = create<TextState>((set, get) => ({
   },
 }))
 
-useAuthStore.subscribe(
-  (state) => state.user?.id ?? null,
-  (userId, previousUserId) => {
-    if (userId && userId !== previousUserId) {
-      void useTextStore.getState().syncLocalToRemote()
-    }
-  },
-)
+useAuthStore.subscribe((state, previousState) => {
+  const currentId = state.user?.id ?? null
+  const previousId = previousState?.user?.id ?? null
+  if (currentId && currentId !== previousId) {
+    void useTextStore.getState().syncLocalToRemote()
+  }
+})

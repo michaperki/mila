@@ -358,11 +358,10 @@ const queueForReview = (items: StarredItem[]) => {
   items.forEach((item) => reviewState.queueFromStarred(item))
 }
 
-useAuthStore.subscribe(
-  (state) => state.user?.id ?? null,
-  (userId, previousUserId) => {
-    if (userId && userId !== previousUserId) {
-      void useVocabStore.getState().syncLocalToRemote()
-    }
-  },
-)
+useAuthStore.subscribe((state, previousState) => {
+  const currentId = state.user?.id ?? null
+  const previousId = previousState?.user?.id ?? null
+  if (currentId && currentId !== previousId) {
+    void useVocabStore.getState().syncLocalToRemote()
+  }
+})
