@@ -327,23 +327,23 @@ function Home() {
 
         <section className="grid gap-4 sm:grid-cols-2">
           <button
-            className="rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-soft transition transform hover:-translate-y-1 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:p-7"
+            className="group rounded-3xl bg-gradient-to-br from-blue-600 via-blue-500 to-indigo-500 p-6 text-left text-white shadow-[0_20px_40px_rgba(37,99,235,0.35)] transition-transform duration-200 hover:-translate-y-1 hover:shadow-[0_28px_48px_rgba(37,99,235,0.4)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-blue-200 sm:p-7"
             onClick={() => navigate('/review')}
           >
-            <span className="text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-blue-500">Primary</span>
-            <span className="mt-2 text-2xl font-semibold text-slate-900 sm:text-3xl">Start Review</span>
-            <span className="mt-2 text-sm text-slate-500">
+            <span className="text-[0.65rem] font-semibold uppercase tracking-[0.38em] text-white/70">Primary</span>
+            <span className="mt-2 text-3xl font-semibold sm:text-[2rem]">Start Review</span>
+            <span className="mt-3 text-sm text-white/80 group-hover:text-white">
               {reviewsDue > 0 ? `${reviewsDue} card${reviewsDue === 1 ? '' : 's'} waiting` : 'All clear for now'}
             </span>
           </button>
 
           <button
-            className="rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-soft transition transform hover:-translate-y-1 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:p-7"
+            className="group rounded-3xl border border-slate-200 bg-white p-6 text-left text-slate-900 shadow-soft transition-transform duration-200 hover:-translate-y-1 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-primary sm:p-7"
             onClick={() => navigate('/camera')}
           >
-            <span className="text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-slate-400">Secondary</span>
+            <span className="text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-slate-400 group-hover:text-primary">Secondary</span>
             <span className="mt-2 text-2xl font-semibold text-slate-900 sm:text-3xl">Open Camera</span>
-            <span className="mt-2 text-sm text-slate-500">Capture new Hebrew in-field and save instantly</span>
+            <span className="mt-3 text-sm text-slate-500">Capture new Hebrew in-field and save instantly</span>
           </button>
         </section>
 
