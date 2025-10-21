@@ -772,6 +772,216 @@ a:focus-visible,
   font-size: 0.9rem;
 }
 
+.camera-screen {
+  position: relative;
+  min-height: 100vh;
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+}
+
+.camera-capture {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+}
+
+.camera-viewfinder {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+.camera-feed {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.camera-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.75rem;
+  pointer-events: none;
+}
+
+.camera-overlay__top {
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.camera-overlay__bottom {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  pointer-events: auto;
+}
+
+.camera-control {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+}
+
+.camera-controls__button {
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.38);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  backdrop-filter: blur(14px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.85);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.camera-controls__button svg {
+  width: 26px;
+  height: 26px;
+}
+
+.camera-controls__button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.camera-controls__button:disabled {
+  opacity: 0.3;
+}
+
+.camera-shutter {
+  pointer-events: auto;
+  width: 86px;
+  height: 86px;
+  border-radius: 999px;
+  background: radial-gradient(circle, #ffffff 45%, #e2e8f0 100%);
+  border: 5px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.5);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.camera-shutter:active {
+  transform: scale(0.94);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.55);
+}
+
+.camera-status {
+  pointer-events: auto;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 999px;
+  padding: 0.5rem 1.2rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(14px);
+}
+
+.camera-status--error {
+  background: rgba(239, 68, 68, 0.85);
+}
+
+.camera-progress {
+  position: absolute;
+  bottom: 140px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: center;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.camera-progress__bar {
+  width: min(320px, 80vw);
+  height: 0.45rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+  overflow: hidden;
+}
+
+.camera-progress__bar > div {
+  height: 100%;
+  background: linear-gradient(135deg, #38bdf8, #6366f1);
+  transition: width 0.2s ease;
+}
+
+.camera-toast {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 999px;
+  backdrop-filter: blur(14px);
+  font-size: 0.85rem;
+  pointer-events: auto;
+}
+
+.camera-toast button {
+  background: none;
+  border: none;
+  color: inherit;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.camera-toast--error {
+  background: rgba(239, 68, 68, 0.9);
+  color: #fff;
+}
+
+.camera-gallery {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+
+.camera-gallery__sheet {
+  background: #ffffff;
+  border-radius: 1.75rem 1.75rem 0 0;
+  padding: 1.5rem;
+  width: min(640px, 100%);
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 -18px 32px rgba(15, 23, 42, 0.22);
+}
+
+.camera-gallery__close {
+  display: inline-flex;
+  margin-bottom: 1rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  background: none;
+  border: none;
+  color: #64748b;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .capture-hero {
   display: grid;
   gap: 1.25rem;

@@ -1,27 +1,20 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ImagePicker from '../components/ImagePicker'
-import InstallPrompt from '../components/InstallPrompt'
-import TranslationSettings from '../components/TranslationSettings'
-import TextPreviewCard from '../components/TextPreviewCard'
-import ErrorMessage from '../components/ErrorMessage'
-import TopNavBar from '../components/TopNavBar'
 import CameraCapture from '../components/camera/CameraCapture'
 import { useTextStore } from '../state/useTextStore'
-import { TextDoc } from '../types'
 import { processImage } from '../services/ingest'
 
 function Camera() {
   const navigate = useNavigate()
   const { texts, getTexts, saveText } = useTextStore()
-  const [isLoading, setIsLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
-  const [showSettings, setShowSettings] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [captureError, setCaptureError] = useState<string | null>(null)
   const [isProcessingCapture, setIsProcessingCapture] = useState(false)
   const [processingProgress, setProcessingProgress] = useState(0)
   const [processingStage, setProcessingStage] = useState('Preparing capture…')
+  const [showGallery, setShowGallery] = useState(false)
 
   useEffect(() => {
     const loadTexts = async () => {
@@ -31,8 +24,6 @@ function Camera() {
       } catch (error) {
         console.error('Error loading texts:', error)
         setLoadError((error as Error).message || 'Failed to load texts')
-      } finally {
-        setIsLoading(false)
       }
     }
 
@@ -48,10 +39,6 @@ function Camera() {
       window.removeEventListener('offline', handleOnlineStatus)
     }
   }, [getTexts])
-
-  const toggleSettings = () => {
-    setShowSettings(!showSettings)
-  }
 
   const handleCaptureSubmit = async (blob: Blob) => {
     try {
@@ -81,139 +68,95 @@ function Camera() {
     }
   }
 
-  return (
-    <>
-      <TopNavBar current="camera" title="Camera">
-        <button className="btn btn-icon" onClick={toggleSettings} aria-label="Open settings">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-          </svg>
-        </button>
-      </TopNavBar>
+  const leftControl = (
+    <button
+      type="button"
+      className="camera-controls__button"
+      onClick={() => setShowGallery(true)}
+      aria-label="Upload from gallery"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M3 16.5V6a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 6v10.5m-18 0A2.25 2.25 0 005.25 18.75h13.5A2.25 2.25 0 0021 16.5m-18 0v1.125C3 18.66 3.84 19.5 4.875 19.5h14.25c1.035 0 1.875-.84 1.875-1.875V16.5m-9-1.125l3-3 4.5 4.5m-10.5-2.25l1.5 1.5"
+        />
+      </svg>
+    </button>
+  )
 
-      {showSettings && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <TranslationSettings onClose={() => setShowSettings(false)} />
+  const rightControl = (
+    <button
+      type="button"
+      className="camera-controls__button"
+      aria-label="Open most recent capture"
+      onClick={() => {
+        if (texts[0]) navigate(`/read/${texts[0].id}`)
+      }}
+      disabled={texts.length === 0}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 19.5A2.5 2.5 0 006.5 22H18" />
+        <path d="M4 4.5A2.5 2.5 0 016.5 2H18" />
+        <rect x="6.5" y="4" width="11.5" height="16" rx="2" />
+      </svg>
+    </button>
+  )
+
+  const statusMessage = isProcessingCapture
+    ? processingStage
+    : isOnline
+    ? 'Camera ready'
+    : 'Offline · queued uploads'
+
+  return (
+    <div className="camera-screen">
+      <CameraCapture
+        onSubmit={handleCaptureSubmit}
+        onError={(message) => setCaptureError(message)}
+        disabled={isProcessingCapture}
+        isProcessing={isProcessingCapture}
+        leftControl={leftControl}
+        rightControl={rightControl}
+        topStatus={<span className="camera-status">{statusMessage}</span>}
+      />
+
+      {isProcessingCapture && (
+        <div className="camera-progress" role="status">
+          <p>{processingStage}</p>
+          <div className="camera-progress__bar">
+            <div style={{ width: `${Math.min(processingProgress, 100)}%` }} />
+          </div>
         </div>
       )}
 
-      <main className="mx-auto w-full max-w-5xl space-y-6 px-4 pb-24 pt-8 sm:px-6">
-        <section className="capture-hero">
-          <div>
-            <h1 className="capture-hero__title">Instant capture</h1>
-            <p className="capture-hero__subtitle">
-              Launch the live camera, auto-detect Hebrew text, and drop it straight into Mila to read or review.
-            </p>
-          </div>
-          <span className="capture-hero__status">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="8" cy="8" r="7" />
-              <path d="M8 4v4l2 2" />
-            </svg>
-            Ready when you are
-          </span>
-        </section>
-
-        <InstallPrompt />
-
-        {!isOnline && (
-          <div className="capture-offline">
-            <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
-            <span>You're currently offline. Some features may be limited.</span>
-          </div>
-        )}
-
-        <section className="capture-shell">
-          <div className="capture-shell__title">Instant camera</div>
-          <CameraCapture
-            onSubmit={handleCaptureSubmit}
-            onError={(message) => setCaptureError(message)}
-            disabled={isProcessingCapture}
-            isProcessing={isProcessingCapture}
-          />
-          {isProcessingCapture && (
-            <div className="capture-progress">
-              <p className="text-sm font-medium text-primary">{processingStage}</p>
-              <div className="capture-progress__bar">
-                <div
-                  className="capture-progress__bar-fill"
-                  style={{ width: `${Math.min(processingProgress, 100)}%` }}
-                />
-              </div>
-            </div>
-          )}
-        </section>
-
-        <ErrorMessage error={captureError} onDismiss={() => setCaptureError(null)} />
-
-        <ErrorMessage
-          error={loadError}
-          onRetry={() => {
-            setIsLoading(true)
-            getTexts().then(() => {
+      {(captureError || loadError) && (
+        <div className="camera-toast camera-toast--error" role="alert">
+          <span>{captureError || loadError}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setCaptureError(null)
               setLoadError(null)
-              setIsLoading(false)
-            }).catch(err => {
-              setLoadError((err as Error).message)
-              setIsLoading(false)
-            })
-          }}
-          onDismiss={() => setLoadError(null)}
-        />
-
-        <div className="source-picker">
-          <h2 className="source-picker__title">Choose image source</h2>
-          <ImagePicker />
+              void getTexts()
+            }}
+          >
+            Dismiss
+          </button>
         </div>
+      )}
 
-        <div className="capture-history">
-          <h2 className="capture-history__title">Recent captures</h2>
-          {isLoading ? (
-            <div className="p-4 text-center">
-              <div className="mb-2 text-primary">Loading texts...</div>
-              <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden">
-                <div className="h-1 bg-primary animate-pulse" style={{ width: '100%' }}></div>
-              </div>
-            </div>
-          ) : texts.length > 0 ? (
-            <ul className="space-y-3">
-              {texts.map((text: TextDoc) => (
-                <TextPreviewCard key={text.id} text={text} />
-              ))}
-            </ul>
-          ) : (
-            <div className="p-4 text-center">
-              <p className="mb-2">No texts yet.</p>
-              <p className="text-sm text-gray-500">
-                Take a photo or upload an image to get started.
-              </p>
-            </div>
-          )}
+      {showGallery && (
+        <div className="camera-gallery" onClick={() => setShowGallery(false)}>
+          <div className="camera-gallery__sheet" onClick={(event) => event.stopPropagation()}>
+            <button className="camera-gallery__close" type="button" onClick={() => setShowGallery(false)}>
+              Close
+            </button>
+            <ImagePicker />
+          </div>
         </div>
-      </main>
-    </>
+      )}
+    </div>
   )
 }
 
