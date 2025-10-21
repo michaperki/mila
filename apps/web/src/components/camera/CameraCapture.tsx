@@ -211,10 +211,11 @@ function CameraCapture({ onSubmit, disabled, onError, isProcessing, leftControl,
   }, [captured, onSubmit, quad, onError, resetState])
 
   const isBusy = submitting || Boolean(isProcessing)
+  const hasCapture = Boolean(captured)
 
   return (
-    <div className="camera-capture">
-      <div className="camera-viewfinder">
+    <div className={`camera-capture${hasCapture ? ' camera-capture--captured' : ''}`}>
+      <div className={`camera-viewfinder${hasCapture ? ' camera-viewfinder--captured' : ''}`}>
         {captured ? (
           <CapturePreview
             imageUrl={captured.previewUrl}

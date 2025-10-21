@@ -14,6 +14,8 @@ type ToastState = {
   variant: 'success' | 'info';
 };
 
+const normalizeLemma = (lemma?: string) => (lemma ?? '').replace(/[,،，]+/g, '').trim();
+
 function Reader() {
   const { textId } = useParams<{ textId: string }>();
   const navigate = useNavigate();
@@ -46,7 +48,10 @@ function Reader() {
   const refreshVocab = useCallback(async () => {
     try {
       const items = await getVocab();
-      setStarredItems(items);
+      setStarredItems(items.map((item) => ({
+        ...item,
+        lemma: normalizeLemma(item.lemma),
+      })));
     } catch (error) {
       console.error('Error reloading vocabulary:', error);
     }
@@ -98,7 +103,10 @@ function Reader() {
         }
 
         if (vocabItems.status === 'fulfilled') {
-          setStarredItems(vocabItems.value);
+          setStarredItems(vocabItems.value.map((item) => ({
+            ...item,
+            lemma: normalizeLemma(item.lemma),
+          })));
           setLoadError(null);
         } else {
           console.error('Error loading vocabulary:', vocabItems.reason);
@@ -126,8 +134,9 @@ function Reader() {
   }, [textId, getTextById, getVocab, navigate, refreshVocab]);
 
   const isTokenStarred = useCallback((token: Token): boolean => {
-    if (!token.lemma) return false;
-    return starredItems.some((item) => item.lemma === token.lemma);
+    const lemma = normalizeLemma(token.lemma);
+    if (!lemma) return false;
+    return starredItems.some((item) => item.lemma === lemma);
   }, [starredItems]);
 
   const resolveChunkIdForToken = useCallback((token: Token, chunk?: Chunk): string | undefined => {
@@ -143,17 +152,19 @@ function Reader() {
   const handleToggleStar = useCallback(async (tokenToToggle?: Token, sourceChunk?: Chunk) => {
     const token = tokenToToggle;
     if (!token?.lemma || !token.gloss) return;
+    const lemma = normalizeLemma(token.lemma);
+    if (!lemma) return;
 
     try {
       setStarringError(null);
       const alreadyStarred = isTokenStarred(token);
 
       if (alreadyStarred) {
-        const itemToRemove = starredItems.find((item) => item.lemma === token.lemma);
+        const itemToRemove = starredItems.find((item) => item.lemma === lemma);
         if (!itemToRemove) return;
 
         await removeItem(itemToRemove.id);
-        setStarredItems((prev) => prev.filter((item) => item.lemma !== token.lemma));
+        setStarredItems((prev) => prev.filter((item) => item.lemma !== lemma));
 
         try {
           await refreshVocab();
@@ -163,8 +174,8 @@ function Reader() {
       } else {
         const chunkId = resolveChunkIdForToken(token, sourceChunk);
         const newItem: StarredItem = {
-          id: `${token.lemma}-${Date.now()}`,
-          lemma: token.lemma,
+          id: `${lemma}-${Date.now()}`,
+          lemma,
           gloss: token.gloss || 'Unknown',
           root: token.root || (token.lemma ? suggestRoot(token.lemma) : undefined),
           sourceRef: textId ? {

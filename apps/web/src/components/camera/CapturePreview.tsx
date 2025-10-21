@@ -70,9 +70,9 @@ function CapturePreview({ imageUrl, quad, onChange, onConfirm, onRetake, isSubmi
   )
 
   return (
-    <div className="space-y-3">
-      <div className="relative rounded-lg overflow-hidden border border-gray-200 bg-black" ref={containerRef}>
-        <img src={imageUrl} alt="Captured frame" className="w-full h-full object-contain" />
+    <div className="camera-preview">
+      <div className="camera-preview__frame" ref={containerRef}>
+        <img src={imageUrl} alt="Captured frame" className="camera-preview__image" />
         <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">
           <polygon points={polygonPoints} className="fill-primary/10 stroke-primary" strokeWidth={0.4} />
         </svg>
@@ -89,12 +89,12 @@ function CapturePreview({ imageUrl, quad, onChange, onConfirm, onRetake, isSubmi
           >
             ●
           </button>
-        ))}
+      ))}
       </div>
-      <p className="text-sm text-gray-500">
+      <p className="camera-preview__hint">
         Drag the handles to frame the text. We will straighten and clean the capture before running OCR.
       </p>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="camera-preview__actions">
         <button className="btn btn-secondary" type="button" onClick={onRetake} disabled={isSubmitting}>
           Retake
         </button>

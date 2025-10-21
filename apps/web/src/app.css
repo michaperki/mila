@@ -1514,8 +1514,9 @@ a:focus-visible,
 
 .review-card__prompt--ltr {
   font-family: var(--font-sans);
-  text-align: left;
+  text-align: center;
   width: 100%;
+  letter-spacing: 0.02em;
 }
 
 .review-input {
@@ -1595,40 +1596,45 @@ a:focus-visible,
 
 .review-ratings__grid {
   display: grid;
-  gap: 0.9rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
 }
 
-@media (min-width: 640px) {
+@media (max-width: 480px) {
   .review-ratings__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
   }
 }
 
 .review-rating {
-  display: grid;
-  align-content: center;
-  gap: 0.35rem;
-  padding: 1rem 1.1rem;
-  border-radius: var(--radius-md);
-  text-align: left;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: 0.65rem 0.5rem;
+  border-radius: 0.85rem;
+  text-align: center;
   border: 1px solid transparent;
+  min-height: calc(var(--tap-target-min) - 6px);
   transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
 }
 
 .review-rating:hover {
   transform: translateY(-1px);
-  box-shadow: 0 16px 28px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
 }
 
 .review-rating__label {
-  font-size: 1rem;
+  font-size: 0.9rem;
   font-weight: 600;
   color: var(--text-color);
 }
 
 .review-rating__helper {
-  font-size: 0.82rem;
+  font-size: 0.72rem;
   color: var(--text-light-color);
+  letter-spacing: 0.02em;
 }
 
 .review-rating--again {
@@ -1986,13 +1992,18 @@ a:focus-visible,
   min-height: 100vh;
   background: #000;
   color: #fff;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .camera-capture {
   position: relative;
   width: 100%;
-  height: 100vh;
+  min-height: 100vh;
+}
+
+.camera-capture--captured {
+  background: radial-gradient(circle at top, rgba(59, 130, 246, 0.18), transparent 65%), #020617;
 }
 
 .camera-viewfinder {
@@ -2000,6 +2011,63 @@ a:focus-visible,
   inset: 0;
   overflow: hidden;
   background: #000;
+}
+
+.camera-viewfinder--captured {
+  position: static;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: clamp(1.5rem, 6vw, 2.75rem) clamp(1.25rem, 5vw, 2.5rem);
+  gap: clamp(1.25rem, 4vw, 2rem);
+  background: radial-gradient(circle at center, rgba(15, 23, 42, 0.85), #000);
+}
+
+.camera-preview {
+  width: min(640px, 100%);
+  display: grid;
+  gap: 1rem;
+}
+
+.camera-preview__frame {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.4);
+  min-height: clamp(240px, 60vh, 520px);
+}
+
+.camera-preview__image {
+  width: 100%;
+  height: auto;
+  max-height: clamp(320px, 70vh, 580px);
+  object-fit: contain;
+}
+
+.camera-preview__hint {
+  font-size: 0.9rem;
+  color: rgba(226, 232, 240, 0.85);
+  text-align: center;
+}
+
+.camera-preview__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .camera-preview__actions {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
 }
 
 .camera-feed {
@@ -2770,7 +2838,7 @@ a:focus-visible,
 .toast {
   position: fixed;
   right: 1.5rem;
-  bottom: 1.5rem;
+  bottom: max(1.5rem, calc(env(safe-area-inset-bottom) + 5.5rem));
   padding: 0.75rem 1.25rem;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);

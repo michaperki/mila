@@ -19,17 +19,31 @@ interface VocabState {
   clearVocab: () => Promise<void>;
 }
 
+const normalizeLemma = (lemma: string) => {
+  const cleaned = lemma.replace(/[,،，]+/g, '').trim();
+  return cleaned || lemma.trim();
+};
+
 async function ensureFrequency(
   items: StarredItem[],
   db: IDBPDatabase<unknown>
 ): Promise<StarredItem[]> {
   let changed = false;
   const normalized = items.map((item) => {
-    if (!item.frequency || item.frequency < 1) {
+    const lemma = normalizeLemma(item.lemma);
+    let next = item;
+
+    if (lemma !== item.lemma) {
+      next = { ...next, lemma };
       changed = true;
-      return { ...item, frequency: 1 };
     }
-    return item;
+
+    if (!next.frequency || next.frequency < 1) {
+      next = { ...next, frequency: 1 };
+      changed = true;
+    }
+
+    return next;
   });
 
   if (changed) {
@@ -119,14 +133,16 @@ export const useVocabStore = create<VocabState>()(
 
           // Check if the lemma already exists
           const vocab = get().vocab;
-          const existingItem = vocab.find(v => v.lemma === item.lemma);
+          const lemma = normalizeLemma(item.lemma);
+          const normalizedItem = { ...item, lemma };
+          const existingItem = vocab.find(v => v.lemma === lemma);
 
           if (existingItem) {
             // Update the existing item with the new data but keep the original ID
             const updatedItem = {
               ...existingItem,
-              gloss: item.gloss, // Update gloss in case it has changed
-              root: item.root ?? existingItem.root,
+              gloss: normalizedItem.gloss, // Update gloss in case it has changed
+              root: normalizedItem.root ?? existingItem.root,
               createdAt: Date.now(), // Update timestamp to move it to top
               frequency: (existingItem.frequency || 1) + 1, // Increment frequency
             };
@@ -141,7 +157,7 @@ export const useVocabStore = create<VocabState>()(
             set({ vocab: updatedVocab, isLoading: false, lastUpdated: Date.now(), error: null });
           } else {
             // Add new item with frequency 1
-            const newItem = { ...item, frequency: 1 };
+            const newItem = { ...normalizedItem, frequency: 1 };
             await db.put('vocab', newItem);
             useReviewStore.getState().queueFromStarred(newItem);
             set({
