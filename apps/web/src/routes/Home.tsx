@@ -48,6 +48,7 @@ const makeManualItem = (lemma: string, gloss: string, root?: string): StarredIte
 function Home() {
   const navigate = useNavigate()
   const displayName = useProfileStore((state) => state.displayName)
+  const authUser = useAuthStore((state) => state.user)
   const streak = useProgressStore((state) => state.streak)
   const getReadingMinutesForRange = useProgressStore((state) => state.getReadingMinutesForRange)
   const vocab = useVocabStore((state) => state.vocab)
@@ -293,9 +294,13 @@ function Home() {
       <main className="mx-auto w-full max-w-4xl px-4 pb-28 pt-8 space-y-8 sm:px-6 lg:max-w-5xl">
         <header className="home-hero">
           <span className="home-hero__eyebrow">Stay on track with Mila</span>
-          <h1 className="home-hero__title">Shalom, {displayName} 👋</h1>
+          <h1 className="home-hero__title">
+            {authUser ? `Shalom, ${authUser.email.split('@')[0]} 👋` : `Shalom, ${displayName} 👋`}
+          </h1>
           <p className="home-hero__support">
-            Ready to keep the streak alive? Keep capturing, reviewing, and celebrating every win along the way.
+            {authUser
+              ? 'Ready to keep the streak alive? Keep capturing, reviewing, and celebrating every win along the way.'
+              : 'Create a free account to save captures, sync vocabulary, and pick up where you left off anywhere.'}
           </p>
         </header>
 
