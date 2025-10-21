@@ -4,10 +4,16 @@ import CameraCapture from '../components/camera/CameraCapture'
 import ImagePicker from '../components/ImagePicker'
 import { useTextStore } from '../state/useTextStore'
 import { processImage } from '../services/ingest'
+import {
+  selectCaptureAllowance,
+  selectRemainingCapturesLabel,
+  selectTier,
+  useAuthStore,
+} from '../state/useAuthStore'
 
 function Camera() {
   const navigate = useNavigate()
-  const { texts, getTexts, saveText } = useTextStore()
+  const { getTexts, saveText } = useTextStore()
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [captureError, setCaptureError] = useState<string | null>(null)
@@ -15,6 +21,19 @@ function Camera() {
   const [processingProgress, setProcessingProgress] = useState(0)
   const [processingStage, setProcessingStage] = useState('Preparing capture…')
   const [showGallery, setShowGallery] = useState(false)
+  const captureAllowance = useAuthStore(selectCaptureAllowance)
+  const tier = useAuthStore(selectTier)
+  const remainingLabel = useAuthStore(selectRemainingCapturesLabel)
+  const consumeCapture = useAuthStore((state) => state.consumeCapture)
+  const refreshUsage = useAuthStore((state) => state.refreshUsage)
+  const isMockPayments = useAuthStore((state) => state.isMockPayments)
+  const [showLimitSheet, setShowLimitSheet] = useState(false)
+
+  useEffect(() => {
+    if (useAuthStore.getState().user) {
+      void refreshUsage()
+    }
+  }, [refreshUsage])
 
   useEffect(() => {
     const loadTexts = async () => {
@@ -41,6 +60,17 @@ function Camera() {
   }, [getTexts])
 
   const handleCaptureSubmit = async (blob: Blob) => {
+    const allowance = useAuthStore.getState().getCaptureAllowance()
+    if (!allowance.allowed) {
+      const message =
+        allowance.reason === 'guest-limit'
+          ? 'Enjoyed your trial capture? Create a free account to keep scanning.'
+          : 'You have reached the free capture limit. Upgrade to keep scanning.'
+      setCaptureError(message)
+      setShowLimitSheet(true)
+      return
+    }
+
     try {
       setCaptureError(null)
       setIsProcessingCapture(true)
@@ -56,6 +86,8 @@ function Camera() {
 
       setProcessingStage('Saving to your library…')
       await saveText(textDoc)
+      await consumeCapture()
+      await refreshUsage()
       setProcessingProgress(100)
       navigate(`/read/${textDoc.id}`)
     } catch (error) {
@@ -71,8 +103,14 @@ function Camera() {
   const statusMessage = isProcessingCapture
     ? processingStage
     : isOnline
-    ? 'Camera ready'
-    : 'Offline · queued uploads'
+      ? captureAllowance.allowed
+        ? `Camera ready · ${remainingLabel}`
+        : tier === 'guest'
+          ? 'Limit reached · Create a free account to continue'
+          : 'Limit reached · Upgrade for more scans'
+      : 'Offline · queued uploads'
+
+  const statusVariant = !isOnline ? 'error' : captureAllowance.allowed ? 'default' : 'warning'
 
   const leftControl = (
     <button
@@ -99,7 +137,11 @@ function Camera() {
         </svg>
         Back
       </button>
-      <span className={`camera-status${!isOnline ? ' camera-status--error' : ''}`}>{statusMessage}</span>
+      <span
+        className={`camera-status${statusVariant === 'error' ? ' camera-status--error' : ''}${statusVariant === 'warning' ? ' camera-status--warning' : ''}`}
+      >
+        {statusMessage}
+      </span>
       <span className="camera-top-spacer" />
     </div>
   )
@@ -148,6 +190,44 @@ function Camera() {
               Close
             </button>
             <ImagePicker />
+          </div>
+        </div>
+      )}
+
+      {showLimitSheet && (
+        <div className="camera-limit" onClick={() => setShowLimitSheet(false)}>
+          <div className="camera-limit__sheet" onClick={(event) => event.stopPropagation()}>
+            <span className="camera-limit__eyebrow">Limit reached</span>
+            <h2 className="camera-limit__title">
+              {tier === 'guest' ? 'Create a free Mila account' : 'Upgrade for unlimited captures'}
+            </h2>
+            <p className="camera-limit__copy">
+              {tier === 'guest'
+                ? 'You can try one capture as a guest. Sign in or create a free account to keep your scans and vocabulary in sync.'
+                : 'The free plan includes five captures per period. Upgrade to keep scanning without interruption.'}
+            </p>
+            <div className="camera-limit__actions">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  setShowLimitSheet(false)
+                  navigate('/settings#account')
+                }}
+              >
+                {tier === 'guest' ? 'Create free account' : 'Review upgrade options'}
+              </button>
+              <button type="button" className="btn btn-outline" onClick={() => setShowLimitSheet(false)}>
+                Not now
+              </button>
+            </div>
+            <p className="camera-limit__footnote">
+              {tier === 'guest'
+                ? 'Already have an account? Sign in from Settings.'
+                : isMockPayments
+                ? 'Upgrades are mocked during development.'
+                : 'Upgrades unlock unlimited captures.'}
+            </p>
           </div>
         </div>
       )}

@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 
-type SettingsCardAccent = 'display' | 'language' | 'audio' | 'ocr' | 'storage' | 'feedback'
+type SettingsCardAccent = 'account' | 'display' | 'language' | 'audio' | 'ocr' | 'storage' | 'feedback'
 
 type SettingsCardProps = {
   title: string
@@ -24,6 +24,12 @@ function SettingsCard({ title, icon, children, accent }: SettingsCardProps) {
 }
 
 export const SettingsIcons = {
+  Account: (
+    <svg xmlns="http://www.w3.org/2000/svg" className="settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <circle cx="12" cy="7" r="4" />
+      <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
+    </svg>
+  ),
   Display: (
     <svg xmlns="http://www.w3.org/2000/svg" className="settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
       <rect x="3" y="4" width="18" height="12" rx="2" ry="2" />

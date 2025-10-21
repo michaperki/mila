@@ -10,13 +10,11 @@ const handler: Handler = async (event) => {
     const texts = db.collection('texts')
 
     if (event.httpMethod === 'GET') {
-      const docs = await texts
-        .find({ userId: auth.userId })
-        .sort({ createdAt: -1 })
-        .toArray()
+      const docs = await texts.find({ userId: auth.userId }).sort({ createdAt: -1 }).toArray()
+      const sanitized = docs.map(({ _id, ...rest }) => normalizeDocument(rest))
       return {
         statusCode: 200,
-        body: JSON.stringify({ texts: docs }),
+        body: JSON.stringify({ texts: sanitized }),
       }
     }
 
@@ -25,18 +23,29 @@ const handler: Handler = async (event) => {
         return { statusCode: 400, body: JSON.stringify({ message: 'Missing body' }) }
       }
       const payload = JSON.parse(event.body)
-      const textId = payload.textId || (globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+      const textId =
+        payload.textId ||
+        (globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+
+      const createdAt =
+        typeof payload.createdAt === 'number'
+          ? payload.createdAt
+          : payload.createdAt
+          ? new Date(payload.createdAt).getTime()
+          : Date.now()
+
       const doc = {
         ...payload,
         textId,
         userId: auth.userId,
-        createdAt: payload.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt,
+        updatedAt: Date.now(),
       }
+
       await texts.updateOne({ userId: auth.userId, textId }, { $set: doc }, { upsert: true })
       return {
         statusCode: 200,
-        body: JSON.stringify({ text: doc }),
+        body: JSON.stringify({ text: normalizeDocument(doc) }),
       }
     }
 
@@ -70,3 +79,14 @@ const handler: Handler = async (event) => {
 }
 
 export { handler }
+
+const normalizeDocument = (doc: any) => ({
+  ...doc,
+  id: doc.textId ?? doc.id,
+  createdAt:
+    typeof doc.createdAt === 'number'
+      ? doc.createdAt
+      : doc.createdAt
+      ? new Date(doc.createdAt).getTime()
+      : Date.now(),
+})

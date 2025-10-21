@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import TopNavBar from '../components/TopNavBar'
+import ErrorMessage from '../components/ErrorMessage'
 import { useTextStore } from '../state/useTextStore'
 import { useVocabStore } from '../state/useVocabStore'
 import { TextDoc } from '../types'
@@ -16,7 +17,9 @@ const formatDate = (timestamp: number) =>
 
 function Read() {
   const [query, setQuery] = useState('')
-  const { texts, getTexts, isLoading: textsLoading } = useTextStore()
+  const [libraryError, setLibraryError] = useState<string | null>(null)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const { texts, getTexts, deleteText, isLoading: textsLoading } = useTextStore()
   const { vocab, getVocab } = useVocabStore()
 
   useEffect(() => {
@@ -43,6 +46,22 @@ function Read() {
       return title.includes(normalized) || chunkPreview.includes(normalized)
     })
   }, [texts, query])
+
+  const handleDelete = async (textId: string) => {
+    const confirmed = window.confirm('Delete this capture? This cannot be undone.')
+    if (!confirmed) return
+
+    try {
+      setLibraryError(null)
+      setPendingDeleteId(textId)
+      await deleteText(textId)
+    } catch (error) {
+      console.error('Failed to delete capture', error)
+      setLibraryError((error as Error).message || 'Could not delete capture. Please try again.')
+    } finally {
+      setPendingDeleteId(null)
+    }
+  }
 
   return (
     <>
@@ -75,6 +94,8 @@ function Read() {
           />
         </section>
 
+        <ErrorMessage error={libraryError} onDismiss={() => setLibraryError(null)} />
+
         <section className="library-grid">
           {textsLoading ? (
             <div className="library-empty">Loading texts…</div>
@@ -98,9 +119,19 @@ function Read() {
                         Added {formatDate(text.createdAt)} · {wordCount} words · {text.chunks.length} segments
                       </p>
                     </div>
-                    <Link className="btn btn-outline btn-small" to={`/read/${text.id}`}>
-                      Open
-                    </Link>
+                    <div className="library-card__actions">
+                      <Link className="btn btn-outline btn-small" to={`/read/${text.id}`}>
+                        Open
+                      </Link>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-small library-card__delete"
+                        onClick={() => handleDelete(text.id)}
+                        disabled={pendingDeleteId === text.id}
+                      >
+                        {pendingDeleteId === text.id ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="library-card__progress">

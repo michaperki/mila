@@ -1,7 +1,14 @@
-import { useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import SettingsCard, { SettingsIcons } from '../components/SettingsCard'
 import ErrorMessage from '../components/ErrorMessage'
 import TopNavBar from '../components/TopNavBar'
+import {
+  selectAuthStatus,
+  selectCaptureAllowance,
+  selectRemainingCapturesLabel,
+  selectTier,
+  useAuthStore,
+} from '../state/useAuthStore'
 
 function Settings() {
   const [theme, setTheme] = useState('light')
@@ -12,20 +19,99 @@ function Settings() {
   const [clearError, setClearError] = useState<string | null>(null)
   const [clearSuccess, setClearSuccess] = useState(false)
 
-  // Function to handle data clearing
+  const tier = useAuthStore(selectTier)
+  const authStatus = useAuthStore(selectAuthStatus)
+  const allowance = useAuthStore(selectCaptureAllowance)
+  const remainingLabel = useAuthStore(selectRemainingCapturesLabel)
+  const user = useAuthStore((state) => state.user)
+  const token = useAuthStore((state) => state.token)
+  const refreshUsage = useAuthStore((state) => state.refreshUsage)
+  const signUp = useAuthStore((state) => state.signUp)
+  const signIn = useAuthStore((state) => state.signIn)
+  const signOut = useAuthStore((state) => state.signOut)
+  const upgradeTier = useAuthStore((state) => state.upgradeTier)
+  const resetUsage = useAuthStore((state) => state.resetUsage)
+  const isMockPayments = useAuthStore((state) => state.isMockPayments)
+
+  const [authMode, setAuthMode] = useState<'signup' | 'login'>('signup')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [authMessage, setAuthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [authPending, setAuthPending] = useState(false)
+
+  useEffect(() => {
+    if (user && token) {
+      void refreshUsage()
+    }
+  }, [refreshUsage, token, user])
+
   const handleClearData = () => {
-    // In a real implementation, this would clear IndexedDB and localStorage
     try {
-      // Simulate success
       setTimeout(() => {
         setClearSuccess(true)
         setClearConfirmation(false)
-        setTimeout(() => setClearSuccess(false), 3000)
-      }, 1000)
+        setTimeout(() => setClearSuccess(false), 2500)
+      }, 300)
     } catch (error) {
-      setClearError('Failed to clear data. Please try again.')
+      setClearError((error as Error).message || 'Failed to clear data. Please try again.')
     }
   }
+
+  const handleAuthSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setAuthMessage(null)
+    setAuthPending(true)
+
+    try {
+      if (authMode === 'signup') {
+        await signUp(email, password)
+        setAuthMessage({ type: 'success', text: 'Account created. You are now signed in!' })
+      } else {
+        await signIn(email, password)
+        setAuthMessage({ type: 'success', text: 'Welcome back!' })
+      }
+      setEmail('')
+      setPassword('')
+    } catch (error) {
+      setAuthMessage({ type: 'error', text: (error as Error).message })
+    } finally {
+      setAuthPending(false)
+    }
+  }
+
+  const handleSignOut = () => {
+    signOut()
+    setAuthMessage({ type: 'success', text: 'Signed out.' })
+  }
+
+  const handleUpgrade = async () => {
+    setAuthMessage(null)
+    try {
+      await upgradeTier()
+      setAuthMessage({ type: 'success', text: isMockPayments ? 'Marked as premium (mock).' : 'Account upgraded!' })
+    } catch (error) {
+      setAuthMessage({ type: 'error', text: (error as Error).message })
+    }
+  }
+
+  const handleResetUsage = async () => {
+    await resetUsage()
+    setAuthMessage({ type: 'success', text: 'Usage counters reset for this device.' })
+    void refreshUsage()
+  }
+
+  const usageSummary = useMemo(() => {
+    if (!user) {
+      return 'Try one capture as a guest. Create a free account to keep scanning.'
+    }
+    if (allowance.limit === null) {
+      return 'Unlimited captures on the premium plan.'
+    }
+    const remaining = allowance.remaining ?? 0
+    return `${remaining} of ${allowance.limit} captures left this period.`
+  }, [allowance.limit, allowance.remaining, user])
+
+  const isAuthLoading = authPending || authStatus === 'authenticating'
 
   return (
     <>
@@ -36,10 +122,15 @@ function Settings() {
             <span className="settings-hero__eyebrow">Personalise Mila</span>
             <h1 className="settings-hero__title">Settings</h1>
             <p className="settings-hero__subtitle">
-              Tune the experience to match your preferences, from appearance to pronunciation and data control.
+              Manage your account, tailor the interface, and keep your capture data under control.
             </p>
           </div>
           <div className="settings-hero__metrics">
+            <div className="settings-hero__metric">
+              <span>Account</span>
+              <strong>{tier === 'guest' ? 'Guest trial' : tier === 'premium' ? 'Premium' : 'Free plan'}</strong>
+              <small>{usageSummary}</small>
+            </div>
             <div className="settings-hero__metric">
               <span>Theme</span>
               <strong>{theme === 'light' ? 'Light' : 'Dark'}</strong>
@@ -55,11 +146,6 @@ function Settings() {
               <strong>{playbackSpeed === 'slow' ? 'Slow' : 'Normal'}</strong>
               <small>Pronunciation speed</small>
             </div>
-            <div className="settings-hero__metric">
-              <span>OCR assist</span>
-              <strong>{autoCorrect ? 'Enabled' : 'Off'}</strong>
-              <small>Auto correction</small>
-            </div>
           </div>
         </section>
 
@@ -68,6 +154,105 @@ function Settings() {
         <ErrorMessage error={clearError} onDismiss={() => setClearError(null)} />
 
         <section className="settings-grid">
+          <div id="account">
+            <SettingsCard title="Account" icon={SettingsIcons.Account} accent="account">
+              {authMessage && (
+                <div
+                  className={`settings-account__alert settings-account__alert--${authMessage.type === 'success' ? 'success' : 'error'}`}
+                  role="status"
+                >
+                  {authMessage.text}
+                </div>
+              )}
+
+              {user ? (
+                <div className="settings-account">
+                  <div className="settings-account__summary">
+                    <div>
+                      <p className="settings-account__email">{user.email}</p>
+                      <p className="settings-account__subtitle">
+                        Member since {new Date(user.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <span className={`settings-account__tier settings-account__tier--${user.tier}`}>
+                      {user.tier === 'premium' ? 'Premium' : 'Free tier'}
+                    </span>
+                  </div>
+                  <p className="settings-account__usage">
+                    {allowance.limit === null
+                      ? 'Unlimited captures on this plan.'
+                      : `${allowance.remaining ?? 0} of ${allowance.limit} captures left this period (${remainingLabel}).`}
+                  </p>
+                  <div className="settings-account__actions">
+                    {user.tier === 'free' && (
+                      <button type="button" className="btn btn-small" onClick={handleUpgrade}>
+                        {isMockPayments ? 'Upgrade (mock)' : 'Upgrade plan'}
+                      </button>
+                    )}
+                    <button type="button" className="btn btn-outline btn-small" onClick={handleSignOut}>
+                      Sign out
+                    </button>
+                    {import.meta.env.DEV && (
+                      <button type="button" className="btn btn-ghost btn-small" onClick={handleResetUsage}>
+                        Reset quota
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <form className="settings-account__form" onSubmit={handleAuthSubmit}>
+                  <div className="settings-account__tabs">
+                    <button
+                      type="button"
+                      className={`settings-account__tab${authMode === 'signup' ? ' settings-account__tab--active' : ''}`}
+                      onClick={() => setAuthMode('signup')}
+                      aria-pressed={authMode === 'signup'}
+                    >
+                      Create account
+                    </button>
+                    <button
+                      type="button"
+                      className={`settings-account__tab${authMode === 'login' ? ' settings-account__tab--active' : ''}`}
+                      onClick={() => setAuthMode('login')}
+                      aria-pressed={authMode === 'login'}
+                    >
+                      Sign in
+                    </button>
+                  </div>
+
+                  <label className="settings-account__label">
+                    Email
+                    <input
+                      type="email"
+                      autoComplete="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      required
+                      placeholder="you@example.com"
+                    />
+                  </label>
+
+                  <label className="settings-account__label">
+                    Password
+                    <input
+                      type="password"
+                      minLength={4}
+                      autoComplete={authMode === 'signup' ? 'new-password' : 'current-password'}
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      required
+                      placeholder="Choose a password"
+                    />
+                  </label>
+
+                  <button type="submit" className="btn btn-small" disabled={isAuthLoading}>
+                    {isAuthLoading ? 'Please wait…' : authMode === 'signup' ? 'Create account' : 'Sign in'}
+                  </button>
+                </form>
+              )}
+            </SettingsCard>
+          </div>
+
           <SettingsCard title="Display" icon={SettingsIcons.Display} accent="display">
             <div className="settings-group">
               <p className="settings-group__label">Theme</p>
@@ -170,14 +355,14 @@ function Settings() {
                   <p className="settings-storage__label">Texts & images</p>
                   <p className="settings-storage__hint">Stored locally for offline access</p>
                 </div>
-                <span className="settings-storage__value">2.3&nbsp;MB</span>
+                <span className="settings-storage__value">—</span>
               </div>
               <div className="settings-storage__row">
                 <div>
                   <p className="settings-storage__label">Vocabulary</p>
                   <p className="settings-storage__hint">Starred words and study data</p>
                 </div>
-                <span className="settings-storage__value">128&nbsp;KB</span>
+                <span className="settings-storage__value">—</span>
               </div>
             </div>
             {clearConfirmation ? (

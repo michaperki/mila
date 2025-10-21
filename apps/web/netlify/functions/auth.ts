@@ -54,7 +54,7 @@ const handler: Handler = async (event) => {
     const token = signToken({ userId: user.userId, email: user.email, tier: user.tier })
     return {
       statusCode: 200,
-      body: JSON.stringify({ token, user: { email: user.email, tier: user.tier, createdAt: user.createdAt } }),
+      body: JSON.stringify({ token, user: { id: user.userId, email: user.email, tier: user.tier, createdAt: user.createdAt } }),
     }
   }
 
@@ -83,7 +83,7 @@ const handler: Handler = async (event) => {
 
   return {
     statusCode: 201,
-    body: JSON.stringify({ token, user: { email: normalizedEmail, tier: 'free', createdAt } }),
+    body: JSON.stringify({ token, user: { id: userId, email: normalizedEmail, tier: 'free', createdAt } }),
   }
 }
 

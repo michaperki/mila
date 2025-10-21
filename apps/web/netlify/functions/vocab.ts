@@ -9,13 +9,11 @@ const handler: Handler = async (event) => {
     const vocab = db.collection('vocab')
 
     if (event.httpMethod === 'GET') {
-      const docs = await vocab
-        .find({ userId: auth.userId })
-        .sort({ createdAt: -1 })
-        .toArray()
+      const docs = await vocab.find({ userId: auth.userId }).sort({ createdAt: -1 }).toArray()
+      const sanitized = docs.map(({ _id, ...rest }) => normalizeItem(rest))
       return {
         statusCode: 200,
-        body: JSON.stringify({ vocab: docs }),
+        body: JSON.stringify({ vocab: sanitized }),
       }
     }
 
@@ -26,18 +24,25 @@ const handler: Handler = async (event) => {
 
       const payload = JSON.parse(event.body)
       const id = payload.id || (globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+      const createdAt =
+        typeof payload.createdAt === 'number'
+          ? payload.createdAt
+          : payload.createdAt
+          ? new Date(payload.createdAt).getTime()
+          : Date.now()
+
       const doc = {
         ...payload,
         id,
         userId: auth.userId,
-        createdAt: payload.createdAt || Date.now(),
+        createdAt,
         updatedAt: Date.now(),
       }
 
       await vocab.updateOne({ userId: auth.userId, id }, { $set: doc }, { upsert: true })
       return {
         statusCode: 200,
-        body: JSON.stringify({ item: doc }),
+        body: JSON.stringify({ item: normalizeItem(doc) }),
       }
     }
 
@@ -62,3 +67,16 @@ const handler: Handler = async (event) => {
 }
 
 export { handler }
+
+const normalizeItem = (item: any) => ({
+  ...item,
+  id: item.id ?? item._id ?? crypto.randomUUID(),
+  lemma: typeof item.lemma === 'string' ? item.lemma.replace(/[,،，]+/g, '').trim() : item.lemma,
+  createdAt:
+    typeof item.createdAt === 'number'
+      ? item.createdAt
+      : item.createdAt
+      ? new Date(item.createdAt).getTime()
+      : Date.now(),
+  frequency: item.frequency && item.frequency > 0 ? item.frequency : 1,
+})
