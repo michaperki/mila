@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import TopNavBar from '../components/TopNavBar'
 import { useProfileStore } from '../state/useProfileStore'
-import { useAuthStore } from '../state/useAuthStore'
+import { useAuthStore, selectCaptureAllowance, selectRemainingCapturesLabel } from '../state/useAuthStore'
 import { useProgressStore } from '../state/useProgressStore'
 import { useVocabStore } from '../state/useVocabStore'
 import { useReviewStore } from '../state/useReviewStore'
@@ -50,6 +50,8 @@ function Home() {
   const navigate = useNavigate()
   const displayName = useProfileStore((state) => state.displayName)
   const authUser = useAuthStore((state) => state.user)
+  const captureAllowance = useAuthStore(selectCaptureAllowance)
+  const captureLabel = useAuthStore(selectRemainingCapturesLabel)
   const streak = useProgressStore((state) => state.streak)
   const getReadingMinutesForRange = useProgressStore((state) => state.getReadingMinutesForRange)
   const vocab = useVocabStore((state) => state.vocab)
@@ -79,6 +81,17 @@ function Home() {
   const [isVoiceSupported, setIsVoiceSupported] = useState(false)
   const [isListening, setIsListening] = useState(false)
   const recognitionRef = useRef<any | null>(null)
+
+  const captureStatus = useMemo(() => {
+    if (!authUser) {
+      return 'Guest · 1 capture'
+    }
+    if (captureAllowance.limit === null) {
+      return 'Premium · unlimited'
+    }
+    const remaining = captureAllowance.remaining ?? 0
+    return `${remaining} / ${captureAllowance.limit}`
+  }, [authUser, captureAllowance])
 
   const handleLemmaChange = useCallback(
     (value: string, options?: { entry?: LexiconEntry; fromSuggestion?: boolean }) => {
@@ -329,6 +342,11 @@ function Home() {
             <div className="progress-pulse__metric">
               <label>Minutes read</label>
               <strong>{readingMinutes}</strong>
+            </div>
+            <div className="progress-pulse__metric">
+              <label>Instant captures</label>
+              <strong>{captureStatus}</strong>
+              <small>{captureLabel}</small>
             </div>
           </div>
         </section>

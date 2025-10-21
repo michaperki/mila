@@ -18,6 +18,7 @@ type VocabState = {
   exportVocab: () => string
   importVocab: (jsonData: string) => Promise<boolean>
   clearVocab: () => Promise<void>
+  syncLocalToRemote: () => Promise<void>
 }
 
 const hasRandomUUID = typeof globalThis !== 'undefined' && typeof globalThis.crypto?.randomUUID === 'function'
@@ -309,6 +310,37 @@ export const useVocabStore = create<VocabState>()(
           set({ error: (error as Error).message })
         }
       },
+
+      syncLocalToRemote: async () => {
+        const token = useAuthStore.getState().token
+        if (!token) return
+
+        try {
+          const db = await initAppDB()
+          const localItems = await db.getAll('vocab')
+          if (!localItems.length) return
+
+          for (const item of localItems) {
+            const payload = ensureFrequency({ ...item, lemma: normalizeLemma(item.lemma), id: item.id || generateId() })
+            try {
+              await apiFetch('vocab', {
+                method: 'POST',
+                token,
+                body: {
+                  ...payload,
+                  id: payload.id,
+                },
+              })
+            } catch (error) {
+              console.error('Failed to sync vocab item', payload.id, error)
+            }
+          }
+
+          await get().getVocab()
+        } catch (error) {
+          console.error('Failed to sync local vocab to remote', error)
+        }
+      },
     }),
     {
       name: 'mila-vocab-store-v2',
@@ -325,3 +357,12 @@ const queueForReview = (items: StarredItem[]) => {
   const reviewState = useReviewStore.getState()
   items.forEach((item) => reviewState.queueFromStarred(item))
 }
+
+useAuthStore.subscribe(
+  (state) => state.user?.id ?? null,
+  (userId, previousUserId) => {
+    if (userId && userId !== previousUserId) {
+      void useVocabStore.getState().syncLocalToRemote()
+    }
+  },
+)

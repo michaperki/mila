@@ -14,6 +14,7 @@ type TextState = {
   deleteText: (id: string) => Promise<void>
   updateText: (id: string, updates: Partial<TextDoc>) => Promise<void>
   setCurrentText: (text: TextDoc | null) => void
+  syncLocalToRemote: () => Promise<void>
 }
 
 const hasRandomUUID = typeof globalThis !== 'undefined' && typeof globalThis.crypto?.randomUUID === 'function'
@@ -228,4 +229,43 @@ export const useTextStore = create<TextState>((set, get) => ({
   setCurrentText: (text) => {
     set({ currentText: text })
   },
+
+  syncLocalToRemote: async () => {
+    const token = useAuthStore.getState().token
+    if (!token) return
+
+    try {
+      const localTexts = await getLocalTexts()
+      if (localTexts.length === 0) return
+
+      for (const text of localTexts) {
+        try {
+          await apiFetch('texts', {
+            method: 'POST',
+            token,
+            body: {
+              ...text,
+              textId: text.id,
+              createdAt: text.createdAt,
+            },
+          })
+        } catch (error) {
+          console.error('Failed to sync text', text.id, error)
+        }
+      }
+
+      await get().getTexts()
+    } catch (error) {
+      console.error('Failed to sync local texts to remote', error)
+    }
+  },
 }))
+
+useAuthStore.subscribe(
+  (state) => state.user?.id ?? null,
+  (userId, previousUserId) => {
+    if (userId && userId !== previousUserId) {
+      void useTextStore.getState().syncLocalToRemote()
+    }
+  },
+)
