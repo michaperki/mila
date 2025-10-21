@@ -11,6 +11,10 @@ type VocabState = {
   isLoading: boolean
   error: string | null
   lastUpdated: number
+  syncing: boolean
+  lastSyncedAt: number | null
+  lastSyncedCount: number
+  syncError: string | null
   getVocab: () => Promise<StarredItem[]>
   starItem: (item: StarredItem) => Promise<void>
   removeItem: (id: string) => Promise<void>
