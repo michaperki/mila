@@ -290,61 +290,68 @@ function Home() {
   return (
     <>
       <TopNavBar current="home" title="Home" subtitle="Stay on track with Mila" />
-      <main className="mx-auto w-full max-w-5xl px-4 py-6 pb-24 space-y-5 sm:px-6">
-        <section className="card">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm text-primary font-medium">Shalom, {displayName} 👋</p>
-              <h1 className="text-2xl font-semibold mt-1">Ready to keep the streak alive?</h1>
+      <main className="mx-auto w-full max-w-4xl px-4 pb-28 pt-8 space-y-8 sm:px-6 lg:max-w-5xl">
+        <header className="space-y-3 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">Stay on track with Mila</p>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Shalom, {displayName} 👋</h1>
+          <p className="text-base text-slate-500 sm:text-lg">Ready to keep the streak alive?</p>
+        </header>
+
+        <section className="card rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
+          <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-2 text-center sm:text-left">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-blue-500">Progress pulse</p>
+              <p className="text-lg font-semibold text-slate-900 sm:text-xl">Here’s how you’re doing this week.</p>
             </div>
-            <div className="text-right">
-              <p className="text-sm text-gray-500">Streak</p>
-              <p className="text-2xl font-semibold text-primary">{streak}🔥</p>
+            <div className="rounded-2xl bg-blue-50 px-5 py-3 text-center shadow-sm sm:text-right">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.4em] text-blue-600">Streak</p>
+              <p className="text-3xl font-extrabold text-blue-700 sm:text-4xl">{streak} 🔥</p>
             </div>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <div className="bg-blue-50 rounded-lg p-3">
-              <p className="text-xs text-blue-600 uppercase font-semibold tracking-wide">Words this week</p>
-              <p className="text-2xl font-bold text-blue-700 mt-1">{wordsThisWeek}</p>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-3">
+            <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 text-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-blue-600">Words this week</p>
+              <p className="mt-2 text-3xl font-bold leading-tight text-blue-800 sm:text-4xl">{wordsThisWeek}</p>
             </div>
-            <div className="bg-amber-50 rounded-lg p-3">
-              <p className="text-xs text-amber-600 uppercase font-semibold tracking-wide">Reviews due</p>
-              <p className="text-2xl font-bold text-amber-700 mt-1">{reviewsDue}</p>
+            <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4 text-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-600">Reviews due</p>
+              <p className="mt-2 text-3xl font-bold leading-tight text-amber-800 sm:text-4xl">{reviewsDue}</p>
             </div>
-            <div className="bg-emerald-50 rounded-lg p-3 col-span-2 sm:col-span-1">
-              <p className="text-xs text-emerald-600 uppercase font-semibold tracking-wide">Minutes read</p>
-              <p className="text-2xl font-bold text-emerald-700 mt-1">{readingMinutes}</p>
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 text-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-600">Minutes read</p>
+              <p className="mt-2 text-3xl font-bold leading-tight text-emerald-800 sm:text-4xl">{readingMinutes}</p>
             </div>
           </div>
         </section>
 
-        <section className="grid gap-3 sm:grid-cols-2">
+        <section className="grid gap-4 sm:grid-cols-2">
           <button
-            className="card flex flex-col items-start gap-1 text-left hover:bg-primary/5 transition"
+            className="rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-soft transition transform hover:-translate-y-1 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:p-7"
             onClick={() => navigate('/review')}
           >
-            <span className="text-sm text-primary font-semibold uppercase tracking-wide">Primary</span>
-            <span className="text-xl font-bold">Start Review</span>
-            <span className="text-sm text-gray-500">
+            <span className="text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-blue-500">Primary</span>
+            <span className="mt-2 text-2xl font-semibold text-slate-900 sm:text-3xl">Start Review</span>
+            <span className="mt-2 text-sm text-slate-500">
               {reviewsDue > 0 ? `${reviewsDue} card${reviewsDue === 1 ? '' : 's'} waiting` : 'All clear for now'}
             </span>
           </button>
 
           <button
-            className="card flex flex-col items-start gap-1 text-left hover:bg-primary/5 transition"
+            className="rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-soft transition transform hover:-translate-y-1 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:p-7"
             onClick={() => navigate('/camera')}
           >
-            <span className="text-sm text-gray-500 font-semibold uppercase tracking-wide">Secondary</span>
-            <span className="text-xl font-bold">Open Camera</span>
-            <span className="text-sm text-gray-500">Capture new Hebrew in-field and save instantly</span>
+            <span className="text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-slate-400">Secondary</span>
+            <span className="mt-2 text-2xl font-semibold text-slate-900 sm:text-3xl">Open Camera</span>
+            <span className="mt-2 text-sm text-slate-500">Capture new Hebrew in-field and save instantly</span>
           </button>
         </section>
 
-        <section className="card">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h2 className="text-lg font-semibold">Quick add</h2>
-              <p className="text-sm text-gray-500">Type or speak a new word to drop it into Review.</p>
+        <section className="card rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <h2 className="text-xl font-semibold text-slate-900">Quick add</h2>
+              <p className="text-sm text-slate-500">Type or speak a new word and we’ll queue it for review.</p>
             </div>
             <button
               className={`btn btn-small ${isVoiceSupported ? '' : 'btn-secondary'} ${isListening ? 'bg-primary text-white' : ''}`}
@@ -355,7 +362,7 @@ function Home() {
               {isListening ? 'Listening…' : 'Voice'}
             </button>
           </div>
-          <form className="grid gap-3 sm:grid-cols-2" onSubmit={handleQuickAdd}>
+          <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={handleQuickAdd}>
             <div className="flex flex-col gap-1 sm:col-span-1">
               <label htmlFor="quick-lemma" className="text-xs font-semibold uppercase text-gray-500">
                 Hebrew lemma
@@ -477,7 +484,7 @@ function Home() {
                 </div>
               </div>
             )}
-            <div className="sm:col-span-2 flex items-center gap-3">
+            <div className="sm:col-span-2 flex flex-col gap-3 sm:flex-row sm:items-center">
               <button
                 className="btn bg-primary text-white hover:bg-primary/90"
                 type="submit"
@@ -499,41 +506,40 @@ function Home() {
             </div>
           </form>
         </section>
-
-        <section className="card">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">Recent activity</h2>
+        <section className="card rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-xl font-semibold text-slate-900">Recent activity</h2>
             {totalWords > 0 && (
-              <span className="text-xs text-gray-500 uppercase font-semibold tracking-wide">
+              <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
                 Total words · {totalWords}
               </span>
             )}
           </div>
           {isBusy ? (
-            <div className="flex items-center justify-center py-8 text-gray-500">Loading your data…</div>
+            <div className="flex items-center justify-center py-10 text-slate-500">Loading your data…</div>
           ) : recentWords.length > 0 ? (
-            <ul className="space-y-3">
+            <ul className="mt-4 space-y-4">
               {recentWords.map((item) => (
-                <li key={item.id} className="flex items-center justify-between">
+                <li key={item.id} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3">
                   <div>
-                    <p className="text-base font-semibold" dir="rtl">{item.lemma}</p>
-                    <p className="text-sm text-gray-500">{item.gloss}</p>
+                    <p className="text-lg font-semibold text-slate-900" dir="rtl">{item.lemma}</p>
+                    <p className="text-sm text-slate-500">{item.gloss}</p>
                   </div>
-                  <span className="text-xs text-gray-400">{formatRelativeTime(item.createdAt)}</span>
+                  <span className="text-xs font-medium uppercase tracking-[0.25em] text-slate-400">{formatRelativeTime(item.createdAt)}</span>
                 </li>
               ))}
             </ul>
           ) : (
-            <div className="py-8 text-center text-gray-500">
+            <div className="py-10 text-center text-slate-500">
               Capture a text or quick add a word to see activity here.
             </div>
           )}
           {latestText && (
-            <div className="mt-5 rounded-lg border border-dashed border-gray-200 p-4">
-              <p className="text-xs text-gray-500 uppercase font-semibold tracking-wide mb-1">Continue reading</p>
-              <p className="text-lg font-semibold mb-2">{latestText.title || 'Untitled capture'}</p>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-500">{latestText.chunks.length} segments</span>
+            <div className="mt-6 rounded-2xl border border-dashed border-slate-200 px-5 py-4">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-slate-400">Continue reading</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">{latestText.title || 'Untitled capture'}</p>
+              <div className="mt-3 flex items-center justify-between text-sm text-slate-500">
+                <span>{latestText.chunks.length} segments</span>
                 <Link className="btn btn-small" to={`/read/${latestText.id}`}>
                   Resume
                 </Link>
