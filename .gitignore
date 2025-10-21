@@ -2,4 +2,7 @@
 node_modules/
 .env
 */.env
-node_modules/
+apps/web/dist/
+apps/web/src/data/hebrew/oshb/
+apps/web/src/data/hebrew/strongs/
+mila_ux_v0.09
