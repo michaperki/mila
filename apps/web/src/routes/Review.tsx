@@ -6,11 +6,11 @@ import { ReviewCard, ReviewRating } from '../types'
 
 type ReviewMode = 'recall' | 'recognition' | 'listening' | 'typing' | 'root'
 
-const ratingConfig: Array<{ rating: ReviewRating; label: string; helper: string; tone: string }> = [
-  { rating: 1, label: 'Again', helper: 'Forgot', tone: 'bg-red-100 text-red-700' },
-  { rating: 2, label: 'Hard', helper: 'Barely', tone: 'bg-amber-100 text-amber-700' },
-  { rating: 3, label: 'Good', helper: 'Remembered', tone: 'bg-emerald-100 text-emerald-700' },
-  { rating: 4, label: 'Easy', helper: 'Too simple', tone: 'bg-blue-100 text-blue-700' },
+const ratingConfig: Array<{ rating: ReviewRating; label: string; helper: string; tone: 'again' | 'hard' | 'good' | 'easy' }> = [
+  { rating: 1, label: 'Again', helper: 'Forgot', tone: 'again' },
+  { rating: 2, label: 'Hard', helper: 'Barely', tone: 'hard' },
+  { rating: 3, label: 'Good', helper: 'Remembered', tone: 'good' },
+  { rating: 4, label: 'Easy', helper: 'Too simple', tone: 'easy' },
 ]
 
 const modes: Array<{ key: ReviewMode; label: string; description: string }> = [
@@ -84,6 +84,19 @@ function Review() {
   const currentCard: ReviewCard | null = activeCards[currentIndex] ?? null
 
   const speechSupported = typeof window !== 'undefined' && 'speechSynthesis' in window
+
+  const lastSessionLabel = useMemo(() => {
+    if (!lastSessionAt) return '—'
+    const diffMs = Date.now() - lastSessionAt
+    const minutes = Math.floor(diffMs / 60000)
+    if (minutes < 1) return 'just now'
+    if (minutes < 60) return `${minutes}m ago`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h ago`
+    const days = Math.floor(hours / 24)
+    if (days < 7) return `${days}d ago`
+    return new Date(lastSessionAt).toLocaleDateString()
+  }, [lastSessionAt])
 
   useEffect(() => {
     if (activeCards.length > 0 && sessionStartRef.current === null) {
@@ -159,32 +172,67 @@ function Review() {
     window.speechSynthesis.speak(utterance)
   }
 
+  const promptIsHebrew = currentCard
+    ? (() => {
+        switch (mode) {
+          case 'recognition':
+            return !isFront
+          case 'root':
+            return isFront
+          case 'typing':
+            return true
+          default:
+            return isFront
+        }
+      })()
+    : true
+
   return (
     <>
       <TopNavBar current="review" title="Review" subtitle="Stay sharp with spaced repetition" />
-      <main className="mx-auto w-full max-w-5xl px-4 py-6 pb-24 space-y-5 sm:px-6">
-        <section className="card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold">Due now: {dueCards.length}</h1>
-            <p className="text-sm text-gray-500">
-              {upcomingIn24 > 0 ? `${upcomingIn24} more arriving in the next 24h` : 'You are caught up for the day.'}
+      <main className="mx-auto w-full max-w-5xl px-4 pb-24 pt-8 space-y-8 sm:px-6">
+        <section className="review-hero">
+          <div className="review-hero__intro">
+            <span className="review-hero__eyebrow">Keep the momentum</span>
+            <h1 className="review-hero__title">Review</h1>
+            <p className="review-hero__subtitle">
+              Stay on top of spaced repetition with quick sessions tailored to your pace.
             </p>
-            {lastSessionAt && (
-              <p className="text-xs text-gray-400 mt-1">
-                Last session: {new Date(lastSessionAt).toLocaleString()}
-              </p>
-            )}
           </div>
-          <div className="flex gap-2">
+          <div className="review-hero__stats">
+            <div className="review-hero__metric">
+              <span>Due now</span>
+              <strong>{dueCards.length}</strong>
+              <small>Ready to review</small>
+            </div>
+            <div className="review-hero__metric">
+              <span>Next 24 hours</span>
+              <strong>{upcomingIn24}</strong>
+              <small>On the horizon</small>
+            </div>
+            <div className="review-hero__metric">
+              <span>Reviewed today</span>
+              <strong>{answeredCount}</strong>
+              <small>In this session</small>
+            </div>
+            <div className="review-hero__metric">
+              <span>Last session</span>
+              <strong>{lastSessionLabel}</strong>
+              <small>Most recent wrap-up</small>
+            </div>
+          </div>
+          <div className="review-hero__actions">
             <button
-              className={`btn btn-small ${sessionLimit === null ? 'bg-primary text-white' : ''}`}
+              type="button"
+              className={`btn btn-small${sessionLimit === null ? '' : ' btn-outline'}`}
               onClick={() => handleRestart(null)}
               disabled={dueCards.length === 0}
             >
               Review all
             </button>
             <button
-              className={`btn btn-small ${sessionLimit === 7 ? 'bg-primary text-white' : ''}`}
+              type="button"
+              className={`btn btn-small${sessionLimit === 7 ? '' : ' btn-outline'}`}
               onClick={() => handleRestart(7)}
               disabled={dueCards.length === 0}
             >
@@ -193,14 +241,22 @@ function Review() {
           </div>
         </section>
 
-        <section className="card">
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+        <section className="review-modes card">
+          <header className="review-modes__header">
+            <div>
+              <p className="review-modes__eyebrow">Focus mode</p>
+              <h2 className="review-modes__title">Choose how you want to review</h2>
+            </div>
+            <span className="review-modes__pill">
+              {activeCards.length} card{activeCards.length === 1 ? '' : 's'} queued
+            </span>
+          </header>
+          <div className="review-modes__options">
             {modes.map((item) => (
               <button
                 key={item.key}
-                className={`btn btn-small whitespace-nowrap ${
-                  mode === item.key ? 'bg-primary text-white' : ''
-                }`}
+                type="button"
+                className={`btn btn-small review-modes__button${mode === item.key ? '' : ' btn-outline'}`}
                 onClick={() => setMode(item.key)}
                 disabled={item.key === 'root' && !currentCard?.root}
               >
@@ -208,43 +264,42 @@ function Review() {
               </button>
             ))}
           </div>
-          <p className="text-xs text-gray-500 mt-2">
-            {modes.find((item) => item.key === mode)?.description}
-          </p>
+          <p className="review-modes__hint">{modes.find((item) => item.key === mode)?.description}</p>
         </section>
 
         {activeCards.length === 0 ? (
-          <section className="card text-center py-12">
-            <h2 className="text-xl font-semibold">
-              {sessionComplete ? 'Nice work!' : 'No reviews right now'}
+          <section className="review-empty card">
+            <div className="review-empty__icon" aria-hidden="true">
+              {sessionComplete ? '🎉' : '✨'}
+            </div>
+            <h2 className="review-empty__title">
+              {sessionComplete ? 'Nice work! All caught up.' : 'Nothing to review right now'}
             </h2>
-            <p className="text-sm text-gray-500 mt-2">
+            <p className="review-empty__subtitle">
               {sessionComplete
-                ? 'Take a breather or add new words from the camera.'
-                : 'You are up to date. Capture more words or check back later.'}
+                ? 'Take a moment to celebrate or capture new words to grow your deck.'
+                : 'You are up to date. Capture more words or check back later for new reviews.'}
             </p>
           </section>
         ) : (
-          <section className="space-y-4">
-            <div className="card review-card h-56 flex flex-col justify-between">
-              <div className="flex items-center justify-between text-sm text-gray-500">
+          <section className="review-session">
+            <article className="review-card">
+              <header className="review-card__header">
                 <span>
                   Card {currentIndex + 1} of {activeCards.length}
                 </span>
                 {currentCard && <span>{formatDueCountdown(currentCard)}</span>}
-              </div>
-              <div className="flex-1 flex flex-col items-center justify-center gap-4">
+              </header>
+              <div className="review-card__body">
                 <p
-                  className={`text-2xl font-semibold ${
-                    mode === 'recognition' && isFront ? 'text-left' : 'text-right'
-                  }`}
-                  dir={mode === 'recognition' && isFront ? 'ltr' : 'rtl'}
+                  className={`review-card__prompt${promptIsHebrew ? '' : ' review-card__prompt--ltr'}`}
+                  dir={promptIsHebrew ? 'rtl' : 'ltr'}
                 >
                   {currentCard ? getPrompt(currentCard, mode, isFront) : ''}
                 </p>
                 {mode === 'typing' && isFront && (
                   <input
-                    className="input text-center"
+                    className="review-input"
                     placeholder="Type your answer"
                     value={typingAnswer}
                     onChange={(event) => setTypingAnswer(event.target.value)}
@@ -252,33 +307,42 @@ function Review() {
                   />
                 )}
                 {mode === 'listening' && (
-                  <button className="btn btn-small" onClick={handlePlayAudio} type="button">
+                  <button className="btn btn-ghost btn-small review-card__audio" onClick={handlePlayAudio} type="button">
                     Play audio
                   </button>
                 )}
               </div>
-              <button className="btn btn-secondary" onClick={handleFlip} type="button">
-                {isFront ? 'Show answer' : 'Hide answer'}
-              </button>
-            </div>
+              <footer className="review-card__footer">
+                <button className="btn btn-secondary btn-small" onClick={handleFlip} type="button">
+                  {isFront ? 'Show answer' : 'Hide answer'}
+                </button>
+              </footer>
+            </article>
 
-            <div className="card flex flex-col gap-3">
-              <p className="text-sm text-gray-500">
-                How did it go? {answeredCount} reviewed this session.
-              </p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <article className="review-ratings card">
+              <header className="review-ratings__header">
+                <div>
+                  <p className="review-ratings__eyebrow">Rate your recall</p>
+                  <h3 className="review-ratings__title">How did that go?</h3>
+                </div>
+                <span className="review-ratings__count">
+                  {answeredCount} reviewed today
+                </span>
+              </header>
+              <div className="review-ratings__grid">
                 {ratingConfig.map(({ rating, label, helper, tone }) => (
                   <button
                     key={rating}
-                    className={`p-3 rounded-lg border text-left ${tone} border-transparent hover:opacity-90`}
+                    type="button"
+                    className={`review-rating review-rating--${tone}`}
                     onClick={() => handleGrade(rating)}
                   >
-                    <p className="text-sm font-semibold">{label}</p>
-                    <p className="text-xs">{helper}</p>
+                    <span className="review-rating__label">{label}</span>
+                    <span className="review-rating__helper">{helper}</span>
                   </button>
                 ))}
               </div>
-            </div>
+            </article>
           </section>
         )}
       </main>
