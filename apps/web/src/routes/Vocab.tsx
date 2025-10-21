@@ -6,6 +6,8 @@ import VocabItem from '../components/VocabItem'
 import ErrorMessage from '../components/ErrorMessage'
 import TopNavBar from '../components/TopNavBar'
 
+const WEEK_IN_MS = 7 * 24 * 60 * 60 * 1000
+
 const SORT_LABELS: Record<string, string> = {
   'date-desc': 'Newest First',
   'date-asc': 'Oldest First',
@@ -42,6 +44,25 @@ function Vocab() {
   const [showAdvanced, setShowAdvanced] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const totalSaved = vocab.length
+
+  const { recent, avgFrequency, withRoots } = useMemo(() => {
+    const now = Date.now()
+    const recentCount = vocab.filter((item) => now - item.createdAt <= WEEK_IN_MS).length
+    const average = vocab.length
+      ? Math.round(
+          vocab.reduce((sum, item) => sum + (item.frequency ?? 0), 0) / Math.max(vocab.length, 1),
+        )
+      : 0
+    const roots = vocab.filter((item) => Boolean(item.root)).length
+
+    return {
+      recent: recentCount,
+      avgFrequency: average,
+      withRoots: roots,
+    }
+  }, [vocab])
 
   useEffect(() => {
     const loadVocab = async () => {
@@ -231,222 +252,261 @@ function Vocab() {
         }
       />
 
-      <main className="mx-auto w-full max-w-5xl px-4 sm:px-6">
-        <p className="text-gray-600 mb-4">
-          Words you've starred while reading will appear here. Use this list to review and practice your vocabulary.
-        </p>
-
-      {/* Search and view options */}
-      <div className="mb-4 p-3 bg-gray-50 rounded-lg border">
-        <div className="flex flex-col sm:flex-row gap-3">
-          {/* Search Input */}
-          <div className="flex-grow">
-            <input
-              type="search"
-              placeholder="Search vocabulary..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full p-2 border rounded-md shadow-sm"
-            />
+      <main className="mx-auto w-full max-w-5xl px-4 pb-24 pt-8 space-y-8 sm:px-6">
+        <section className="vocab-hero">
+          <div className="vocab-hero__intro">
+            <span className="vocab-hero__eyebrow">Build your word bank</span>
+            <h1 className="vocab-hero__title">Vocabulary</h1>
+            <p className="vocab-hero__subtitle">
+              Words you star while reading live here. Search, sort, and export them to keep your practice focused.
+            </p>
           </div>
-
-          {/* View Options */}
-          {/* Sort Dropdown */}
-          <div className="flex-shrink-0">
-            <select
-              value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value)}
-              className="p-2 border rounded-md shadow-sm bg-white"
-            >
-              <option value="date-desc">Newest First</option>
-              <option value="date-asc">Oldest First</option>
-              <option value="alpha-he-asc">Hebrew (A-Z)</option>
-              <option value="alpha-he-desc">Hebrew (Z-A)</option>
-              <option value="alpha-en-asc">English (A-Z)</option>
-              <option value="alpha-en-desc">English (Z-A)</option>
-              <option value="freq-desc">Frequency (High-Low)</option>
-              <option value="freq-asc">Frequency (Low-High)</option>
-            </select>
+          <div className="vocab-hero__stats">
+            <div className="vocab-hero__metric">
+              <span>Saved words</span>
+              <strong>{totalSaved}</strong>
+              <small>Total captured</small>
+            </div>
+            <div className="vocab-hero__metric">
+              <span>Added this week</span>
+              <strong>{recent}</strong>
+              <small>Past 7 days</small>
+            </div>
+            <div className="vocab-hero__metric">
+              <span>Average reviews</span>
+              <strong>{avgFrequency}</strong>
+              <small>Per entry</small>
+            </div>
+            <div className="vocab-hero__metric">
+              <span>Roots captured</span>
+              <strong>{withRoots}</strong>
+              <small>Linked entries</small>
+            </div>
           </div>
-        </div>
+        </section>
 
-        <div className="flex flex-wrap items-center gap-2 mt-3">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Display
-          </span>
-          <button
-            className={`btn btn-small ${showNikud ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 border'}`}
-            onClick={() => setShowNikud(!showNikud)}
-            aria-pressed={showNikud}
-          >
-            {showNikud ? 'Hide Nikud' : 'Show Nikud'}
-          </button>
-          <button
-            className={`btn btn-small ${showTranslit ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 border'}`}
-            onClick={() => setShowTranslit(!showTranslit)}
-            aria-pressed={showTranslit}
-          >
-            {showTranslit ? 'Hide Translit' : 'Show Translit'}
-          </button>
-        </div>
-      </div>
+        <section className="vocab-toolbar card">
+          <div className="vocab-toolbar__grid">
+            <div className="vocab-toolbar__field">
+              <label className="vocab-toolbar__label" htmlFor="vocab-search">
+                Search saved words
+              </label>
+              <input
+                id="vocab-search"
+                type="search"
+                placeholder="Filter by Hebrew, transliteration, or gloss…"
+                className="vocab-toolbar__search"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+              />
+            </div>
+            <div className="vocab-toolbar__field vocab-toolbar__field--compact">
+              <label className="vocab-toolbar__label" htmlFor="vocab-sort">
+                Sort by
+              </label>
+              <select
+                id="vocab-sort"
+                className="vocab-toolbar__select"
+                value={sortOrder}
+                onChange={(event) => setSortOrder(event.target.value)}
+              >
+                <option value="date-desc">Newest first</option>
+                <option value="date-asc">Oldest first</option>
+                <option value="alpha-he-asc">Hebrew (A–Z)</option>
+                <option value="alpha-he-desc">Hebrew (Z–A)</option>
+                <option value="alpha-en-asc">English (A–Z)</option>
+                <option value="alpha-en-desc">English (Z–A)</option>
+                <option value="freq-desc">Frequency (high–low)</option>
+                <option value="freq-asc">Frequency (low–high)</option>
+              </select>
+            </div>
+          </div>
+          <div className="vocab-toolbar__display">
+            <span className="vocab-toolbar__label">Display</span>
+            <div className="toggle-group" role="group" aria-label="Display options">
+              <button
+                type="button"
+                className={`toggle-button${showNikud ? ' active' : ''}`}
+                onClick={() => setShowNikud((prev) => !prev)}
+                aria-pressed={showNikud}
+              >
+                {showNikud ? 'Hide nikud' : 'Show nikud'}
+              </button>
+              <button
+                type="button"
+                className={`toggle-button${showTranslit ? ' active' : ''}`}
+                onClick={() => setShowTranslit((prev) => !prev)}
+                aria-pressed={showTranslit}
+              >
+                {showTranslit ? 'Hide transliteration' : 'Show transliteration'}
+              </button>
+            </div>
+          </div>
+        </section>
 
-      {/* Advanced Tools Section */}
-      <div className="mb-4">
-        <button 
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          className="text-sm text-blue-600 hover:underline"
-          aria-expanded={showAdvanced}
-        >
-          {showAdvanced ? 'Hide' : 'Show'} Advanced Tools
-        </button>
-
-        {showAdvanced && (
-          <div className="mt-2 p-3 bg-gray-50 rounded-lg border flex flex-wrap gap-2">
+        <section className="vocab-advanced card">
+          <header className="vocab-advanced__header">
+            <div>
+              <p className="vocab-advanced__eyebrow">Power tools</p>
+              <h2 className="vocab-advanced__title">Manage your word bank</h2>
+            </div>
             <button
-              className="btn btn-small btn-secondary"
-              onClick={handleExport}
-              disabled={storeLoading || vocab.length === 0}
+              type="button"
+              className="btn btn-outline btn-small vocab-advanced__toggle"
+              onClick={() => setShowAdvanced((prev) => !prev)}
+              aria-expanded={showAdvanced}
             >
-              Export JSON
+              {showAdvanced ? 'Hide tools' : 'Show tools'}
             </button>
+          </header>
 
-            <button
-              className="btn btn-small btn-secondary"
-              onClick={handleImportClick}
-              disabled={storeLoading}
-            >
-              Import JSON
-            </button>
+          {showAdvanced && (
+            <div className="vocab-advanced__panel">
+              <p className="vocab-advanced__hint">Export or import your saved vocabulary, or clear everything to start fresh.</p>
+              <div className="vocab-advanced__actions">
+                <button
+                  className="btn btn-small"
+                  onClick={handleExport}
+                  disabled={storeLoading || totalSaved === 0}
+                  type="button"
+                >
+                  Export JSON
+                </button>
+                <button
+                  className="btn btn-secondary btn-small"
+                  onClick={handleImportClick}
+                  disabled={storeLoading}
+                  type="button"
+                >
+                  Import JSON
+                </button>
+                <button
+                  className="btn btn-danger btn-small"
+                  onClick={handleClearConfirm}
+                  disabled={storeLoading || totalSaved === 0}
+                  type="button"
+                >
+                  Clear all
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="application/json"
+                  onChange={handleImportFile}
+                  style={{ display: 'none' }}
+                />
+              </div>
+            </div>
+          )}
+        </section>
 
-            <button
-              className="btn btn-small bg-red-100 text-red-700 hover:bg-red-200"
-              onClick={handleClearConfirm}
-              disabled={storeLoading || vocab.length === 0}
-            >
-              Clear All
-            </button>
-
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept="application/json"
-              onChange={handleImportFile}
-              style={{ display: 'none' }}
-            />
+        {exportSuccess && (
+          <div className="alert alert--success">
+            Vocabulary exported successfully.
           </div>
         )}
-      </div>
 
-      {/* Status messages */}
-      {exportSuccess && (
-        <div className="bg-green-100 text-green-800 p-2 rounded mb-4">
-          Vocabulary exported successfully!
-        </div>
-      )}
-
-      {importSuccess && (
-        <div className="bg-green-100 text-green-800 p-2 rounded mb-4">
-          Vocabulary imported successfully!
-        </div>
-      )}
-
-      <ErrorMessage
-        error={importError}
-        onDismiss={() => setImportError(null)}
-      />
-
-      <ErrorMessage
-        error={error}
-        onRetry={async () => {
-          setIsLoading(true)
-          try {
-            await getVocab()
-            setIsLoading(false)
-          } catch (err) {
-            console.error('Retry failed:', err)
-            setIsLoading(false)
-          }
-        }}
-      />
-
-      {/* Confirmation dialog */}
-      {showConfirmClear && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-4 rounded-lg max-w-md mx-auto">
-            <h3 className="text-lg font-bold mb-2">Clear Vocabulary</h3>
-            <p className="mb-4">Are you sure you want to remove all vocabulary items? This action cannot be undone.</p>
-            <div className="flex justify-end gap-2">
-              <button
-                className="btn btn-secondary"
-                onClick={handleClearCancel}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn bg-red-500 text-white"
-                onClick={handleClearConfirmed}
-              >
-                Clear All
-              </button>
-            </div>
+        {importSuccess && (
+          <div className="alert alert--success">
+            Vocabulary imported successfully.
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Vocabulary list */}
-      <div className="card p-4">
-        {isLoading ? (
-          <div className="p-4 text-center">
-            <div className="mb-2 text-primary">Loading vocabulary...</div>
-            <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden">
-              <div className="h-1 bg-primary animate-pulse" style={{ width: '100%' }}></div>
-            </div>
-          </div>
-        ) : filteredVocab.length > 0 ? (
-          <div>
-            {sortedAndGroupedVocab.map((group) => (
-              <div key={group.groupName} className="mb-6">
-                <h3 className="text-md font-semibold text-gray-700 mb-3 border-b pb-1">
-                  {group.displayName} ({group.items.length})
-                </h3>
-                <ul className="space-y-2">
-                  {group.items.map((item: StarredItem) => (
-                    <VocabItem
-                      key={item.id}
-                      item={item}
-                      showNikud={showNikud}
-                      showTranslit={showTranslit}
-                      onRemove={handleRemoveItem}
-                    />
-                  ))}
-                </ul>
+        <ErrorMessage error={importError} onDismiss={() => setImportError(null)} />
+
+        <ErrorMessage
+          error={error}
+          onRetry={async () => {
+            setIsLoading(true)
+            try {
+              await getVocab()
+              setIsLoading(false)
+            } catch (err) {
+              console.error('Retry failed:', err)
+              setIsLoading(false)
+            }
+          }}
+        />
+
+        {showConfirmClear && (
+          <div className="dialog-backdrop" role="presentation">
+            <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="clear-vocab-title">
+              <h3 id="clear-vocab-title" className="dialog__title">
+                Clear vocabulary
+              </h3>
+              <p className="dialog__body">
+                Are you sure you want to remove all vocabulary items? This action cannot be undone.
+              </p>
+              <div className="dialog__actions">
+                <button type="button" className="btn btn-outline btn-small" onClick={handleClearCancel}>
+                  Cancel
+                </button>
+                <button type="button" className="btn btn-danger btn-small" onClick={handleClearConfirmed}>
+                  Clear all
+                </button>
               </div>
-            ))}
+            </div>
           </div>
-        ) : searchTerm ? (
-          <p className="p-4 text-center text-gray-500">
-            No results matching "{searchTerm}". Try another search term.
-          </p>
-        ) : (
-          <div className="p-6 text-center">
-            <div className="mb-4 text-4xl">📚</div>
-            <p className="mb-2 font-medium">Your vocabulary list is empty</p>
-            <p className="text-sm text-gray-500 mb-4">
-              Words you star while reading will appear here for review and practice.
-            </p>
-            <div className="bg-blue-50 p-3 rounded-lg text-left max-w-md mx-auto mb-2">
-              <p className="text-sm font-medium text-blue-800 mb-1">How to add words:</p>
-              <ol className="text-sm text-blue-700 list-decimal pl-5 space-y-1">
-                <li>Use the Camera tab to capture and translate text</li>
-                <li>Tap on any word in the Reader to see its details</li>
-                <li>Click the star icon to save words to your vocabulary list</li>
+        )}
+
+        <section className="vocab-collection card">
+          {isLoading ? (
+            <div className="vocab-loading" role="status">
+              <span>Loading vocabulary…</span>
+              <div className="vocab-loading__track">
+                <div className="vocab-loading__bar" />
+              </div>
+            </div>
+          ) : filteredVocab.length > 0 ? (
+            <div className="vocab-groups">
+              {sortedAndGroupedVocab.map((group) => (
+                <article key={group.groupName} className="vocab-group">
+                  <header className="vocab-group__header">
+                    <h3 className="vocab-group__title">{group.displayName}</h3>
+                    <span className="vocab-group__count">{group.items.length}</span>
+                  </header>
+                  <ul className="vocab-group__list">
+                    {group.items.map((item: StarredItem) => (
+                      <VocabItem
+                        key={item.id}
+                        item={item}
+                        showNikud={showNikud}
+                        showTranslit={showTranslit}
+                        onRemove={handleRemoveItem}
+                      />
+                    ))}
+                  </ul>
+                </article>
+              ))}
+            </div>
+          ) : searchTerm ? (
+            <div className="vocab-empty">
+              <div className="vocab-empty__icon" aria-hidden="true">
+                🔍
+              </div>
+              <h3 className="vocab-empty__title">No matches found</h3>
+              <p className="vocab-empty__subtitle">
+                Try refining your search or clear the filters to see every saved word.
+              </p>
+            </div>
+          ) : (
+            <div className="vocab-empty">
+              <div className="vocab-empty__icon" aria-hidden="true">
+                📚
+              </div>
+              <h3 className="vocab-empty__title">Your word bank is waiting</h3>
+              <p className="vocab-empty__subtitle">
+                Star words in the Reader to build your personal vocabulary list.
+              </p>
+              <ol className="vocab-empty__steps">
+                <li>Use the Camera tab to capture text you want to explore.</li>
+                <li>Open the Reader and tap any word to view its details.</li>
+                <li>Save it with the star button to keep it handy here.</li>
               </ol>
             </div>
-          </div>
-        )}
-      </div>
-    </main>
+          )}
+        </section>
+      </main>
     </>
   )
 }

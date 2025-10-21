@@ -37,56 +37,49 @@ function VocabItem({ item, showNikud, showTranslit, onRemove }: VocabItemProps) 
   };
 
   return (
-    <li className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col">
-      <div className="flex-grow space-y-3">
-        <div className="text-center">
-          <h3 className="text-3xl font-bold text-gray-900" dir="rtl" lang="he">
-            {displayedLemma}
-          </h3>
-          <p className="text-xl text-gray-700 mt-1">
-            {item.gloss || '—'}
-          </p>
-          {transliterationText && (
-            <p className="text-md italic text-gray-500 mt-1">
-              {transliterationText}
-            </p>
-          )}
-        </div>
+    <li className="vocab-card">
+      <header className="vocab-card__header">
+        <p className="vocab-card__lemma" dir="rtl" lang="he">
+          {displayedLemma}
+        </p>
+        {transliterationText && <p className="vocab-card__translit">{transliterationText}</p>}
+      </header>
 
-        <div className="flex flex-wrap justify-center gap-4 text-xs uppercase tracking-wide text-gray-500">
-          <span>Added {addedOn}</span>
-          <span>Seen {frequency}×</span>
-        </div>
+      <p className="vocab-card__gloss">{item.gloss || '—'}</p>
 
-        {item.sourceRef && (
-          <div className="p-3 bg-gray-50 rounded-md border border-gray-100 text-sm text-gray-600">
-            <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">
-              Context
-            </p>
-            <p className="italic truncate">
-              Text {item.sourceRef.textId.slice(0, 8)} • Chunk {item.sourceRef.chunkId.slice(0, 8)}
-            </p>
-          </div>
-        )}
+      <div className="vocab-card__meta">
+        <span className="vocab-card__chip">Added {addedOn}</span>
+        <span className="vocab-card__chip">Seen {frequency}×</span>
+        {item.root && <span className="vocab-card__chip">Root {item.root}</span>}
       </div>
 
-      <div className="flex justify-center items-center gap-2 mt-4 pt-3 border-t border-gray-100">
-        <button
-          className={`btn btn-small ${copied ? 'bg-green-500 text-white' : 'bg-gray-200 hover:bg-gray-300'} transition-colors`}
-          onClick={handleCopy}
-          title="Copy to clipboard"
-        >
-          {copied ? 'Copied!' : 'Copy'}
-        </button>
+      {item.sourceRef && (
+        <div className="vocab-card__context">
+          <span className="vocab-card__context-label">Context</span>
+          <p className="vocab-card__context-text">
+            Text {item.sourceRef.textId.slice(0, 8)} · Segment {item.sourceRef.chunkId.slice(0, 8)}
+          </p>
+        </div>
+      )}
 
+      <footer className="vocab-card__actions">
         <button
-          className="btn btn-small bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+          type="button"
+          className={`btn btn-outline btn-small vocab-card__copy${copied ? ' vocab-card__copy--active' : ''}`}
+          onClick={handleCopy}
+          title="Copy entry to clipboard"
+        >
+          {copied ? 'Copied!' : 'Copy entry'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-danger btn-small"
           onClick={() => onRemove(item.id)}
           title="Remove from vocabulary"
         >
           Remove
         </button>
-      </div>
+      </footer>
     </li>
   );
 }
