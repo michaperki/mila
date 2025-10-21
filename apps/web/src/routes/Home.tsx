@@ -289,7 +289,7 @@ function Home() {
 
   return (
     <>
-      <TopNavBar current="home" title="Home" subtitle="Stay on track with Mila" />
+      <TopNavBar current="home" title="Home" />
       <main className="mx-auto w-full max-w-4xl px-4 pb-28 pt-8 space-y-8 sm:px-6 lg:max-w-5xl">
         <header className="home-hero">
           <span className="home-hero__eyebrow">Stay on track with Mila</span>

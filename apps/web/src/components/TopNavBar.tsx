@@ -1,4 +1,4 @@
-import { Link, NavLink } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { ReactNode } from 'react'
 import BrandMark from './BrandMark'
 
@@ -10,14 +10,6 @@ interface TopNavBarProps {
   subtitle?: string
   actions?: ReactNode
 }
-
-const PRIMARY_LINKS: Array<{ key: Exclude<TopNavSection, 'reader' | 'settings'>; label: string; to: string }> = [
-  { key: 'home', label: 'Home', to: '/' },
-  { key: 'read', label: 'Read', to: '/read' },
-  { key: 'camera', label: 'Camera', to: '/camera' },
-  { key: 'review', label: 'Review', to: '/review' },
-  { key: 'vocab', label: 'Vocab', to: '/vocab' },
-]
 
 const SECTION_LABELS: Record<TopNavSection, string> = {
   home: 'Home',
@@ -58,34 +50,21 @@ function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
     </div>
   )
 
-  const centerContent = isPrimarySection ? (
-    <nav className="top-nav__links" aria-label="Primary">
-      {PRIMARY_LINKS.map((link) => (
-        <NavLink
-          key={link.key}
-          to={link.to}
-          className={({ isActive }) => `top-nav__link${isActive ? ' top-nav__link--active' : ''}`}
-          end={link.to === '/'}
-        >
-          {link.label}
-        </NavLink>
-      ))}
-    </nav>
-  ) : (
-    <div className="top-nav__page">
-      <BrandMark size="sm" />
-      <div>
-        <h1 className="top-nav__title">{resolvedTitle}</h1>
-        {subtitle && <p className="top-nav__subtitle">{subtitle}</p>}
-      </div>
-    </div>
-  )
-
   return (
     <header className="top-nav">
       <div className="top-nav__inner mx-auto w-full max-w-5xl px-4 sm:px-6">
         <div className="top-nav__left">{leftContent}</div>
-        <div className="top-nav__center">{centerContent}</div>
+        <div className="top-nav__center">
+          {!isPrimarySection && (
+            <div className="top-nav__page">
+              <BrandMark size="sm" />
+              <div>
+                <h1 className="top-nav__title">{resolvedTitle}</h1>
+                {subtitle && <p className="top-nav__subtitle">{subtitle}</p>}
+              </div>
+            </div>
+          )}
+        </div>
         <div className="top-nav__actions">{actions}</div>
       </div>
     </header>
