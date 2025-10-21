@@ -1,6 +1,6 @@
 [build]
   base = "apps/web"
-  command = "pnpm approve-builds && pnpm install --frozen-lockfile && pnpm build"
+  command = "pnpm install && pnpm build"
   publish = "dist"
   functions = "netlify/functions"
 
