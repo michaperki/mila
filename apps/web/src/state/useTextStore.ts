@@ -8,6 +8,10 @@ type TextState = {
   currentText: TextDoc | null
   isLoading: boolean
   error: string | null
+  syncing: boolean
+  lastSyncedAt: number | null
+  lastSyncedCount: number
+  syncError: string | null
   getTexts: () => Promise<TextDoc[]>
   getTextById: (id: string) => Promise<TextDoc | null>
   saveText: (text: TextDoc) => Promise<void>
@@ -102,6 +106,10 @@ export const useTextStore = create<TextState>((set, get) => ({
   currentText: null,
   isLoading: false,
   error: null,
+  syncing: false,
+  lastSyncedAt: null,
+  lastSyncedCount: 0,
+  syncError: null,
 
   getTexts: async () => {
     set({ isLoading: true, error: null })
@@ -235,9 +243,14 @@ export const useTextStore = create<TextState>((set, get) => ({
     if (!token) return
 
     try {
+      set({ syncing: true, syncError: null })
       const localTexts = await getLocalTexts()
-      if (localTexts.length === 0) return
+      if (localTexts.length === 0) {
+        set({ syncing: false, lastSyncedAt: Date.now(), lastSyncedCount: 0 })
+        return
+      }
 
+      let synced = 0
       for (const text of localTexts) {
         try {
           await apiFetch('texts', {
@@ -249,14 +262,17 @@ export const useTextStore = create<TextState>((set, get) => ({
               createdAt: text.createdAt,
             },
           })
+          synced += 1
         } catch (error) {
           console.error('Failed to sync text', text.id, error)
         }
       }
 
       await get().getTexts()
+      set({ syncing: false, lastSyncedAt: Date.now(), lastSyncedCount: synced })
     } catch (error) {
       console.error('Failed to sync local texts to remote', error)
+      set({ syncing: false, syncError: (error as Error).message || 'Failed to sync captures' })
     }
   },
 }))

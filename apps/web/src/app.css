@@ -2114,6 +2114,38 @@ a:focus-visible,
   gap: 0.5rem;
 }
 
+.settings-account__sync {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(241, 245, 249, 0.5);
+}
+
+.settings-account__sync-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-bottom: 0.3rem;
+}
+
+.settings-account__sync-status {
+  font-size: 0.9rem;
+  color: #475569;
+}
+
+.settings-account__sync-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .camera-screen {
   position: relative;
   min-height: 100vh;

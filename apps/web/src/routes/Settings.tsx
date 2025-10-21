@@ -9,6 +9,8 @@ import {
   selectTier,
   useAuthStore,
 } from '../state/useAuthStore'
+import { useTextStore } from '../state/useTextStore'
+import { useVocabStore } from '../state/useVocabStore'
 
 function Settings() {
   const [theme, setTheme] = useState('light')
@@ -30,8 +32,45 @@ function Settings() {
   const signIn = useAuthStore((state) => state.signIn)
   const signOut = useAuthStore((state) => state.signOut)
   const upgradeTier = useAuthStore((state) => state.upgradeTier)
-  const resetUsage = useAuthStore((state) => state.resetUsage)
-  const isMockPayments = useAuthStore((state) => state.isMockPayments)
+ const resetUsage = useAuthStore((state) => state.resetUsage)
+ const isMockPayments = useAuthStore((state) => state.isMockPayments)
+
+  const {
+    syncing: textSyncing,
+    lastSyncedAt: textSyncedAt,
+    lastSyncedCount: textSyncedCount,
+    syncError: textSyncError,
+    syncLocalToRemote: syncTexts,
+  } = useTextStore((state) => ({
+    syncing: state.syncing,
+    lastSyncedAt: state.lastSyncedAt,
+    lastSyncedCount: state.lastSyncedCount,
+    syncError: state.syncError,
+    syncLocalToRemote: state.syncLocalToRemote,
+  }))
+
+  const {
+    syncing: vocabSyncing,
+    lastSyncedAt: vocabSyncedAt,
+    lastSyncedCount: vocabSyncedCount,
+    syncError: vocabSyncError,
+    syncLocalToRemote: syncVocab,
+  } = useVocabStore((state) => ({
+    syncing: state.syncing,
+    lastSyncedAt: state.lastSyncedAt,
+    lastSyncedCount: state.lastSyncedCount,
+    syncError: state.syncError,
+    syncLocalToRemote: state.syncLocalToRemote,
+  }))
+
+  const syncBusy = textSyncing || vocabSyncing
+  const lastSyncedAt = useMemo(() => {
+    const timestamps = [textSyncedAt ?? 0, vocabSyncedAt ?? 0].filter(Boolean)
+    if (timestamps.length === 0) return null
+    return Math.max(...timestamps)
+  }, [textSyncedAt, vocabSyncedAt])
+  const totalSynced = (textSyncedCount ?? 0) + (vocabSyncedCount ?? 0)
+  const syncError = textSyncError || vocabSyncError
 
   const [authMode, setAuthMode] = useState<'signup' | 'login'>('signup')
   const [email, setEmail] = useState('')
@@ -111,6 +150,39 @@ function Settings() {
     return `${remaining} of ${allowance.limit} captures left this period.`
   }, [allowance.limit, allowance.remaining, user])
 
+  const formatSyncLabel = useMemo(() => {
+    if (!user) {
+      return 'Sign in to sync offline captures and saved vocabulary.'
+    }
+    if (syncBusy) {
+      return 'Syncing offline captures and vocabulary…'
+    }
+    if (syncError) {
+      return `Sync issue: ${syncError}`
+    }
+    if (!lastSyncedAt) {
+      return 'Offline items will sync automatically after your first capture.'
+    }
+    const timestamp = new Date(lastSyncedAt).toLocaleString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      month: 'short',
+      day: 'numeric',
+    })
+    return `${totalSynced} item${totalSynced === 1 ? '' : 's'} synced · ${timestamp}`
+  }, [user, syncBusy, syncError, lastSyncedAt, totalSynced])
+
+  const handleManualSync = async () => {
+    if (!user || syncBusy) return
+    setAuthMessage(null)
+    try {
+      await Promise.all([syncTexts(), syncVocab()])
+      setAuthMessage({ type: 'success', text: 'Offline items synced.' })
+    } catch (error) {
+      setAuthMessage({ type: 'error', text: (error as Error).message || 'Manual sync failed.' })
+    }
+  }
+
   const isAuthLoading = authPending || authStatus === 'authenticating'
 
   return (
@@ -183,6 +255,22 @@ function Settings() {
                       ? 'Unlimited captures on this plan.'
                       : `${allowance.remaining ?? 0} of ${allowance.limit} captures left this period (${remainingLabel}).`}
                   </p>
+                  <div className="settings-account__sync">
+                    <div>
+                      <p className="settings-account__sync-label">Offline sync</p>
+                      <p className="settings-account__sync-status">{formatSyncLabel}</p>
+                    </div>
+                    <div className="settings-account__sync-actions">
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-small"
+                        onClick={handleManualSync}
+                        disabled={syncBusy}
+                      >
+                        {syncBusy ? 'Syncing…' : 'Sync offline data'}
+                      </button>
+                    </div>
+                  </div>
                   <div className="settings-account__actions">
                     {user.tier === 'free' && (
                       <button type="button" className="btn btn-small" onClick={handleUpgrade}>

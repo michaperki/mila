@@ -117,6 +117,10 @@ export const useVocabStore = create<VocabState>()(
       isLoading: false,
       error: null,
       lastUpdated: Date.now(),
+      syncing: false,
+      lastSyncedAt: null,
+      lastSyncedCount: 0,
+      syncError: null,
 
       getVocab: async () => {
         set({ isLoading: true, error: null })
@@ -316,10 +320,15 @@ export const useVocabStore = create<VocabState>()(
         if (!token) return
 
         try {
+          set({ syncing: true, syncError: null })
           const db = await initAppDB()
           const localItems = await db.getAll('vocab')
-          if (!localItems.length) return
+          if (!localItems.length) {
+            set({ syncing: false, lastSyncedAt: Date.now(), lastSyncedCount: 0 })
+            return
+          }
 
+          let synced = 0
           for (const item of localItems) {
             const payload = ensureFrequency({ ...item, lemma: normalizeLemma(item.lemma), id: item.id || generateId() })
             try {
@@ -331,14 +340,17 @@ export const useVocabStore = create<VocabState>()(
                   id: payload.id,
                 },
               })
+              synced += 1
             } catch (error) {
               console.error('Failed to sync vocab item', payload.id, error)
             }
           }
 
           await get().getVocab()
+          set({ syncing: false, lastSyncedAt: Date.now(), lastSyncedCount: synced })
         } catch (error) {
           console.error('Failed to sync local vocab to remote', error)
+          set({ syncing: false, syncError: (error as Error).message || 'Failed to sync vocabulary' })
         }
       },
     }),
