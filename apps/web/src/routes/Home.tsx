@@ -291,46 +291,38 @@ function Home() {
     <>
       <TopNavBar current="home" title="Home" subtitle="Stay on track with Mila" />
       <main className="mx-auto w-full max-w-4xl px-4 pb-28 pt-8 space-y-8 sm:px-6 lg:max-w-5xl">
-        <header className="mx-auto flex max-w-3xl flex-col items-center gap-5 text-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50/70 px-4 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.4em] text-blue-600">
-            Stay on track with Mila
-          </span>
-          <h1 className="text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">
-            Shalom, {displayName} 👋
-          </h1>
-          <p className="max-w-xl text-base text-slate-500 sm:text-lg">
+        <header className="home-hero">
+          <span className="home-hero__eyebrow">Stay on track with Mila</span>
+          <h1 className="home-hero__title">Shalom, {displayName} 👋</h1>
+          <p className="home-hero__support">
             Ready to keep the streak alive? Keep capturing, reviewing, and celebrating every win along the way.
           </p>
         </header>
 
-        <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.18),transparent_55%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.12),transparent_50%)] p-6 text-center shadow-soft sm:p-8">
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="absolute left-4 top-4 h-24 w-24 rounded-full bg-blue-500/10 blur-2xl" />
-            <div className="absolute right-6 bottom-6 h-28 w-28 rounded-full bg-indigo-500/10 blur-3xl" />
-          </div>
-          <div className="relative flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:justify-between sm:text-left">
+        <section className="progress-pulse">
+          <div className="progress-pulse__inner">
             <div className="space-y-2 text-center sm:text-left">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-blue-500">Progress pulse</p>
-              <p className="text-lg font-semibold text-slate-900 sm:text-xl">Your momentum snapshot for the last week.</p>
+              <p className="progress-pulse__title">Progress pulse</p>
+              <p className="progress-pulse__subtitle">Your momentum snapshot for the past seven days</p>
             </div>
-            <div className="rounded-2xl bg-white/70 px-6 py-4 text-center shadow-sm backdrop-blur">
-              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.4em] text-blue-500">Streak</p>
-              <p className="text-3xl font-extrabold text-blue-700 sm:text-4xl">{streak} 🔥</p>
+            <div className="progress-pulse__streak">
+              <p className="progress-pulse__streak-label">Streak</p>
+              <p className="progress-pulse__streak-value">{streak} 🔥</p>
             </div>
           </div>
 
-          <div className="relative mt-8 grid gap-4 sm:grid-cols-3">
-            <div className="rounded-2xl border border-blue-100/70 bg-white/80 p-5 text-center shadow-sm backdrop-blur">
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-blue-500">Words this week</p>
-              <p className="mt-3 text-3xl font-bold leading-tight text-blue-700 sm:text-[2.25rem]">{wordsThisWeek}</p>
+          <div className="progress-pulse__metrics">
+            <div className="progress-pulse__metric">
+              <label>Words this week</label>
+              <strong>{wordsThisWeek}</strong>
             </div>
-            <div className="rounded-2xl border border-amber-100/70 bg-white/80 p-5 text-center shadow-sm backdrop-blur">
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-500">Reviews due</p>
-              <p className="mt-3 text-3xl font-bold leading-tight text-amber-700 sm:text-[2.25rem]">{reviewsDue}</p>
+            <div className="progress-pulse__metric">
+              <label>Reviews due</label>
+              <strong>{reviewsDue}</strong>
             </div>
-            <div className="rounded-2xl border border-emerald-100/70 bg-white/80 p-5 text-center shadow-sm backdrop-blur">
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-500">Minutes read</p>
-              <p className="mt-3 text-3xl font-bold leading-tight text-emerald-700 sm:text-[2.25rem]">{readingMinutes}</p>
+            <div className="progress-pulse__metric">
+              <label>Minutes read</label>
+              <strong>{readingMinutes}</strong>
             </div>
           </div>
         </section>
