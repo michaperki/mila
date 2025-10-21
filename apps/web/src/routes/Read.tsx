@@ -46,40 +46,42 @@ function Read() {
 
   return (
     <>
-      <TopNavBar current="read" title="Read" subtitle="Jump back into any capture" />
-      <main className="mx-auto w-full max-w-5xl px-4 py-6 pb-24 space-y-5 sm:px-6">
-        <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <TopNavBar current="read" title="Read" />
+      <main className="mx-auto w-full max-w-5xl px-4 pb-24 pt-8 space-y-6 sm:px-6">
+        <section className="library-hero">
           <div>
-            <h1 className="text-2xl font-semibold">Your library</h1>
-            <p className="text-sm text-gray-500">
-              {texts.length > 0 ? `${texts.length} saved text${texts.length === 1 ? '' : 's'}` : 'Capture a new text to get started.'}
+            <h1 className="library-hero__title">Your library</h1>
+            <p className="library-hero__subtitle">
+              {texts.length > 0
+                ? `${texts.length} saved text${texts.length === 1 ? '' : 's'} ready to revisit.`
+                : 'Capture something new and it will appear here.'}
             </p>
           </div>
-          <Link className="btn" to="/camera">
+          <Link className="btn library-hero__cta" to="/camera">
             Capture new text
           </Link>
         </section>
 
-        <section className="card">
-          <label className="text-xs font-semibold uppercase text-gray-500 mb-2 block" htmlFor="library-search">
-            Search
+        <section className="library-search">
+          <label className="library-search__label" htmlFor="library-search">
+            Search library
           </label>
           <input
             id="library-search"
-            className="input"
-            placeholder="Search titles or content"
+            className="library-search__input"
+            placeholder="Filter by title or content"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
         </section>
 
-        <section className="space-y-3">
+        <section className="library-grid">
           {textsLoading ? (
-            <div className="card flex items-center justify-center py-8 text-gray-500">Loading texts…</div>
+            <div className="library-empty">Loading texts…</div>
           ) : filteredTexts.length === 0 ? (
-            <div className="card text-center py-10">
-              <p className="text-gray-600 mb-2">No texts found.</p>
-              <p className="text-sm text-gray-500">Try adjusting your search or capture something new.</p>
+            <div className="library-empty">
+              <p>No texts found.</p>
+              <p className="library-empty__hint">Try adjusting your search or capture something new.</p>
             </div>
           ) : (
             filteredTexts.map((text) => {
@@ -88,34 +90,33 @@ function Read() {
               const progress = wordCount > 0 ? Math.round((savedCount / wordCount) * 100) : 0
 
               return (
-                <article key={text.id} className="card">
-                  <div className="flex items-start justify-between gap-4">
+                <article key={text.id} className="library-card">
+                  <div className="library-card__header">
                     <div>
-                      <h2 className="text-lg font-semibold">
-                        {text.title || 'Untitled capture'}
-                      </h2>
-                      <p className="text-sm text-gray-500">
+                      <h2 className="library-card__title">{text.title || 'Untitled capture'}</h2>
+                      <p className="library-card__meta">
                         Added {formatDate(text.createdAt)} · {wordCount} words · {text.chunks.length} segments
                       </p>
                     </div>
-                    <Link className="btn btn-small" to={`/read/${text.id}`}>
+                    <Link className="btn btn-outline btn-small" to={`/read/${text.id}`}>
                       Open
                     </Link>
                   </div>
-                  <div className="mt-4">
-                    <div className="flex items-center justify-between text-sm text-gray-500 mb-1">
+
+                  <div className="library-card__progress">
+                    <div className="library-card__progress-label">
                       <span>Practice coverage</span>
-                      <span>{progress}% ({savedCount} saved)</span>
+                      <span>
+                        {progress}% ({savedCount} saved)
+                      </span>
                     </div>
-                    <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-2 bg-primary rounded-full transition-all"
-                        style={{ width: `${progress}%` }}
-                      />
+                    <div className="library-card__progress-track">
+                      <div className="library-card__progress-bar" style={{ width: `${progress}%` }} />
                     </div>
                   </div>
+
                   {text.chunks[0] && (
-                    <p className="mt-3 text-sm text-gray-600 line-clamp-2" dir="rtl">
+                    <p className="library-card__preview" dir="rtl">
                       {text.chunks[0].text}
                     </p>
                   )}
