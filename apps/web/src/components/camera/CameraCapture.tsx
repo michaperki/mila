@@ -15,6 +15,7 @@ type CameraCaptureProps = {
   leftControl?: ReactNode
   rightControl?: ReactNode
   topStatus?: ReactNode
+  showControls?: boolean
 }
 
 type CapturedFrame = {
@@ -36,7 +37,7 @@ const createImageData = (canvas: HTMLCanvasElement) => {
   return context.getImageData(0, 0, canvas.width, canvas.height)
 }
 
-function CameraCapture({ onSubmit, disabled, onError, isProcessing, leftControl, rightControl, topStatus }: CameraCaptureProps) {
+function CameraCapture({ onSubmit, disabled, onError, isProcessing, leftControl, rightControl, topStatus, showControls = true }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
@@ -167,7 +168,7 @@ function CameraCapture({ onSubmit, disabled, onError, isProcessing, leftControl,
         )}
       </div>
 
-      {!captured && (
+      {!captured && showControls && (
         <div className="camera-overlay">
           <div className="camera-overlay__top">
             {error ? (
