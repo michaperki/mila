@@ -20,7 +20,9 @@ type VocabState = {
   clearVocab: () => Promise<void>
 }
 
-const generateId = () => (globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+const hasRandomUUID = typeof globalThis !== 'undefined' && typeof globalThis.crypto?.randomUUID === 'function'
+const generateId = () =>
+  hasRandomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
 type ApiOptions = {
   method?: 'GET' | 'POST' | 'DELETE'
@@ -267,7 +269,7 @@ export const useVocabStore = create<VocabState>()(
 
           if (token) {
             await Promise.all(
-              imported.map((item) => apiFetch('vocab', { method: 'POST', token, body: { ...item, id: item.id } })),
+              imported.map((item: StarredItem) => apiFetch('vocab', { method: 'POST', token, body: { ...item, id: item.id } })),
             )
             await get().getVocab()
           } else {
