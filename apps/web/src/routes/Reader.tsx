@@ -7,6 +7,7 @@ import FullTextDisplay from '../components/FullTextDisplay';
 import ErrorMessage from '../components/ErrorMessage';
 import TopNavBar from '../components/TopNavBar';
 import { Chunk, Token, StarredItem, TextDoc } from '../types';
+import { suggestRoot } from '../utils/hebrew';
 
 type ToastState = {
   message: string;
@@ -165,6 +166,7 @@ function Reader() {
           id: `${token.lemma}-${Date.now()}`,
           lemma: token.lemma,
           gloss: token.gloss || 'Unknown',
+          root: token.root || (token.lemma ? suggestRoot(token.lemma) : undefined),
           sourceRef: textId ? {
             textId,
             chunkId: chunkId ?? '',

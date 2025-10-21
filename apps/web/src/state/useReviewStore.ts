@@ -20,7 +20,7 @@ const defaultCard = (item: StarredItem, timestamp: number): ReviewCard => ({
   id: item.id,
   lemma: item.lemma,
   gloss: item.gloss,
-  root: item.sourceRef?.chunkId,
+  root: item.root,
   createdAt: timestamp,
   due: timestamp,
   interval: 0,
@@ -81,7 +81,7 @@ export const useReviewStore = create<ReviewState>()(
         set((state) => {
           const existing = state.cards.find((card) => card.id === item.id)
           if (existing) {
-            if (existing.gloss !== item.gloss || existing.lemma !== item.lemma) {
+            if (existing.gloss !== item.gloss || existing.lemma !== item.lemma || existing.root !== item.root) {
               return {
                 cards: state.cards.map((card) =>
                   card.id === item.id
@@ -89,6 +89,7 @@ export const useReviewStore = create<ReviewState>()(
                         ...card,
                         lemma: item.lemma,
                         gloss: item.gloss,
+                        root: item.root ?? card.root,
                         sourceRef: item.sourceRef ?? card.sourceRef,
                       }
                     : card,

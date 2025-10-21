@@ -126,6 +126,7 @@ export const useVocabStore = create<VocabState>()(
             const updatedItem = {
               ...existingItem,
               gloss: item.gloss, // Update gloss in case it has changed
+              root: item.root ?? existingItem.root,
               createdAt: Date.now(), // Update timestamp to move it to top
               frequency: (existingItem.frequency || 1) + 1, // Increment frequency
             };

@@ -1,19 +1,27 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import ImagePicker from '../components/ImagePicker'
 import InstallPrompt from '../components/InstallPrompt'
 import TranslationSettings from '../components/TranslationSettings'
 import TextPreviewCard from '../components/TextPreviewCard'
 import ErrorMessage from '../components/ErrorMessage'
 import TopNavBar from '../components/TopNavBar'
+import CameraCapture from '../components/camera/CameraCapture'
 import { useTextStore } from '../state/useTextStore'
 import { TextDoc } from '../types'
+import { processImage } from '../services/ingest'
 
 function Camera() {
-  const { texts, getTexts } = useTextStore()
+  const navigate = useNavigate()
+  const { texts, getTexts, saveText } = useTextStore()
   const [isLoading, setIsLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [showSettings, setShowSettings] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [captureError, setCaptureError] = useState<string | null>(null)
+  const [isProcessingCapture, setIsProcessingCapture] = useState(false)
+  const [processingProgress, setProcessingProgress] = useState(0)
+  const [processingStage, setProcessingStage] = useState('Preparing capture…')
 
   useEffect(() => {
     const loadTexts = async () => {
@@ -45,6 +53,34 @@ function Camera() {
     setShowSettings(!showSettings)
   }
 
+  const handleCaptureSubmit = async (blob: Blob) => {
+    try {
+      setCaptureError(null)
+      setIsProcessingCapture(true)
+      setProcessingStage('Normalising capture…')
+      setProcessingProgress(20)
+
+      const file = new File([blob], `mila-capture-${Date.now()}.png`, { type: blob.type || 'image/png' })
+      const textDoc = await processImage(file, (progress) => {
+        const percent = Math.round(progress * 80)
+        setProcessingProgress(20 + percent)
+        setProcessingStage(progress < 0.7 ? 'Running OCR…' : 'Finalising capture…')
+      })
+
+      setProcessingStage('Saving to your library…')
+      await saveText(textDoc)
+      setProcessingProgress(100)
+      navigate(`/read/${textDoc.id}`)
+    } catch (error) {
+      console.error('Instant capture failed', error)
+      const message = (error as Error).message || 'Capture failed. Try again.'
+      setCaptureError(message)
+    } finally {
+      setIsProcessingCapture(false)
+      setProcessingProgress(0)
+    }
+  }
+
   return (
     <>
       <TopNavBar
@@ -71,7 +107,7 @@ function Camera() {
         </div>
       )}
 
-      <main className="container">
+      <main className="container space-y-4 pb-20">
         <InstallPrompt />
 
         {!isOnline && (
@@ -82,6 +118,29 @@ function Camera() {
             <span>You're currently offline. Some features may be limited.</span>
           </div>
         )}
+
+        <section className="card">
+          <h2 className="text-lg font-bold mb-2">Instant camera</h2>
+          <CameraCapture
+            onSubmit={handleCaptureSubmit}
+            onError={(message) => setCaptureError(message)}
+            disabled={isProcessingCapture}
+            isProcessing={isProcessingCapture}
+          />
+          {isProcessingCapture && (
+            <div className="mt-3 space-y-2">
+              <p className="text-sm text-primary font-medium">{processingStage}</p>
+              <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${Math.min(processingProgress, 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </section>
+
+        <ErrorMessage error={captureError} onDismiss={() => setCaptureError(null)} />
 
         <ErrorMessage
           error={loadError}
@@ -98,7 +157,7 @@ function Camera() {
           onDismiss={() => setLoadError(null)}
         />
 
-        <div className="card mb-4">
+        <div className="card">
           <h2 className="text-lg font-bold mb-2">Choose Image Source</h2>
           <ImagePicker />
         </div>

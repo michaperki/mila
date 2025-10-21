@@ -29,7 +29,7 @@ const getPrompt = (card: ReviewCard, mode: ReviewMode, isFront: boolean) => {
     return card.lemma
   }
   if (mode === 'root') {
-    return isFront ? card.lemma : card.root || 'Root coming soon'
+    return isFront ? card.lemma : card.root || 'Root unavailable'
   }
   return isFront ? card.lemma : card.gloss
 }

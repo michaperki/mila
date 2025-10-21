@@ -30,6 +30,7 @@ export type StarredItem = {
   id: string;
   lemma: string;
   gloss: string;
+  root?: string;
   sourceRef?: { textId: string; chunkId: string };
   createdAt: number;
   frequency?: number;
