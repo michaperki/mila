@@ -50,6 +50,10 @@ function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
     </div>
   )
 
+  if (current === 'camera') {
+    return null
+  }
+
   return (
     <header className="top-nav">
       <div className="top-nav__inner mx-auto w-full max-w-5xl px-4 sm:px-6">

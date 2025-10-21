@@ -148,8 +148,8 @@ function CameraCapture({ onSubmit, disabled, onError, isProcessing }: CameraCapt
   const isBusy = submitting || Boolean(isProcessing)
 
   return (
-    <div className="space-y-4">
-      <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-gray-200 bg-black">
+    <div className="camera-capture">
+      <div className="camera-viewfinder">
         {captured ? (
           <CapturePreview
             imageUrl={captured.previewUrl}
@@ -160,36 +160,19 @@ function CameraCapture({ onSubmit, disabled, onError, isProcessing }: CameraCapt
             isSubmitting={isBusy}
           />
         ) : (
-          <>
-            <video
-              ref={videoRef}
-              className="h-full w-full object-cover"
-              playsInline
-              muted
-              autoPlay
-            />
-            <div className="absolute inset-x-0 bottom-0 p-4 flex items-center justify-center gap-4 bg-gradient-to-t from-black/70 via-black/20 to-transparent">
-              <button
-                type="button"
-                className="h-16 w-16 rounded-full border-4 border-white bg-white/80 transition hover:bg-white disabled:opacity-60"
-                onClick={handleCapture}
-                disabled={disabled || initialising || Boolean(error)}
-                aria-label="Capture photo"
-              />
-            </div>
-            <div className="absolute top-0 left-0 right-0 p-3 flex items-center justify-between text-xs text-white/80">
-              <span>{initialising ? 'Starting camera…' : 'Align text within frame'}</span>
-              <span>{error ? 'No camera' : 'Auto-detect enabled'}</span>
-            </div>
-          </>
+          <video ref={videoRef} className="camera-feed" playsInline muted autoPlay />
         )}
       </div>
-      {error && <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-      {!captured && (
-        <div className="flex items-center justify-between gap-3 text-sm text-gray-500">
-          <span>Need a gallery file? Use the uploader below.</span>
-          <span>{initialising ? 'Preparing camera…' : 'Tap the shutter when ready.'}</span>
-        </div>
+      <button
+        type="button"
+        className="camera-shutter"
+        onClick={captured ? handleConfirm : handleCapture}
+        disabled={disabled || initialising || Boolean(error)}
+        aria-label={captured ? 'Confirm capture' : 'Capture photo'}
+      />
+      {error && <div className="camera-error">{error}</div>}
+      {!captured && !initialising && (
+        <div className="camera-helper">Align text within frame · auto-detect enabled</div>
       )}
     </div>
   )
