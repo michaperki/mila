@@ -1,4 +1,4 @@
-import { Route, Routes, Navigate } from 'react-router-dom'
+import { Route, Routes, Navigate, useLocation } from 'react-router-dom'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import BottomBar from './components/BottomBar'
 import { checkDatabaseHealth } from './lib/database'
@@ -21,6 +21,7 @@ const LoadingFallback = () => (
 
 function App() {
   const [dbHealthy, setDbHealthy] = useState<boolean | null>(null);
+  const location = useLocation();
 
   useEffect(() => {
     // Check database health on component mount
@@ -125,6 +126,8 @@ function App() {
     );
   }
 
+  const showBottomBar = !location.pathname.startsWith('/camera')
+
   return (
     <>
       <main className="main-content">
@@ -142,7 +145,7 @@ function App() {
           </Routes>
         </Suspense>
       </main>
-      <BottomBar />
+      {showBottomBar && <BottomBar />}
     </>
   )
 }
