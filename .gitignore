@@ -6,3 +6,6 @@ apps/web/dist/
 apps/web/src/data/hebrew/oshb/
 apps/web/src/data/hebrew/strongs/
 mila_ux_v0.09
+
+# Local Netlify folder
+.netlify
