@@ -297,13 +297,13 @@ function Home() {
           <p className="text-base text-slate-500 sm:text-lg">Ready to keep the streak alive?</p>
         </header>
 
-        <section className="card rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
-          <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start sm:justify-between">
+        <section className="card rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-soft sm:p-8">
+          <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:justify-between sm:text-left">
             <div className="space-y-2 text-center sm:text-left">
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-blue-500">Progress pulse</p>
               <p className="text-lg font-semibold text-slate-900 sm:text-xl">Here’s how you’re doing this week.</p>
             </div>
-            <div className="rounded-2xl bg-blue-50 px-5 py-3 text-center shadow-sm sm:text-right">
+            <div className="rounded-2xl bg-blue-50 px-5 py-3 text-center shadow-sm">
               <p className="text-[0.65rem] font-semibold uppercase tracking-[0.4em] text-blue-600">Streak</p>
               <p className="text-3xl font-extrabold text-blue-700 sm:text-4xl">{streak} 🔥</p>
             </div>
