@@ -37,6 +37,73 @@ const createImageData = (canvas: HTMLCanvasElement) => {
   return context.getImageData(0, 0, canvas.width, canvas.height)
 }
 
+const cameraConstraintOptions: MediaStreamConstraints[] = [
+  { video: { facingMode: { ideal: 'environment' } }, audio: false },
+  { video: { facingMode: 'environment' }, audio: false },
+  { video: true, audio: false },
+]
+
+const requestCameraStream = async (): Promise<MediaStream> => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('Camera access is not supported in this browser.')
+  }
+
+  let lastError: unknown = null
+
+  for (const constraints of cameraConstraintOptions) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints)
+    } catch (error) {
+      lastError = error
+
+      if (error instanceof DOMException) {
+        if (error.name === 'NotAllowedError') {
+          throw error
+        }
+        if (error.name === 'NotReadableError') {
+          // Another application is using the camera; retrying with different constraints will not help.
+          throw error
+        }
+      }
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError
+  }
+
+  throw new Error('Unknown camera error')
+}
+
+const buildCameraErrorMessage = (error: unknown) => {
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    return 'Camera requires a secure connection. Open Mila over HTTPS and try again.'
+  }
+
+  if (error instanceof DOMException) {
+    switch (error.name) {
+      case 'NotAllowedError':
+        return 'Camera access was denied. Enable permissions to capture instantly.'
+      case 'NotFoundError':
+        return 'No camera was detected. Connect a camera or switch devices.'
+      case 'NotReadableError':
+        return 'Your camera is in use by another application. Close it and try again.'
+      case 'SecurityError':
+        return 'Camera access is blocked by the browser. Check site settings and try again.'
+      case 'OverconstrainedError':
+        return 'We could not match a camera with the requested settings. Switch cameras or reload.'
+      default:
+        break
+    }
+  }
+
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return 'Could not open the camera. Try another browser or device.'
+}
+
 function CameraCapture({ onSubmit, disabled, onError, isProcessing, leftControl, rightControl, topStatus, showControls = true }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -66,10 +133,7 @@ function CameraCapture({ onSubmit, disabled, onError, isProcessing, leftControl,
     const startStream = async () => {
       try {
         setInitialising(true)
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
-          audio: false,
-        })
+        const stream = await requestCameraStream()
         streamRef.current = stream
         if (videoRef.current) {
           videoRef.current.srcObject = stream
@@ -78,10 +142,7 @@ function CameraCapture({ onSubmit, disabled, onError, isProcessing, leftControl,
         setError(null)
       } catch (err) {
         console.error('Camera access error', err)
-        const message =
-          err instanceof DOMException && err.name === 'NotAllowedError'
-            ? 'Camera access was denied. Enable permissions to capture instantly.'
-            : 'Could not open the camera. Try another browser or device.'
+        const message = buildCameraErrorMessage(err)
         setError(message)
         onError?.(message)
       } finally {
