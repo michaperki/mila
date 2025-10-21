@@ -107,7 +107,7 @@ function Camera() {
         </div>
       )}
 
-      <main className="container space-y-4 pb-20">
+      <main className="mx-auto w-full max-w-5xl space-y-4 px-4 pb-20 sm:px-6">
         <InstallPrompt />
 
         {!isOnline && (

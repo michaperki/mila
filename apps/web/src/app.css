@@ -149,12 +149,6 @@ a:focus-visible,
   text-align: right;
 }
 
-.container {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 1rem;
-}
-
 .card {
   background-color: var(--card-background-color);
   border-radius: var(--radius-lg);
@@ -861,10 +855,6 @@ a:focus-visible,
 
 /* Mobile-first styles */
 @media (max-width: 640px) {
-  .container {
-    padding: 0.5rem;
-  }
-  
   .card {
     padding: 0.75rem;
   }

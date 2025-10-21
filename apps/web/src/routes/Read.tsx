@@ -47,7 +47,7 @@ function Read() {
   return (
     <>
       <TopNavBar current="read" title="Read" subtitle="Jump back into any capture" />
-      <main className="container py-6 space-y-5 pb-24">
+      <main className="mx-auto w-full max-w-5xl px-4 py-6 pb-24 space-y-5 sm:px-6">
         <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Your library</h1>

@@ -162,7 +162,7 @@ function Review() {
   return (
     <>
       <TopNavBar current="review" title="Review" subtitle="Stay sharp with spaced repetition" />
-      <main className="container py-6 space-y-5 pb-24">
+      <main className="mx-auto w-full max-w-5xl px-4 py-6 pb-24 space-y-5 sm:px-6">
         <section className="card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Due now: {dueCards.length}</h1>

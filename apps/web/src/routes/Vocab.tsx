@@ -231,7 +231,7 @@ function Vocab() {
         }
       />
 
-      <main className="container">
+      <main className="mx-auto w-full max-w-5xl px-4 sm:px-6">
         <p className="text-gray-600 mb-4">
           Words you've starred while reading will appear here. Use this list to review and practice your vocabulary.
         </p>

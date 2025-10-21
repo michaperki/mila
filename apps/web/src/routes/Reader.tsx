@@ -248,7 +248,7 @@ function Reader() {
     return (
       <>
         {navBar}
-        <div className="container flex items-center justify-center" style={{ minHeight: 'calc(100vh - 96px)' }}>
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-center px-4" style={{ minHeight: 'calc(100vh - 96px)' }}>
           <div className="text-center">
             <div className="mb-4 text-primary text-xl">Loading...</div>
             <div className="text-sm text-secondary">Please wait while we load the text</div>
@@ -262,7 +262,7 @@ function Reader() {
     return (
       <>
         {navBar}
-        <div className="container">
+        <div className="mx-auto w-full max-w-5xl px-4">
           <div className="card">
             <h2 className="text-xl font-bold mb-2">Text not found</h2>
             <p>The requested text could not be found.</p>
@@ -281,7 +281,7 @@ function Reader() {
   return (
     <>
       {navBar}
-      <div className="container pb-16">
+      <div className="mx-auto w-full max-w-5xl px-4 pb-16">
         <ErrorMessage
           error={loadError}
           onRetry={() => {

@@ -83,7 +83,7 @@ function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
 
   return (
     <header className="top-nav">
-      <div className="container top-nav__inner">
+      <div className="top-nav__inner mx-auto w-full max-w-5xl px-4 sm:px-6">
         <div className="top-nav__left">{leftContent}</div>
         <div className="top-nav__center">{centerContent}</div>
         <div className="top-nav__actions">{actions}</div>

@@ -30,7 +30,7 @@ function Settings() {
   return (
     <>
       <TopNavBar current="settings" title="Settings" subtitle="Preferences" />
-      <div className="container pb-16">
+      <div className="mx-auto w-full max-w-5xl px-4 pb-16 sm:px-6">
 
       {clearSuccess && (
         <div className="bg-green-100 text-green-800 p-3 rounded mb-4">

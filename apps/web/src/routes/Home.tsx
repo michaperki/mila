@@ -290,7 +290,7 @@ function Home() {
   return (
     <>
       <TopNavBar current="home" title="Home" subtitle="Stay on track with Mila" />
-      <main className="container py-6 space-y-5 pb-24">
+      <main className="mx-auto w-full max-w-5xl px-4 py-6 pb-24 space-y-5 sm:px-6">
         <section className="card">
           <div className="flex items-center justify-between gap-4">
             <div>
