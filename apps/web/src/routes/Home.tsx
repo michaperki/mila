@@ -343,11 +343,11 @@ function Home() {
           </button>
         </section>
 
-        <section className="card rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-1">
-              <h2 className="text-xl font-semibold text-slate-900">Quick add</h2>
-              <p className="text-sm text-slate-500">Type or speak a new word and we’ll queue it for review.</p>
+        <section className="quick-add">
+          <div className="quick-add__header">
+            <div>
+              <h2 className="quick-add__title">Quick add</h2>
+              <p className="quick-add__subtitle">Type or speak a new word and we’ll queue it for review.</p>
             </div>
             <button
               className={`btn btn-small ${isVoiceSupported ? '' : 'btn-secondary'} ${isListening ? 'bg-primary text-white' : ''}`}
@@ -358,20 +358,20 @@ function Home() {
               {isListening ? 'Listening…' : 'Voice'}
             </button>
           </div>
-          <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={handleQuickAdd}>
-            <div className="flex flex-col gap-1 sm:col-span-1">
-              <label htmlFor="quick-lemma" className="text-xs font-semibold uppercase text-gray-500">
+          <form className="quick-add__form" onSubmit={handleQuickAdd}>
+            <div className="quick-add__field">
+              <label htmlFor="quick-lemma" className="quick-add__label">
                 Hebrew lemma
               </label>
               <input
                 id="quick-lemma"
-                className="input"
+                className="quick-add__input"
                 placeholder="הַמִּלָּה"
                 value={lemma}
                 onChange={(event) => handleLemmaChange(event.target.value)}
                 dir={detectedLang === 'hebrew' ? 'rtl' : 'ltr'}
               />
-              <p className="text-xs text-gray-500">
+              <p className="quick-add__assist">
                 {detectedLang === 'hebrew'
                   ? 'Detected Hebrew · right-to-left'
                   : detectedLang === 'latin'
@@ -379,42 +379,42 @@ function Home() {
                   : 'Enter a lemma or tap a suggestion'}
               </p>
             </div>
-            <div className="flex flex-col gap-1 sm:col-span-1">
-              <label htmlFor="quick-gloss" className="text-xs font-semibold uppercase text-gray-500">
+            <div className="quick-add__field">
+              <label htmlFor="quick-gloss" className="quick-add__label">
                 Gloss / hint
               </label>
               <input
                 id="quick-gloss"
-                className="input"
+                className="quick-add__input"
                 placeholder="quick translation"
                 value={gloss}
                 onChange={(event) => handleGlossChange(event.target.value)}
               />
             </div>
-            <div className="flex flex-col gap-1 sm:col-span-1">
-              <label htmlFor="quick-root" className="text-xs font-semibold uppercase text-gray-500">
+            <div className="quick-add__field">
+              <label htmlFor="quick-root" className="quick-add__label">
                 Root
               </label>
               <input
                 id="quick-root"
-                className="input"
+                className="quick-add__input"
                 placeholder="auto-detected"
                 value={root}
                 onChange={(event) => handleRootChange(event.target.value)}
                 dir="rtl"
               />
-              <p className="text-xs text-gray-500">
+              <p className="quick-add__assist">
                 {rootTouched ? 'Edited manually' : root ? 'Auto-detected from lexicon' : 'Will be inferred on save'}
               </p>
             </div>
-            <div className="flex flex-col gap-1 sm:col-span-1">
-              <label htmlFor="quick-pronunciation" className="text-xs font-semibold uppercase text-gray-500">
+            <div className="quick-add__field">
+              <label htmlFor="quick-pronunciation" className="quick-add__label">
                 Pronunciation
               </label>
               <div className="flex items-center gap-2">
                 <input
                   id="quick-pronunciation"
-                  className="input flex-1"
+                  className="quick-add__input flex-1"
                   placeholder="shalom"
                   value={pronunciation}
                   onChange={(event) => setPronunciation(event.target.value)}
@@ -430,17 +430,17 @@ function Home() {
               </div>
             </div>
             {suggestions.length > 0 && (
-              <div className="sm:col-span-2">
-                <p className="text-xs font-semibold uppercase text-gray-500 mb-1">Suggestions</p>
-                <div className="flex flex-wrap gap-2">
+              <div className="quick-add__suggestions">
+                <p className="quick-add__suggestions-title">Suggestions</p>
+                <div className="quick-add__suggestion-list">
                   {suggestions.map((entry) => (
                     <button
                       key={`${entry.lemma}-${entry.gloss}`}
                       type="button"
-                      className={`px-3 py-2 rounded border text-sm transition ${
+                      className={`quick-add__suggestion${
                         selectedSuggestion && stripNikud(selectedSuggestion.lemma) === stripNikud(entry.lemma)
-                          ? 'border-primary text-primary bg-primary/5'
-                          : 'border-gray-200 hover:border-primary hover:text-primary'
+                          ? ' quick-add__suggestion--active'
+                          : ''
                       }`}
                       onClick={() => handleSuggestionSelect(entry)}
                     >
@@ -454,47 +454,41 @@ function Home() {
               </div>
             )}
             {(gloss || root || pronunciation) && (
-              <div className="sm:col-span-2">
-                <div className="rounded-lg border border-gray-200 p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between bg-gray-50">
-                  <div>
-                    <p className="text-sm font-semibold" dir="rtl">
-                      {lemma || 'Lemma pending'}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      {gloss || 'Add a quick gloss'} · {root ? `Root ${root}` : 'Root pending'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">
-                      {selectedSuggestion ? 'From lexicon' : rootTouched ? 'Manual entry' : 'Heuristic'}
-                    </span>
-                    <button
-                      className="btn btn-secondary btn-small"
-                      type="button"
-                      onClick={speakPronunciation}
-                      disabled={!speechSupported || (!lemma && !pronunciation)}
-                    >
-                      Play audio
-                    </button>
-                  </div>
+              <div className="quick-add__preview">
+                <div>
+                  <p className="quick-add__preview-lemma" dir="rtl">
+                    {lemma || 'Lemma pending'}
+                  </p>
+                  <p className="quick-add__preview-meta">
+                    {gloss || 'Add a quick gloss'} · {root ? `Root ${root}` : 'Root pending'}
+                  </p>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+                    {selectedSuggestion ? 'Lexicon suggestion' : rootTouched ? 'Manual entry' : 'Heuristic'}
+                  </span>
+                  <button
+                    className="btn btn-ghost btn-small"
+                    type="button"
+                    onClick={speakPronunciation}
+                    disabled={!speechSupported || (!lemma && !pronunciation)}
+                  >
+                    Play audio
+                  </button>
                 </div>
               </div>
             )}
-            <div className="sm:col-span-2 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <button
-                className="btn bg-primary text-white hover:bg-primary/90"
-                type="submit"
-                disabled={quickAddStatus === 'saving'}
-              >
+            <div className="quick-add__actions">
+              <button className="btn" type="submit" disabled={quickAddStatus === 'saving'}>
                 {quickAddStatus === 'saving' ? 'Saving…' : 'Save & schedule'}
               </button>
               <p
-                className={`text-sm ${
+                className={`quick-add__status ${
                   quickAddStatus === 'error'
-                    ? 'text-red-600'
+                    ? 'quick-add__status--error'
                     : quickAddStatus === 'success'
-                    ? 'text-emerald-600'
-                    : 'text-gray-500'
+                    ? 'quick-add__status--success'
+                    : ''
                 }`}
               >
                 {quickAddMessage || 'Auto-saves to vocab & queues for spaced review.'}
