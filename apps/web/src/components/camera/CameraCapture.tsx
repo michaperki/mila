@@ -88,6 +88,8 @@ const buildCameraErrorMessage = (error: unknown) => {
         return 'No camera was detected. Connect a camera or switch devices.'
       case 'NotReadableError':
         return 'Your camera is in use by another application. Close it and try again.'
+      case 'AbortError':
+        return 'Camera playback was interrupted. Try again in a moment.'
       case 'SecurityError':
         return 'Camera access is blocked by the browser. Check site settings and try again.'
       case 'OverconstrainedError':
@@ -137,7 +139,21 @@ function CameraCapture({ onSubmit, disabled, onError, isProcessing, leftControl,
         streamRef.current = stream
         if (videoRef.current) {
           videoRef.current.srcObject = stream
-          await videoRef.current.play()
+          try {
+            await videoRef.current.play()
+          } catch (playError) {
+            if (playError instanceof DOMException && playError.name === 'AbortError') {
+              console.warn('Camera playback aborted, retrying shortly…', playError)
+              window.setTimeout(() => {
+                if (!videoRef.current) return
+                void videoRef.current.play().catch((retryError) => {
+                  console.warn('Retrying camera playback failed', retryError)
+                })
+              }, 150)
+            } else {
+              throw playError
+            }
+          }
         }
         setError(null)
       } catch (err) {
