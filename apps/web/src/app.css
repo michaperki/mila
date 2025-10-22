@@ -2241,6 +2241,30 @@ a:focus-visible,
   text-align: center;
 }
 
+.camera-preview__canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+}
+
+.camera-preview__polygon {
+  fill: rgba(59, 130, 246, 0.18);
+  stroke: rgba(59, 130, 246, 0.9);
+}
+
+.camera-preview__handle {
+  fill: var(--primary-color);
+  stroke: #fff;
+  stroke-width: 4;
+  cursor: grab;
+  touch-action: none;
+}
+
+.camera-preview__handle:active {
+  cursor: grabbing;
+}
+
 .camera-preview__actions {
   display: flex;
   flex-direction: column;

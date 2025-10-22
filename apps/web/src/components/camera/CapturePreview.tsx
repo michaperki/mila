@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { NormalizedQuad } from '../../utils/imageProcessing'
 
 type CapturePreviewProps = {
   imageUrl: string
+  imageWidth: number
+  imageHeight: number
   quad: NormalizedQuad
   onChange: (quad: NormalizedQuad) => void
   onConfirm: () => void
@@ -12,59 +14,27 @@ type CapturePreviewProps = {
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
-function CapturePreview({ imageUrl, quad, onChange, onConfirm, onRetake, isSubmitting }: CapturePreviewProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const imageRef = useRef<HTMLImageElement | null>(null)
+function CapturePreview({
+  imageUrl,
+  imageWidth,
+  imageHeight,
+  quad,
+  onChange,
+  onConfirm,
+  onRetake,
+  isSubmitting,
+}: CapturePreviewProps) {
+  const svgRef = useRef<SVGSVGElement | null>(null)
   const activeHandleRef = useRef<number | null>(null)
   const pointerIdRef = useRef<number | null>(null)
   const quadRef = useRef<NormalizedQuad>(quad)
-  const layoutRef = useRef({ offsetX: 0, offsetY: 0, width: 1, height: 1 })
-  const [, forceLayoutTick] = useState(0)
 
   useEffect(() => {
     quadRef.current = quad
   }, [quad])
 
-  const polygonPoints = useMemo(
-    () => quad.map((point) => `${point.x * 100},${point.y * 100}`).join(' '),
-    [quad],
-  )
-
-  const measureLayout = useCallback(() => {
-    const containerRect = containerRef.current?.getBoundingClientRect()
-    const imageRect = imageRef.current?.getBoundingClientRect()
-    if (!containerRect || !imageRect) return
-    layoutRef.current = {
-      offsetX: imageRect.left - containerRect.left,
-      offsetY: imageRect.top - containerRect.top,
-      width: imageRect.width || 1,
-      height: imageRect.height || 1,
-    }
-    forceLayoutTick((tick) => tick + 1)
-  }, [])
-
-  useEffect(() => {
-    measureLayout()
-  }, [imageUrl, measureLayout])
-
-  useEffect(() => {
-    const handleResize = () => {
-      window.requestAnimationFrame(measureLayout)
-    }
-    window.addEventListener('resize', handleResize)
-    window.addEventListener('orientationchange', handleResize)
-    return () => {
-      window.removeEventListener('resize', handleResize)
-      window.removeEventListener('orientationchange', handleResize)
-    }
-  }, [measureLayout])
-
   const updateHandle = useCallback(
-    (index: number, clientX: number, clientY: number) => {
-      const rect = imageRef.current?.getBoundingClientRect()
-      if (!rect) return
-      const x = clamp((clientX - rect.left) / rect.width, 0.02, 0.98)
-      const y = clamp((clientY - rect.top) / rect.height, 0.02, 0.98)
+    (index: number, x: number, y: number) => {
       const next: NormalizedQuad = quadRef.current.map((point, idx) =>
         idx === index ? { x, y } : point,
       ) as NormalizedQuad
@@ -73,83 +43,121 @@ function CapturePreview({ imageUrl, quad, onChange, onConfirm, onRetake, isSubmi
     [onChange],
   )
 
-  const handleWindowPointerMove = useCallback(
-    (event: PointerEvent) => {
-      if (activeHandleRef.current === null || pointerIdRef.current !== event.pointerId) return
-      updateHandle(activeHandleRef.current, event.clientX, event.clientY)
+  const getNormalizedFromClient = useCallback(
+    (clientX: number, clientY: number) => {
+      const svg = svgRef.current
+      if (!svg || imageWidth === 0 || imageHeight === 0) {
+        return null
+      }
+      const point = svg.createSVGPoint()
+      point.x = clientX
+      point.y = clientY
+      const ctm = svg.getScreenCTM()
+      if (!ctm) return null
+      const inverted = ctm.inverse()
+      const svgPoint = point.matrixTransform(inverted as DOMMatrix)
+      const x = clamp(svgPoint.x / imageWidth, 0.02, 0.98)
+      const y = clamp(svgPoint.y / imageHeight, 0.02, 0.98)
+      return { x, y }
     },
-    [updateHandle],
+    [imageWidth, imageHeight],
   )
-
-  const handleWindowPointerUp = useCallback(
-    (event: PointerEvent) => {
-      if (pointerIdRef.current !== event.pointerId) return
-      activeHandleRef.current = null
-      pointerIdRef.current = null
-      window.removeEventListener('pointermove', handleWindowPointerMove)
-      window.removeEventListener('pointerup', handleWindowPointerUp)
-      window.removeEventListener('pointercancel', handleWindowPointerUp)
-    },
-    [handleWindowPointerMove],
-  )
-
-  useEffect(() => {
-    return () => {
-      window.removeEventListener('pointermove', handleWindowPointerMove)
-      window.removeEventListener('pointerup', handleWindowPointerUp)
-      window.removeEventListener('pointercancel', handleWindowPointerUp)
-    }
-  }, [handleWindowPointerMove, handleWindowPointerUp])
 
   const handlePointerDown = useCallback(
-    (index: number) => (event: React.PointerEvent<HTMLButtonElement>) => {
+    (index: number) => (event: React.PointerEvent<SVGCircleElement>) => {
       event.preventDefault()
+      event.stopPropagation()
       activeHandleRef.current = index
       pointerIdRef.current = event.pointerId
-      updateHandle(index, event.clientX, event.clientY)
-      window.addEventListener('pointermove', handleWindowPointerMove, { passive: false })
-      window.addEventListener('pointerup', handleWindowPointerUp, { passive: false })
-      window.addEventListener('pointercancel', handleWindowPointerUp, { passive: false })
+      svgRef.current?.setPointerCapture(event.pointerId)
+      const coords = getNormalizedFromClient(event.clientX, event.clientY)
+      if (!coords) return
+      updateHandle(index, coords.x, coords.y)
     },
-    [handleWindowPointerMove, handleWindowPointerUp, updateHandle],
+    [getNormalizedFromClient, updateHandle],
   )
 
-  const handlePositions = useMemo(() => {
-    const { offsetX, offsetY, width, height } = layoutRef.current
-    return quad.map((point) => ({
-      left: `${offsetX + point.x * width}px`,
-      top: `${offsetY + point.y * height}px`,
-      transform: 'translate(-50%, -50%)',
-      cursor: 'grab',
-      touchAction: 'none' as const,
-    }))
-  }, [quad])
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<SVGSVGElement>) => {
+      if (pointerIdRef.current !== event.pointerId) return
+      if (activeHandleRef.current === null) return
+      event.preventDefault()
+      const coords = getNormalizedFromClient(event.clientX, event.clientY)
+      if (!coords) return
+      updateHandle(activeHandleRef.current, coords.x, coords.y)
+    },
+    [getNormalizedFromClient, updateHandle],
+  )
+
+  const handlePointerUp = useCallback(
+    (event: React.PointerEvent<SVGSVGElement>) => {
+      if (pointerIdRef.current !== event.pointerId) return
+      svgRef.current?.releasePointerCapture(event.pointerId)
+      activeHandleRef.current = null
+      pointerIdRef.current = null
+    },
+    [],
+  )
+
+  const safeWidth = imageWidth || 1
+  const safeHeight = imageHeight || 1
+
+  const absolutePoints = useMemo(
+    () =>
+      quad.map((point) => ({
+        x: point.x * safeWidth,
+        y: point.y * safeHeight,
+      })),
+    [quad, safeWidth, safeHeight],
+  )
+
+  const polygonPoints = useMemo(
+    () => absolutePoints.map((point) => `${point.x},${point.y}`).join(' '),
+    [absolutePoints],
+  )
+
+  const handleRadius = useMemo(() => {
+    const base = Math.max(safeWidth, safeHeight) * 0.02
+    return Math.max(18, Math.min(base, 48))
+  }, [safeWidth, safeHeight])
+
+  const strokeWidth = useMemo(() => Math.max(safeWidth, safeHeight) * 0.004, [safeWidth, safeHeight])
+
+  const frameStyle = imageWidth > 0 && imageHeight > 0 ? { aspectRatio: imageWidth / imageHeight } : undefined
 
   return (
     <div className="camera-preview">
-      <div className="camera-preview__frame" ref={containerRef}>
-        <img
-          ref={imageRef}
-          src={imageUrl}
-          alt="Captured frame"
-          className="camera-preview__image"
-          onLoad={() => window.requestAnimationFrame(measureLayout)}
-        />
-        <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">
-          <polygon points={polygonPoints} className="fill-primary/10 stroke-primary" strokeWidth={0.4} />
+      <div className="camera-preview__frame" style={frameStyle}>
+        <svg
+          ref={svgRef}
+          className="camera-preview__canvas"
+          viewBox={`0 0 ${safeWidth} ${safeHeight}`}
+          preserveAspectRatio="xMidYMid meet"
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          style={{ width: '100%', height: 'auto', maxHeight: '100%', touchAction: 'none' }}
+        >
+          <image href={imageUrl} width={safeWidth} height={safeHeight} preserveAspectRatio="xMidYMid meet" />
+          <polygon
+            points={polygonPoints}
+            className="camera-preview__polygon"
+            strokeWidth={strokeWidth}
+            vectorEffect="non-scaling-stroke"
+            pointerEvents="none"
+          />
+          {absolutePoints.map((point, index) => (
+            <circle
+              key={index}
+              className="camera-preview__handle"
+              cx={point.x}
+              cy={point.y}
+              r={handleRadius}
+              onPointerDown={handlePointerDown(index)}
+              aria-label={`Adjust corner ${index + 1}`}
+            />
+          ))}
         </svg>
-        {handlePositions.map((style, index) => (
-          <button
-            key={index}
-            type="button"
-            className="absolute w-5 h-5 rounded-full border border-white bg-primary text-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-            style={style}
-            onPointerDown={handlePointerDown(index)}
-            aria-label={`Adjust corner ${index + 1}`}
-          >
-            ●
-          </button>
-      ))}
       </div>
       <p className="camera-preview__hint">
         Drag the handles to frame the text. We will straighten and clean the capture before running OCR.

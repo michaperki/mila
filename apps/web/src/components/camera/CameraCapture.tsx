@@ -235,6 +235,8 @@ function CameraCapture({ onSubmit, disabled, onError, isProcessing, leftControl,
         {captured ? (
           <CapturePreview
             imageUrl={captured.previewUrl}
+            imageWidth={captured.width}
+            imageHeight={captured.height}
             quad={quad ?? detectTextQuad(captured.imageData)}
             onChange={setQuad}
             onConfirm={handleConfirm}
