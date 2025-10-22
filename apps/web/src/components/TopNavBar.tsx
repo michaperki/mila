@@ -30,10 +30,15 @@ function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
   const resolvedTitle = title ?? SECTION_LABELS[current]
   const isPrimarySection = current === 'home' || current === 'read' || current === 'camera' || current === 'review' || current === 'vocab'
   const backLink = BACK_LINKS[current]
+  const renderBrandLink = (size: 'sm' | 'md' | 'lg') => (
+    <Link to="/" className="top-nav__brand-link" aria-label="Go to Mila home">
+      <BrandMark size={size} />
+    </Link>
+  )
 
   const leftContent = isPrimarySection ? (
     <div className="top-nav__brand">
-      <BrandMark size="lg" />
+      {renderBrandLink('lg')}
       <div className="top-nav__brand-copy">
         {resolvedTitle && <p className="top-nav__subtitle">{resolvedTitle}</p>}
         {subtitle && <p className="top-nav__aux">{subtitle}</p>}
@@ -46,7 +51,7 @@ function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
     </Link>
   ) : (
     <div className="top-nav__brand">
-      <BrandMark size="sm" />
+      {renderBrandLink('sm')}
     </div>
   )
 
@@ -57,7 +62,7 @@ function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
         <div className="top-nav__center">
           {!isPrimarySection && (
             <div className="top-nav__page">
-              <BrandMark size="sm" />
+              {renderBrandLink('sm')}
               <div>
                 <h1 className="top-nav__title">{resolvedTitle}</h1>
                 {subtitle && <p className="top-nav__subtitle">{subtitle}</p>}

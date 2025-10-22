@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import SettingsCard, { SettingsIcons } from '../components/SettingsCard'
 import ErrorMessage from '../components/ErrorMessage'
 import TopNavBar from '../components/TopNavBar'
@@ -11,6 +11,9 @@ import {
 } from '../state/useAuthStore'
 import { useTextStore } from '../state/useTextStore'
 import { useVocabStore } from '../state/useVocabStore'
+import { useProfileStore, DEFAULT_DISPLAY_NAME } from '../state/useProfileStore'
+
+const normalizeNameForComparison = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase()
 
 function Settings() {
   const [theme, setTheme] = useState('light')
@@ -77,12 +80,56 @@ function Settings() {
   const [password, setPassword] = useState('')
   const [authMessage, setAuthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [authPending, setAuthPending] = useState(false)
+  const profileName = useProfileStore((state) => state.displayName)
+  const setProfileName = useProfileStore((state) => state.setDisplayName)
+  const [nameDraft, setNameDraft] = useState(profileName === DEFAULT_DISPLAY_NAME ? '' : profileName)
+  const [nameSaved, setNameSaved] = useState(false)
+  const nameSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (user && token) {
       void refreshUsage()
     }
   }, [refreshUsage, token, user])
+
+  useEffect(() => {
+    setNameDraft(profileName === DEFAULT_DISPLAY_NAME ? '' : profileName)
+  }, [profileName])
+
+  useEffect(
+    () => () => {
+      if (nameSaveTimeout.current) {
+        clearTimeout(nameSaveTimeout.current)
+      }
+    },
+    [],
+  )
+
+  const normalizedCurrentName = profileName === DEFAULT_DISPLAY_NAME ? '' : profileName
+  const comparableDraftName = normalizeNameForComparison(nameDraft)
+  const comparableCurrentName = normalizeNameForComparison(normalizedCurrentName)
+  const isNameChanged = comparableDraftName !== comparableCurrentName
+
+  const handleNameSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!isNameChanged) return
+    setProfileName(nameDraft)
+    setNameSaved(true)
+    if (nameSaveTimeout.current) {
+      clearTimeout(nameSaveTimeout.current)
+    }
+    nameSaveTimeout.current = setTimeout(() => setNameSaved(false), 1800)
+  }
+
+  const handleNameReset = () => {
+    setProfileName('')
+    setNameDraft('')
+    setNameSaved(true)
+    if (nameSaveTimeout.current) {
+      clearTimeout(nameSaveTimeout.current)
+    }
+    nameSaveTimeout.current = setTimeout(() => setNameSaved(false), 1800)
+  }
 
   const handleClearData = () => {
     try {
@@ -338,6 +385,32 @@ function Settings() {
                   </button>
                 </form>
               )}
+
+              <form className="settings-account__name" onSubmit={handleNameSubmit}>
+                <label className="settings-account__label" htmlFor="preferred-name">
+                  Preferred name
+                  <input
+                    id="preferred-name"
+                    type="text"
+                    autoComplete="given-name"
+                    value={nameDraft}
+                    onChange={(event) => setNameDraft(event.target.value)}
+                    placeholder="Your first name"
+                  />
+                </label>
+                <div className="settings-account__name-actions">
+                  <button type="submit" className="btn btn-outline btn-small" disabled={!isNameChanged}>
+                    Save name
+                  </button>
+                  {(profileName !== DEFAULT_DISPLAY_NAME || nameDraft) && (
+                    <button type="button" className="btn btn-ghost btn-small" onClick={handleNameReset}>
+                      Reset
+                    </button>
+                  )}
+                </div>
+                <p className="settings-account__name-hint">Used for greetings on the Home page.</p>
+                {nameSaved && <p className="settings-account__name-status">Name updated.</p>}
+              </form>
             </SettingsCard>
           </div>
 

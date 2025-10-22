@@ -1188,6 +1188,7 @@ a:focus-visible,
   display: grid;
   gap: 0.35rem;
   text-align: center;
+  justify-items: center;
 }
 
 .vocab-card__lemma {
@@ -2144,6 +2145,31 @@ a:focus-visible,
   display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+
+.settings-account__name {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.settings-account__name-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.settings-account__name-hint {
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.settings-account__name-status {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: rgba(15, 118, 110, 1);
 }
 
 .camera-screen {
@@ -3162,6 +3188,25 @@ a:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  align-items: flex-start;
+}
+
+.top-nav__brand-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.75rem;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.top-nav__brand-link:hover {
+  background-color: rgba(59, 130, 246, 0.12);
+}
+
+.top-nav__brand-link:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.4);
+  outline-offset: 2px;
 }
 
 .top-nav__title {

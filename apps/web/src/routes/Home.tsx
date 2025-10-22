@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import TopNavBar from '../components/TopNavBar'
-import { useProfileStore } from '../state/useProfileStore'
+import { useProfileStore, DEFAULT_DISPLAY_NAME } from '../state/useProfileStore'
 import { useAuthStore, selectCaptureAllowance, selectRemainingCapturesLabel } from '../state/useAuthStore'
 import { useProgressStore } from '../state/useProgressStore'
 import { useVocabStore } from '../state/useVocabStore'
@@ -46,9 +46,27 @@ const makeManualItem = (lemma: string, gloss: string, root?: string): StarredIte
   }
 }
 
+const deriveFirstNameFromEmail = (email: string) => {
+  const localPart = email.split('@')[0] ?? ''
+  if (!localPart) return null
+  const sanitized = localPart.replace(/[^a-zA-Z]+/g, ' ').trim()
+  if (!sanitized) return null
+  const [first] = sanitized.split(/\s+/)
+  if (!first) return null
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
+}
+
+const extractFirstName = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) return DEFAULT_DISPLAY_NAME
+  const [first] = trimmed.split(/\s+/)
+  return first || DEFAULT_DISPLAY_NAME
+}
+
 function Home() {
   const navigate = useNavigate()
   const displayName = useProfileStore((state) => state.displayName)
+  const primeDisplayName = useProfileStore((state) => state.primeDisplayName)
   const authUser = useAuthStore((state) => state.user)
   const captureAllowance = useAuthStore(selectCaptureAllowance)
   const captureLabel = useAuthStore(selectRemainingCapturesLabel)
@@ -81,6 +99,17 @@ function Home() {
   const [isVoiceSupported, setIsVoiceSupported] = useState(false)
   const [isListening, setIsListening] = useState(false)
   const recognitionRef = useRef<any | null>(null)
+  const greetingName = useMemo(() => extractFirstName(displayName), [displayName])
+
+  const userEmail = authUser?.email ?? null
+
+  useEffect(() => {
+    if (!userEmail) return
+    const derived = deriveFirstNameFromEmail(userEmail)
+    if (derived) {
+      primeDisplayName(derived)
+    }
+  }, [userEmail, primeDisplayName])
 
   const captureStatus = useMemo(() => {
     if (!authUser) {
@@ -308,9 +337,7 @@ function Home() {
       <main className="mx-auto w-full max-w-4xl px-4 pb-28 pt-8 space-y-8 sm:px-6 lg:max-w-5xl">
         <header className="home-hero">
           <span className="home-hero__eyebrow">Stay on track with Mila</span>
-          <h1 className="home-hero__title">
-            {authUser ? `Shalom, ${authUser.email.split('@')[0]} 👋` : `Shalom, ${displayName} 👋`}
-          </h1>
+          <h1 className="home-hero__title">Shalom, {greetingName} 👋</h1>
           <p className="home-hero__support">
             {authUser
               ? 'Ready to keep the streak alive? Keep capturing, reviewing, and celebrating every win along the way.'
