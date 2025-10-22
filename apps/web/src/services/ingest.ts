@@ -3,6 +3,7 @@ import { TextDoc, Chunk, Token } from '../types';
 import { normalizeZeroWidth } from '../lib/rtl';
 import { ocr } from './ocr.worker';
 import { translateSentence, glossTokens } from './translate';
+import { analyzeSentenceWithCache } from './nlpPipeline';
 import { segmentText } from './segmentation';
 
 // Progress callback type
@@ -171,23 +172,47 @@ async function translateChunks(chunks: Chunk[]): Promise<Chunk[]> {
   // For each chunk, get a translation and token glosses
   const translatedChunks = await Promise.all(
     chunks.map(async (chunk) => {
-      // Get sentence translation
       const translation = await translateSentence(chunk.text);
-      
-      // Get token glosses
-      const tokenSurfaces = chunk.tokens.map(token => token.surface);
-      const glosses = await glossTokens(tokenSurfaces);
-      
-      // Assign glosses to tokens
-      const tokensWithGlosses = chunk.tokens.map((token, idx) => ({
-        ...token,
-        gloss: glosses[idx],
-      }));
-      
+      const analyses = await analyzeSentenceWithCache(chunk.text);
+
+      const tokensWithDetails = chunk.tokens.map((token, idx) => {
+        const analysis = analyses[idx];
+        const alternatives = analysis?.alternatives?.map((alt) => ({
+          lemma: alt.lemma,
+          gloss: alt.sense_en,
+        }));
+
+        return {
+          ...token,
+          lemma: analysis?.lemma ?? token.lemma ?? token.surface,
+          gloss: analysis?.sense_en ?? token.gloss,
+          sense: analysis?.sense_en ?? token.gloss,
+          pos: analysis?.pos ?? token.pos,
+          analysisConfidence: analysis?.confidence,
+          analysisSource: analysis?.source,
+          alternatives,
+        } as Token;
+      });
+
+      const missingGlossIndexes = tokensWithDetails.reduce<number[]>((indices, token, idx) => {
+        if (!token.gloss || token.gloss === '—') {
+          indices.push(idx);
+        }
+        return indices;
+      }, []);
+
+      if (missingGlossIndexes.length > 0) {
+        const fallbackGlosses = await glossTokens(tokensWithDetails.map((token) => token.surface));
+        missingGlossIndexes.forEach((idx) => {
+          tokensWithDetails[idx].gloss = fallbackGlosses[idx];
+          tokensWithDetails[idx].sense = fallbackGlosses[idx];
+        });
+      }
+
       return {
         ...chunk,
         translation,
-        tokens: tokensWithGlosses,
+        tokens: tokensWithDetails,
       };
     })
   );

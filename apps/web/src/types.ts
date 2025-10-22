@@ -7,6 +7,10 @@ export type Token = {
   root?: string;
   gloss?: string;
   pos?: string;
+  sense?: string;
+  analysisConfidence?: number;
+  analysisSource?: 'local' | 'llm';
+  alternatives?: Array<{ lemma: string; gloss?: string }>;
 };
 
 export type Chunk = {
