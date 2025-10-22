@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NormalizedQuad } from '../../utils/imageProcessing'
 
 type CapturePreviewProps = {
@@ -14,9 +14,12 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 function CapturePreview({ imageUrl, quad, onChange, onConfirm, onRetake, isSubmitting }: CapturePreviewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const imageRef = useRef<HTMLImageElement | null>(null)
   const activeHandleRef = useRef<number | null>(null)
   const pointerIdRef = useRef<number | null>(null)
   const quadRef = useRef<NormalizedQuad>(quad)
+  const layoutRef = useRef({ offsetX: 0, offsetY: 0, width: 1, height: 1 })
+  const [, forceLayoutTick] = useState(0)
 
   useEffect(() => {
     quadRef.current = quad
@@ -27,9 +30,38 @@ function CapturePreview({ imageUrl, quad, onChange, onConfirm, onRetake, isSubmi
     [quad],
   )
 
+  const measureLayout = useCallback(() => {
+    const containerRect = containerRef.current?.getBoundingClientRect()
+    const imageRect = imageRef.current?.getBoundingClientRect()
+    if (!containerRect || !imageRect) return
+    layoutRef.current = {
+      offsetX: imageRect.left - containerRect.left,
+      offsetY: imageRect.top - containerRect.top,
+      width: imageRect.width || 1,
+      height: imageRect.height || 1,
+    }
+    forceLayoutTick((tick) => tick + 1)
+  }, [])
+
+  useEffect(() => {
+    measureLayout()
+  }, [imageUrl, measureLayout])
+
+  useEffect(() => {
+    const handleResize = () => {
+      window.requestAnimationFrame(measureLayout)
+    }
+    window.addEventListener('resize', handleResize)
+    window.addEventListener('orientationchange', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      window.removeEventListener('orientationchange', handleResize)
+    }
+  }, [measureLayout])
+
   const updateHandle = useCallback(
     (index: number, clientX: number, clientY: number) => {
-      const rect = containerRef.current?.getBoundingClientRect()
+      const rect = imageRef.current?.getBoundingClientRect()
       if (!rect) return
       const x = clamp((clientX - rect.left) / rect.width, 0.02, 0.98)
       const y = clamp((clientY - rect.top) / rect.height, 0.02, 0.98)
@@ -82,22 +114,27 @@ function CapturePreview({ imageUrl, quad, onChange, onConfirm, onRetake, isSubmi
     [handleWindowPointerMove, handleWindowPointerUp, updateHandle],
   )
 
-  const handlePositions = useMemo(
-    () =>
-      quad.map((point) => ({
-        left: `${point.x * 100}%`,
-        top: `${point.y * 100}%`,
-        transform: 'translate(-50%, -50%)',
-        cursor: 'grab',
-        touchAction: 'none' as const,
-      })),
-    [quad],
-  )
+  const handlePositions = useMemo(() => {
+    const { offsetX, offsetY, width, height } = layoutRef.current
+    return quad.map((point) => ({
+      left: `${offsetX + point.x * width}px`,
+      top: `${offsetY + point.y * height}px`,
+      transform: 'translate(-50%, -50%)',
+      cursor: 'grab',
+      touchAction: 'none' as const,
+    }))
+  }, [quad])
 
   return (
     <div className="camera-preview">
       <div className="camera-preview__frame" ref={containerRef}>
-        <img src={imageUrl} alt="Captured frame" className="camera-preview__image" />
+        <img
+          ref={imageRef}
+          src={imageUrl}
+          alt="Captured frame"
+          className="camera-preview__image"
+          onLoad={() => window.requestAnimationFrame(measureLayout)}
+        />
         <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">
           <polygon points={polygonPoints} className="fill-primary/10 stroke-primary" strokeWidth={0.4} />
         </svg>
