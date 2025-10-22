@@ -15,6 +15,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 function CapturePreview({ imageUrl, quad, onChange, onConfirm, onRetake, isSubmitting }: CapturePreviewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const activeHandleRef = useRef<number | null>(null)
+  const pointerIdRef = useRef<number | null>(null)
   const quadRef = useRef<NormalizedQuad>(quad)
 
   useEffect(() => {
@@ -40,31 +41,55 @@ function CapturePreview({ imageUrl, quad, onChange, onConfirm, onRetake, isSubmi
     [onChange],
   )
 
+  const handleWindowPointerMove = useCallback(
+    (event: PointerEvent) => {
+      if (activeHandleRef.current === null || pointerIdRef.current !== event.pointerId) return
+      updateHandle(activeHandleRef.current, event.clientX, event.clientY)
+    },
+    [updateHandle],
+  )
+
+  const handleWindowPointerUp = useCallback(
+    (event: PointerEvent) => {
+      if (pointerIdRef.current !== event.pointerId) return
+      activeHandleRef.current = null
+      pointerIdRef.current = null
+      window.removeEventListener('pointermove', handleWindowPointerMove)
+      window.removeEventListener('pointerup', handleWindowPointerUp)
+      window.removeEventListener('pointercancel', handleWindowPointerUp)
+    },
+    [handleWindowPointerMove],
+  )
+
+  useEffect(() => {
+    return () => {
+      window.removeEventListener('pointermove', handleWindowPointerMove)
+      window.removeEventListener('pointerup', handleWindowPointerUp)
+      window.removeEventListener('pointercancel', handleWindowPointerUp)
+    }
+  }, [handleWindowPointerMove, handleWindowPointerUp])
+
   const handlePointerDown = useCallback(
     (index: number) => (event: React.PointerEvent<HTMLButtonElement>) => {
       event.preventDefault()
       activeHandleRef.current = index
-      event.currentTarget.setPointerCapture(event.pointerId)
+      pointerIdRef.current = event.pointerId
+      updateHandle(index, event.clientX, event.clientY)
+      window.addEventListener('pointermove', handleWindowPointerMove, { passive: false })
+      window.addEventListener('pointerup', handleWindowPointerUp, { passive: false })
+      window.addEventListener('pointercancel', handleWindowPointerUp, { passive: false })
     },
-    [],
+    [handleWindowPointerMove, handleWindowPointerUp, updateHandle],
   )
-
-  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    if (activeHandleRef.current === null) return
-    updateHandle(activeHandleRef.current, event.clientX, event.clientY)
-  }, [updateHandle])
-
-  const handlePointerUp = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    if (activeHandleRef.current === null) return
-    event.currentTarget.releasePointerCapture(event.pointerId)
-    activeHandleRef.current = null
-  }, [])
 
   const handlePositions = useMemo(
     () =>
       quad.map((point) => ({
         left: `${point.x * 100}%`,
         top: `${point.y * 100}%`,
+        transform: 'translate(-50%, -50%)',
+        cursor: 'grab',
+        touchAction: 'none' as const,
       })),
     [quad],
   )
@@ -80,11 +105,9 @@ function CapturePreview({ imageUrl, quad, onChange, onConfirm, onRetake, isSubmi
           <button
             key={index}
             type="button"
-            className="absolute w-5 h-5 -ml-2 -mt-2 rounded-full border border-white bg-primary text-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+            className="absolute w-5 h-5 rounded-full border border-white bg-primary text-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             style={style}
             onPointerDown={handlePointerDown(index)}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
             aria-label={`Adjust corner ${index + 1}`}
           >
             ●
