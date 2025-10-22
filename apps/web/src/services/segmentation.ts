@@ -3,6 +3,7 @@ import { Chunk, Token, ChunkType } from '../types';
 import { normalizeZeroWidth } from '../lib/rtl';
 import { removeNikud } from '../lib/nikud';
 import { extractRoot, categorizeWord } from '../lib/roots';
+import { getStrongNumber } from '../data/hebrew/wordDictionary';
 
 /**
  * Hebrew-aware text segmentation utilities
@@ -222,7 +223,7 @@ export function splitPhrases(sentence: string): string[] {
  */
 function tokenizeHebrew(text: string): Token[] {
   // Simple tokenization based on spaces
-  const words = text.split(/\s+/).filter(w => w.length > 0);
+  const words = mergeFragmentedWords(text.split(/\s+/).filter((w) => w.length > 0));
   const tokens: Token[] = [];
   
   let idx = 0;
@@ -264,6 +265,68 @@ function tokenizeHebrew(text: string): Token[] {
   }
   
   return tokens;
+}
+
+/**
+ * Merges fragmented Hebrew words that were mistakenly split by OCR spacing
+ */
+function mergeFragmentedWords(words: string[]): string[] {
+  const merged: string[] = [];
+
+  let index = 0;
+  while (index < words.length) {
+    const current = words[index];
+    const normalizedCurrent = removeNikud(current);
+
+    if (isHebrewLetters(normalizedCurrent) && normalizedCurrent.length <= 2) {
+      let combined = current;
+      let bestCombined: { value: string; end: number } | null = null;
+
+      for (let lookahead = index + 1; lookahead < Math.min(words.length, index + 4); lookahead++) {
+        const next = words[lookahead];
+        const normalizedNext = removeNikud(next);
+        if (!isHebrewLetters(normalizedNext) || normalizedNext.length === 0) {
+          break;
+        }
+
+        combined += next;
+        const normalizedCombined = removeNikud(combined);
+
+        if (normalizedCombined.length >= 3 && getStrongNumber(normalizedCombined)) {
+          bestCombined = { value: combined, end: lookahead };
+          break;
+        }
+      }
+
+      if (bestCombined) {
+        merged.push(bestCombined.value);
+        index = bestCombined.end + 1;
+        continue;
+      }
+
+      if (merged.length > 0) {
+        const previous = merged[merged.length - 1];
+        const normalizedPrevious = removeNikud(previous);
+        if (isHebrewLetters(normalizedPrevious)) {
+          const combinedWithPrevious = previous + current;
+          const normalizedCombinedPrev = removeNikud(combinedWithPrevious);
+          if (
+            normalizedCombinedPrev.length >= 3 &&
+            getStrongNumber(normalizedCombinedPrev)
+          ) {
+            merged[merged.length - 1] = combinedWithPrevious;
+            index += 1;
+            continue;
+          }
+        }
+      }
+    }
+
+    merged.push(current);
+    index += 1;
+  }
+
+  return merged;
 }
 
 /**
