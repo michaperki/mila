@@ -67,22 +67,46 @@ const apiFetch = async <T = unknown>(endpoint: string, options: ApiOptions = {})
     headers.Authorization = `Bearer ${token}`
   }
 
-  const response = await fetch(`${API_BASE}/${endpoint}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  })
+  let response: Response
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 20000)
+  try {
+    response = await fetch(`${API_BASE}/${endpoint}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    })
+  } catch (error) {
+    const name = (error as Error).name
+    throw new Error(name === 'TimeoutError' || name === 'AbortError'
+      ? 'The account service took too long to respond. Please try again.'
+      : 'Cannot reach the account service. Check your connection and try again.')
+  } finally {
+    clearTimeout(timeout)
+  }
 
   if (response.status === 204) {
     return null as T
   }
 
   const text = await response.text()
-  const data = text ? (JSON.parse(text) as T & { message?: string }) : ({} as T)
+  let data: T & { message?: string; code?: string; requestId?: string }
+  try {
+    data = text ? JSON.parse(text) : {}
+  } catch {
+    throw new Error(`The account service returned an unexpected response (HTTP ${response.status}). Please try again later.`)
+  }
 
   if (!response.ok) {
-    const message = (data as { message?: string }).message || `Request failed (${response.status})`
-    throw new Error(message)
+    const message = data?.message || `The account service is unavailable (HTTP ${response.status}). Please try again later.`
+    const reference = data?.requestId ? ` Reference: ${data.code || 'REQUEST_FAILED'} / ${data.requestId}.` : ''
+    throw new Error(message + reference)
+  }
+
+  const authResult = data as { token?: unknown; user?: { email?: unknown } } | null
+  if (endpoint === 'auth' && (typeof authResult?.token !== 'string' || !authResult.token || typeof authResult.user?.email !== 'string')) {
+    throw new Error('The account service returned an incomplete sign-in response. Please try again later.')
   }
 
   return data

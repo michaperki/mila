@@ -1,9 +1,9 @@
+import { Link } from 'react-router-dom'
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import SettingsCard, { SettingsIcons } from '../components/SettingsCard'
 import ErrorMessage from '../components/ErrorMessage'
 import TopNavBar from '../components/TopNavBar'
 import {
-  selectAuthStatus,
   selectCaptureAllowance,
   selectRemainingCapturesLabel,
   selectTier,
@@ -25,14 +25,11 @@ function Settings() {
   const [clearSuccess, setClearSuccess] = useState(false)
 
   const tier = useAuthStore(selectTier)
-  const authStatus = useAuthStore(selectAuthStatus)
   const allowance = useAuthStore(selectCaptureAllowance)
   const remainingLabel = useAuthStore(selectRemainingCapturesLabel)
   const user = useAuthStore((state) => state.user)
   const token = useAuthStore((state) => state.token)
   const refreshUsage = useAuthStore((state) => state.refreshUsage)
-  const signUp = useAuthStore((state) => state.signUp)
-  const signIn = useAuthStore((state) => state.signIn)
   const signOut = useAuthStore((state) => state.signOut)
   const upgradeTier = useAuthStore((state) => state.upgradeTier)
  const resetUsage = useAuthStore((state) => state.resetUsage)
@@ -75,11 +72,7 @@ function Settings() {
   const totalSynced = (textSyncedCount ?? 0) + (vocabSyncedCount ?? 0)
   const syncError = textSyncError || vocabSyncError
 
-  const [authMode, setAuthMode] = useState<'signup' | 'login'>('signup')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [authMessage, setAuthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [authPending, setAuthPending] = useState(false)
   const profileName = useProfileStore((state) => state.displayName)
   const setProfileName = useProfileStore((state) => state.setDisplayName)
   const [nameDraft, setNameDraft] = useState(profileName === DEFAULT_DISPLAY_NAME ? '' : profileName)
@@ -140,28 +133,6 @@ function Settings() {
       }, 300)
     } catch (error) {
       setClearError((error as Error).message || 'Failed to clear data. Please try again.')
-    }
-  }
-
-  const handleAuthSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setAuthMessage(null)
-    setAuthPending(true)
-
-    try {
-      if (authMode === 'signup') {
-        await signUp(email, password)
-        setAuthMessage({ type: 'success', text: 'Account created. You are now signed in!' })
-      } else {
-        await signIn(email, password)
-        setAuthMessage({ type: 'success', text: 'Welcome back!' })
-      }
-      setEmail('')
-      setPassword('')
-    } catch (error) {
-      setAuthMessage({ type: 'error', text: (error as Error).message })
-    } finally {
-      setAuthPending(false)
     }
   }
 
@@ -230,7 +201,6 @@ function Settings() {
     }
   }
 
-  const isAuthLoading = authPending || authStatus === 'authenticating'
 
   return (
     <>
@@ -335,55 +305,11 @@ function Settings() {
                   </div>
                 </div>
               ) : (
-                <form className="settings-account__form" onSubmit={handleAuthSubmit}>
-                  <div className="settings-account__tabs">
-                    <button
-                      type="button"
-                      className={`settings-account__tab${authMode === 'signup' ? ' settings-account__tab--active' : ''}`}
-                      onClick={() => setAuthMode('signup')}
-                      aria-pressed={authMode === 'signup'}
-                    >
-                      Create account
-                    </button>
-                    <button
-                      type="button"
-                      className={`settings-account__tab${authMode === 'login' ? ' settings-account__tab--active' : ''}`}
-                      onClick={() => setAuthMode('login')}
-                      aria-pressed={authMode === 'login'}
-                    >
-                      Sign in
-                    </button>
-                  </div>
-
-                  <label className="settings-account__label">
-                    Email
-                    <input
-                      type="email"
-                      autoComplete="email"
-                      value={email}
-                      onChange={(event) => setEmail(event.target.value)}
-                      required
-                      placeholder="you@example.com"
-                    />
-                  </label>
-
-                  <label className="settings-account__label">
-                    Password
-                    <input
-                      type="password"
-                      minLength={4}
-                      autoComplete={authMode === 'signup' ? 'new-password' : 'current-password'}
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      required
-                      placeholder="Choose a password"
-                    />
-                  </label>
-
-                  <button type="submit" className="btn btn-small" disabled={isAuthLoading}>
-                    {isAuthLoading ? 'Please wait…' : authMode === 'signup' ? 'Create account' : 'Sign in'}
-                  </button>
-                </form>
+                <div className="settings-account__form">
+                  <p>Sign in to sync your captures and vocabulary across devices.</p>
+                  <Link className="btn" to="/login">Sign in</Link>
+                  <Link className="btn btn-outline" to="/signup">Create account</Link>
+                </div>
               )}
 
               <form className="settings-account__name" onSubmit={handleNameSubmit}>

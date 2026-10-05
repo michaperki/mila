@@ -10,6 +10,7 @@ const Reader = lazy(() => import('./routes/Reader'))
 const Camera = lazy(() => import('./routes/Camera'))
 const Review = lazy(() => import('./routes/Review'))
 const Vocab = lazy(() => import('./routes/Vocab'))
+const Auth = lazy(() => import('./routes/Auth'))
 const Settings = lazy(() => import('./routes/Settings'))
 
 // Loading fallback
@@ -140,6 +141,8 @@ function App() {
             <Route path="/camera" element={<Camera />} />
             <Route path="/review" element={<Review />} />
             <Route path="/vocab" element={<Vocab />} />
+            <Route path="/login" element={<Auth key="login" mode="login" />} />
+            <Route path="/signup" element={<Auth key="signup" mode="signup" />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

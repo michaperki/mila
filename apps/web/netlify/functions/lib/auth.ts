@@ -1,10 +1,12 @@
 import type { HandlerEvent } from '@netlify/functions'
 import jwt from 'jsonwebtoken'
 
-const JWT_SECRET = process.env.JWT_SECRET
+import { ServiceError } from './serviceError'
 
-if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET is not defined')
+export const getJwtSecret = () => {
+  const secret = process.env.JWT_SECRET
+  if (!secret?.trim()) throw new ServiceError('AUTH_CONFIG', 'Sign-in is unavailable because the account service is not configured. Please contact the site owner.')
+  return secret
 }
 
 export type AuthContext = {
@@ -25,7 +27,7 @@ export const verifyAuth = (event: HandlerEvent): AuthContext => {
   }
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as AuthContext
+    const payload = jwt.verify(token, getJwtSecret()) as AuthContext
     if (!payload.userId) {
       throw new Error('Invalid token payload')
     }
@@ -36,7 +38,7 @@ export const verifyAuth = (event: HandlerEvent): AuthContext => {
 }
 
 export const signToken = (context: AuthContext) => {
-  return jwt.sign(context, JWT_SECRET, { expiresIn: '7d' })
+  return jwt.sign(context, getJwtSecret(), { expiresIn: '7d' })
 }
 
 export const getTokenFromCookie = (event: HandlerEvent, cookieName = 'mila_token') => {

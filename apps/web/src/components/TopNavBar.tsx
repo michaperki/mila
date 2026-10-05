@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { ReactNode } from 'react'
+import { useAuthStore } from '../state/useAuthStore'
 import BrandMark from './BrandMark'
 
 export type TopNavSection = 'home' | 'read' | 'reader' | 'camera' | 'review' | 'vocab' | 'settings'
@@ -27,6 +28,7 @@ const BACK_LINKS: Partial<Record<TopNavSection, { label: string; to: string }>> 
 }
 
 function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
+  const user = useAuthStore((state) => state.user)
   const resolvedTitle = title ?? SECTION_LABELS[current]
   const isPrimarySection = current === 'home' || current === 'read' || current === 'camera' || current === 'review' || current === 'vocab'
   const backLink = BACK_LINKS[current]
@@ -70,7 +72,9 @@ function TopNavBar({ current, title, subtitle, actions }: TopNavBarProps) {
             </div>
           )}
         </div>
-        <div className="top-nav__actions">{actions}</div>
+        <div className="top-nav__actions">{actions}
+          {!user && <Link className="btn btn-small" to="/login">Sign in</Link>}
+        </div>
       </div>
     </header>
   )

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import CameraCapture from '../components/camera/CameraCapture'
 import ImagePicker from '../components/ImagePicker'
 import { useTextStore } from '../state/useTextStore'
@@ -212,7 +212,7 @@ function Camera() {
                 className="btn"
                 onClick={() => {
                   setShowLimitSheet(false)
-                  navigate('/settings#account')
+                  navigate(tier === 'guest' ? '/signup?next=/camera' : '/settings#account')
                 }}
               >
                 {tier === 'guest' ? 'Create free account' : 'Review upgrade options'}
@@ -223,7 +223,7 @@ function Camera() {
             </div>
             <p className="camera-limit__footnote">
               {tier === 'guest'
-                ? 'Already have an account? Sign in from Settings.'
+                ? <>Already have an account? <Link to="/login?next=/camera">Sign in</Link>.</>
                 : isMockPayments
                 ? 'Upgrades are mocked during development.'
                 : 'Upgrades unlock unlimited captures.'}

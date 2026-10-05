@@ -396,10 +396,10 @@ function Reader() {
                 className="btn btn-small"
                 onClick={() => {
                   setShowAccountPrompt(false)
-                  navigate('/settings#account')
+                  navigate(tier === 'guest' ? `/login?next=${encodeURIComponent(window.location.pathname)}` : '/settings#account')
                 }}
               >
-                Go to account
+                {tier === 'guest' ? 'Sign in or create account' : 'Go to account'}
               </button>
               <button type="button" className="btn btn-outline btn-small" onClick={() => setShowAccountPrompt(false)}>
                 Maybe later
