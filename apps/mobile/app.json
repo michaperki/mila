@@ -21,7 +21,10 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.michaperki.mila"
+      "package": "com.michaperki.mila",
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -44,6 +47,19 @@
           "microphonePermission": false
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "123d1ad5-6eb8-4b89-9af6-4c5e88595b4b"
+      }
+    },
+    "owner": "michaperki",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/123d1ad5-6eb8-4b89-9af6-4c5e88595b4b"
+    }
   }
 }

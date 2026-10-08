@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createLiveSession } from '../src/lib/live-session.ts'
+import { createLiveSession, skip } from '../src/lib/live-session.ts'
 
 test('stopping a session aborts its request and discards a late result', async () => {
   let resolve!: (value: string) => void
@@ -19,6 +19,18 @@ test('samples serially and stops at the configured budget', async () => {
     createLiveSession({ sample: async () => { concurrent++; maxConcurrent = Math.max(concurrent, maxConcurrent); await new Promise(resolve => setTimeout(resolve, 5)); concurrent--; return ++calls }, onResult: value => results.push(value), onError: reject, onStop: done, intervalMs: 1, durationMs: 1000, maxSamples: 3 })
   })
   assert.equal(maxConcurrent, 1); assert.deepEqual(results, [1, 2, 3])
+})
+test('a skipped sample (camera busy with a manual capture) is retried without counting against the budget', async () => {
+  let calls = 0
+  const results: number[] = []
+  await new Promise<void>((done, reject) => {
+    createLiveSession({
+      sample: async () => { calls++; if (calls === 2) return Promise.reject(skip); return calls },
+      onResult: value => results.push(value), onError: reject, onStop: done,
+      intervalMs: 1, durationMs: 1000, maxSamples: 2,
+    })
+  })
+  assert.equal(calls, 3); assert.deepEqual(results, [1, 3])
 })
 test('a stalled request is aborted by the session deadline', async () => {
   let signal!: AbortSignal

@@ -1,0 +1,37 @@
+# Keeps the preview build on your iPhone current without a computer.
+# On every push to main: if the native layer (fingerprint) is unchanged, publish an
+# over-the-air update to the `preview` channel; otherwise start a new preview build.
+name: Ship to preview
+
+on:
+  push:
+    branches: ['main']
+
+jobs:
+  fingerprint:
+    name: Fingerprint
+    type: fingerprint
+    environment: preview
+  get_ios_build:
+    name: Find a compatible iOS build
+    needs: [fingerprint]
+    type: get-build
+    params:
+      fingerprint_hash: ${{ needs.fingerprint.outputs.ios_fingerprint_hash }}
+      profile: preview
+  build_ios:
+    name: Build iOS (native layer changed)
+    needs: [get_ios_build]
+    if: ${{ !needs.get_ios_build.outputs.build_id }}
+    type: build
+    params:
+      platform: ios
+      profile: preview
+  publish_ios_update:
+    name: Publish iOS update
+    needs: [get_ios_build]
+    if: ${{ needs.get_ios_build.outputs.build_id }}
+    type: update
+    params:
+      channel: preview
+      platform: ios

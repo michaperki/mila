@@ -22,12 +22,27 @@ The checked-in default API origin is `https://mila-hebrew.netlify.app`. To use a
 
 - Native navigation, login/signup, secure session restore, and account/logout.
 - Camera permissions, photo capture, image import, and Google Cloud Vision Hebrew OCR through an authenticated server function.
-- Explicit experimental Live preview: at most 6 sequential image samples in 30 seconds, 3 seconds between completed samples. No overlapping requests. Leaving the screen/backgrounding cancels work and discards late results.
-- Live results identify the last sampled image; this is not frame-by-frame tracking or text replacement on the scene. A physical iPhone test must establish latency, shutter behavior, recognition quality, thermal impact, and usefulness before treating it as a production feature.
-- Hebrew/English reader, tap-to-translate word lookup, speech, saving passages and vocabulary, reading the existing cloud library.
+- Live preview is opt-in: off until the user taps Live (the choice is remembered per device), then at most 6 sequential image samples in 30 seconds, 3 seconds between completed samples. No overlapping requests. Leaving the screen/backgrounding cancels work and discards late results; after the session's budget is reached it pauses until the user taps Resume.
+- Live results identify the last sampled image; this is not frame-by-frame tracking or text replacement on the scene. Validated against Google Translate on real signage/menus/book pages on a physical iPhone before being promoted out of beta.
+- Hebrew/English reader: OCR is cleaned (page headers/numbers, stray glyphs) and split into headings and sentences, each paired with its English. Tapping a word opens a bottom sheet that explains it in its sentence (meaning, prefix breakdown, lemma, root, binyan) via the `word-analysis` function, which needs `ANTHROPIC_API_KEY` on Netlify and otherwise falls back to a plain word translation. Speech, niqqud/English toggles, saving passages and vocabulary (with the source sentence), reading the existing cloud library.
 - Pasted Hebrew text provides a non-camera fallback.
 
-Not migrated yet: offline library/cache and mutation sync, spaced repetition review, full settings/profile controls, deletion UI, and the unmerged NLP pipeline. Word lookups are isolated machine translations rather than morphology-aware contextual senses. Native document types reuse the web contract as type-only imports.
+Not migrated yet: offline library/cache and mutation sync, spaced repetition review, full settings/profile controls, deletion UI, and the unmerged NLP pipeline. Native document types reuse the web contract as type-only imports.
+
+## Preview build (testing away from the computer)
+
+The `preview` build is a standalone app with the JavaScript inside it, so it runs without Metro or a QR code. It is distributed ad hoc: installed from a link and limited to registered devices. It receives over-the-air updates on the `preview` channel. The `development` build uses the bundle ID `com.michaperki.mila.dev` ("Mila Dev"), so both apps can be installed at the same time.
+
+One-time setup:
+
+1. Register the iPhone: `npx eas-cli@latest device:create`, choose the website option, and open the link on the iPhone to install the profile.
+2. On the iPhone, turn on Settings → Privacy & Security → Developer Mode. iOS requires this for ad hoc apps.
+3. Build: `npx eas-cli@latest build --platform ios --profile preview`, sign in with your Apple ID when asked, then open the install link on the iPhone.
+4. Connect GitHub at expo.dev → project → Settings → GitHub, with base directory `apps/mobile`. After that, `.eas/workflows/preview.yml` runs on every push to `main`. If the native layer is unchanged (same fingerprint), it publishes an OTA update. Otherwise it starts a new preview build, which also has to be installed from its link.
+
+Ship JS changes by hand: `npx eas-cli@latest update --channel preview --message "..."`. The app downloads updates when it launches and applies them the next time it starts. Account → Check for updates applies one immediately. Account → App version shows which update is running.
+
+Field feedback: the flag button (camera) and Report (reader) save a note together with the OCR text, segments, word analysis and app version. Photos are not included. Read them with `npm run feedback` in `apps/web`.
 
 ## Backend setup
 

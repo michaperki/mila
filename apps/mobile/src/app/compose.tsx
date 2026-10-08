@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { KeyboardAvoidingView, Platform, Text, TextInput } from 'react-native'
 import { router } from 'expo-router'
 import { Button, ErrorNotice, Page, styles } from '../components/ui'
-import { translate } from '../lib/recognition'
+import { readText } from '../lib/recognition'
 import { useSession } from '../state/session'
 export default function Compose() {
   const [text, setText] = useState('')
@@ -12,7 +12,7 @@ export default function Compose() {
   const read = async () => {
     if (busy || !text.trim()) return
     setBusy(true); setError(null)
-    try { const translation = await translate(text.trim()); setRecognition({ text: text.trim(), translation, capturedAt: Date.now() }); router.replace('/reader') }
+    try { setRecognition(await readText(text, { trimPageFurniture: false })); router.replace('/reader') }
     catch (failure) { setError((failure as Error).message) } finally { setBusy(false) }
   }
   return <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={96}><Page>

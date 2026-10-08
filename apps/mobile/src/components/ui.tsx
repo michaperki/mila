@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle, type RefreshControlProps } from 'react-native'
 import { router } from 'expo-router'
+import Ionicons from '@expo/vector-icons/Ionicons'
 export const colors = { paper: '#F6F5F1', ink: '#172B29', muted: '#65736E', green: '#145C4B', lime: '#DCECBA', line: '#DBE2DA', white: '#FFFFFF', red: '#A52D35' }
 export const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.paper }, content: { padding: 22, gap: 20, paddingBottom: 36 },
@@ -28,4 +29,15 @@ export function ErrorNotice({ message }: { message?: string | null }) {
 }
 export function AccountGate() {
   return <View style={styles.card}><Text style={styles.heading}>Your Hebrew, everywhere</Text><Text style={styles.copy}>Sign in to use camera translation and access your saved passages and vocabulary.</Text><Button title="Sign in" onPress={() => router.push('/login')} /><Button secondary title="Create account" onPress={() => router.push('/signup')} /></View>
+}
+// Small toolbar toggle, e.g. "Vowels" / "English" in the reader.
+export function Pill({ label, icon, active, onPress, accessibilityLabel }: { label?: string; icon?: React.ComponentProps<typeof Ionicons>['name']; active?: boolean; onPress: () => void; accessibilityLabel?: string }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel || label} accessibilityState={{ selected: !!active }} onPress={onPress} hitSlop={6}
+    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: 12, borderRadius: 18, borderWidth: 1, borderColor: active ? colors.green : colors.line, backgroundColor: active ? colors.lime : colors.white, opacity: pressed ? 0.7 : 1 })}>
+    {icon && <Ionicons name={icon} size={16} color={colors.green} />}{label && <Text style={{ fontSize: 14, fontWeight: '600', color: colors.green }}>{label}</Text>}
+  </Pressable>
+}
+// Quiet, low-emphasis action (e.g. Sign out).
+export function TextButton({ title, onPress, color = colors.muted }: { title: string; onPress: () => void; color?: string }) {
+  return <Pressable accessibilityRole="button" onPress={onPress} hitSlop={8} style={({ pressed }) => ({ alignSelf: 'center', padding: 10, opacity: pressed ? 0.6 : 1 })}><Text style={{ fontSize: 15, fontWeight: '600', color }}>{title}</Text></Pressable>
 }

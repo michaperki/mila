@@ -1,4 +1,7 @@
 // A bounded serial loop: never queue camera frames behind a slow network request.
+// `sample` can reject with this sentinel to mean "the camera is busy with something
+// else right now" — the tick is retried next interval instead of failing the session.
+export const skip = Symbol('live-session-skip')
 export function createLiveSession<T>(options: {
   sample: (signal: AbortSignal) => Promise<T>
   onResult: (result: T) => void
@@ -32,6 +35,7 @@ export function createLiveSession<T>(options: {
       next = setTimeout(() => { void tick() }, options.intervalMs ?? 3000)
     } catch (failure) {
       if (!active) return
+      if (failure === skip) { next = setTimeout(() => { void tick() }, options.intervalMs ?? 3000); return }
       options.onError(failure instanceof Error ? failure : new Error('Camera recognition failed.'))
       stop()
     }

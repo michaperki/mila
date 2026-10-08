@@ -7,7 +7,7 @@ import { colors } from '../components/ui'
 function Navigator() {
   const { ready } = useSession()
   if (!ready) return <View style={{ flex: 1, justifyContent: 'center', backgroundColor: colors.paper }}><ActivityIndicator color={colors.green} /></View>
-  return <><StatusBar style="dark" /><Stack screenOptions={{ headerTintColor: colors.ink, headerStyle: { backgroundColor: colors.paper }, headerShadowVisible: false, contentStyle: { backgroundColor: colors.paper } }}>
+  return <><StatusBar style="dark" /><Stack screenOptions={{ headerTintColor: colors.ink, headerStyle: { backgroundColor: colors.paper }, headerShadowVisible: false, headerBackButtonDisplayMode: 'minimal', contentStyle: { backgroundColor: colors.paper } }}>
     <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
     <Stack.Screen name="login" options={{ title: 'Sign in' }} />
     <Stack.Screen name="signup" options={{ title: 'Create account' }} />
