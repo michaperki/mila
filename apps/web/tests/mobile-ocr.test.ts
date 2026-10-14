@@ -24,7 +24,7 @@ describe('native OCR endpoint', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
   it('rejects oversized or malformed images', async () => {
-    expect((await invoke({ image: 'a'.repeat(2000001) })).status).toBe(400)
+    expect((await invoke({ image: 'a'.repeat(4000001) })).status).toBe(400)
     expect((await invoke({ image: 'https://example.com/photo' })).status).toBe(400)
     expect(fetch).not.toHaveBeenCalled()
   })
@@ -38,6 +38,7 @@ describe('native OCR endpoint', () => {
     const result = await invoke({ image: 'aGVsbG8=' })
     expect(result.text).toBe('שלום עולם')
     expect(result.status).toBe(200)
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string).requests[0].features).toEqual([{ type: 'DOCUMENT_TEXT_DETECTION' }])
     expect(JSON.stringify(counter.mock.calls)).not.toContain('aGVsbG8=')
   })
   it('does not expose provider error details to clients', async () => {

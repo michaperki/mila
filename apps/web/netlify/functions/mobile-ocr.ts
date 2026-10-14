@@ -44,16 +44,18 @@ export const handler: Handler = async (event) => {
     let payload: { image?: unknown }
     try { payload = JSON.parse(event.body || '{}') } catch { return reply(400, { message: 'Invalid image request.' }) }
     const image = payload?.image
-    if (typeof image !== 'string' || !image || image.length > 2_000_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(image)) {
-      return reply(400, { message: 'Choose a smaller image and try again (maximum 1.5 MB).' })
+    if (typeof image !== 'string' || !image || image.length > 4_000_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(image)) {
+      return reply(400, { message: 'Choose a smaller image and try again (maximum 3 MB).' })
     }
     const key = process.env.GOOGLE_VISION_API_KEY || process.env.GOOGLE_API_KEY
     if (!key) return reply(503, { message: 'Camera recognition is not configured yet.', code: 'OCR_CONFIG', requestId })
     await checkBudget(auth.userId)
+    // DOCUMENT_TEXT_DETECTION is Vision's dense-text model (book pages, worksheets);
+    // TEXT_DETECTION targets sparse scene text and drops more letters on small print.
     const response = await fetch('https://vision.googleapis.com/v1/images:annotate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key },
-      body: JSON.stringify({ requests: [{ image: { content: image }, features: [{ type: 'TEXT_DETECTION' }], imageContext: { languageHints: ['iw'] } }] }),
+      body: JSON.stringify({ requests: [{ image: { content: image }, features: [{ type: 'DOCUMENT_TEXT_DETECTION' }], imageContext: { languageHints: ['iw'] } }] }),
       signal: AbortSignal.timeout(15000),
     })
     const result = await response.json()

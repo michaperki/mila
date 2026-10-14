@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import * as Crypto from 'expo-crypto'
 import * as Speech from 'expo-speech'
-import { Button, colors, ErrorNotice, Page, Pill, styles } from '../components/ui'
+import { Button, colors, ErrorNotice, Page, Pill, styles, TextButton } from '../components/ui'
 import { FeedbackButton } from '../components/Feedback'
 import { request } from '../lib/api'
 import { documentFromRecognition, segmentsOf } from '../lib/documents'
@@ -21,8 +21,10 @@ export default function Reader() {
   const { recognition, session } = useSession()
   const insets = useSafeAreaInsets()
   const [error, setError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(recognition?.library === 'saved')
+  // Camera captures go straight into the library (the effect below); pasted text waits for "Save passage".
+  const autosave = recognition?.library === 'auto' && !!session
+  const [busy, setBusy] = useState(autosave)
   const [selected, setSelected] = useState<number | null>(null)
   const [analysis, setAnalysis] = useState<WordAnalysis | undefined>()
   const [gloss, setGloss] = useState('')
@@ -33,7 +35,7 @@ export default function Reader() {
   const [showEnglish, setShowEnglish] = useState(true)
   const [showNiqqud, setShowNiqqud] = useState(true)
   const selection = useRef(0)
-  const docId = useRef(Crypto.randomUUID())
+  const docId = useRef(recognition?.id ?? Crypto.randomUUID())
   useFocusEffect(useCallback(() => () => { selection.current++; void Speech.stop() }, []))
   useEffect(() => { void getPref('showEnglish').then(setShowEnglish); void getPref('showNiqqud').then(setShowNiqqud) }, [])
   // Know which words are already saved so the card can say so instead of offering a duplicate.
@@ -54,15 +56,33 @@ export default function Reader() {
     return starts
   }, [words])
 
-  if (!recognition) return <Page><Text style={styles.title}>Find something to read.</Text><Button title="Open camera" onPress={() => router.replace('/')} /></Page>
-
-  const save = async () => {
+  // Upserts by id, so re-opening the same capture can't create a duplicate.
+  const persist = () => {
+    const doc = documentFromRecognition(recognition!, docId.current)
+    return request('texts', { token: session!.token, body: { ...doc, textId: doc.id } })
+      .then(() => setSaved(true), (failure: Error) => setError(`This passage wasn't saved. ${failure.message}`))
+      .finally(() => setBusy(false))
+  }
+  const save = () => {
+    if (!recognition) return
     if (!session) { router.push('/login'); return }
     if (busy) return
     setBusy(true); setError(null)
-    try { const doc = documentFromRecognition(recognition, docId.current); await request('texts', { token: session.token, body: { ...doc, textId: doc.id } }); setSaved(true) }
+    void persist()
+  }
+  const remove = async () => {
+    if (!session || busy) return
+    setBusy(true); setError(null)
+    try { await request(`texts?textId=${encodeURIComponent(docId.current)}`, { token: session.token, method: 'DELETE' }); setSaved(false) }
     catch (failure) { setError((failure as Error).message) } finally { setBusy(false) }
   }
+  useEffect(() => {
+    if (autosave) void persist()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  if (!recognition) return <Page><Text style={styles.title}>Find something to read.</Text><Button title="Open camera" onPress={() => router.replace('/')} /></Page>
+
   const select = async (index: number) => {
     const word = words[index]
     if (!word) return
@@ -122,7 +142,8 @@ export default function Reader() {
         </View>)}
       </View>
       <ErrorNotice message={error} />
-      <Button title={saved ? 'Saved to library ✓' : 'Save passage'} disabled={saved} busy={busy} onPress={() => void save()} />
+      <Button title={saved ? 'Saved to library ✓' : 'Save passage'} disabled={saved} busy={busy} onPress={save} />
+      {saved && <TextButton title="Remove from library" onPress={() => void remove()} />}
     </ScrollView>
 
     {word && <View style={[reader.sheet, { paddingBottom: 16 + insets.bottom }]} accessibilityViewIsModal>

@@ -16,5 +16,5 @@ export function documentFromRecognition(value: Recognition, id: string): TextDoc
 }
 export function textFromDocument(doc: TextDoc): Recognition {
   const segments = doc.chunks.map(chunk => ({ he: chunk.text, en: chunk.translation || '', ...(chunk.type === 'phrase' ? { heading: true } : {}) }))
-  return { text: segments.map(s => s.he).join('\n'), translation: segments.map(s => s.en).join('\n'), capturedAt: doc.createdAt, segments }
+  return { text: segments.map(s => s.he).join('\n'), translation: segments.map(s => s.en).join('\n'), capturedAt: doc.createdAt, segments, id: doc.id, library: 'saved' }
 }

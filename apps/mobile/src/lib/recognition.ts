@@ -1,3 +1,4 @@
+import * as Crypto from 'expo-crypto'
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator'
 import { ApiError, request } from './api'
 import { cleanOcr, segmentText } from './ocr-cleanup'
@@ -37,15 +38,21 @@ export async function readText(raw: string, options: { trimPageFurniture?: boole
   }
 }
 
+// Small vowelized book print needs detail: at 1400px / JPEG 0.65 Vision dropped letters
+// and dagesh dots. Stay under the endpoint's 4,000,000-character base64 limit.
+const MAX_SIDE = 2048
+const MAX_BASE64 = 3_900_000
 export async function recognizeImage(uri: string, width: number, height: number, token: string, signal?: AbortSignal): Promise<Recognition> {
   const capturedAt = Date.now()
   const context = ImageManipulator.manipulate(uri)
-  if (Math.max(width, height) > 1400) context.resize(width >= height ? { width: 1400 } : { height: 1400 })
+  if (Math.max(width, height) > MAX_SIDE) context.resize(width >= height ? { width: MAX_SIDE } : { height: MAX_SIDE })
   const rendered = await context.renderAsync()
-  const image = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.65, base64: true })
+  let image = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.8, base64: true })
+  if ((image.base64?.length ?? 0) > MAX_BASE64) image = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.55, base64: true })
   if (signal?.aborted) throw new Error('Canceled')
   const result = await request<{ text: string }>('mobile-ocr', { token, body: { image: image.base64 }, signal })
-  return readText(result.text, { signal, capturedAt })
+  // The id is the document this capture is saved under, so opening it twice can't duplicate it.
+  return { ...(await readText(result.text, { signal, capturedAt })), id: Crypto.randomUUID() }
 }
 
 const analyses = new Map<string, WordAnalysis>()

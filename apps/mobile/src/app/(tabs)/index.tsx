@@ -46,6 +46,8 @@ export default function Camera() {
     })
     return () => subscription.remove()
   }, [cancel])
+  // Every camera passage the learner opens is kept in their library automatically.
+  const openReader = (value: Recognition) => { setRecognition({ ...value, library: 'auto' }); router.push('/reader') }
   const present = (value: Recognition) => {
     setResult(value.text ? value : null)
     setMessage(value.text ? 'Translation of the last sampled image.' : 'No text found. Move closer and hold steady.')
@@ -54,7 +56,7 @@ export default function Camera() {
     if (!camera.current || !session || locked.current) throw new Error('Camera is not ready yet.')
     locked.current = true; setBusy(true); setResult(null); setMessage('Reading Hebrew…')
     try {
-      const picture = await camera.current.takePictureAsync({ quality: 0.65, shutterSound: false })
+      const picture = await camera.current.takePictureAsync({ quality: 0.85, shutterSound: false })
       if (signal.aborted) throw new Error('Canceled')
       if (!picture) throw new Error('The camera could not capture this passage. Try again.')
       return await recognizeImage(picture.uri, picture.width, picture.height, session.token, signal)
@@ -68,7 +70,7 @@ export default function Camera() {
       const value = await sample(controller.signal)
       if (controller.signal.aborted) return
       present(value)
-      if (value.text) { setRecognition(value); router.push('/reader') }
+      if (value.text) openReader(value)
     } catch (failure) { if (!controller.signal.aborted) setError((failure as Error).message) }
     finally { setCapturing(false) }
   }
@@ -115,7 +117,7 @@ export default function Camera() {
         const value = await recognizeImage(image.uri, image.width, image.height, session.token, controller.signal)
         if (controller.signal.aborted) return
         present(value)
-        if (value.text) { setRecognition(value); router.push('/reader') }
+        if (value.text) openReader(value)
       } finally { locked.current = false; if (!controller.signal.aborted) setBusy(false) }
     } catch (failure) { if (!requestController.current?.signal.aborted) setError((failure as Error).message) }
   }
@@ -162,7 +164,7 @@ export default function Camera() {
       {result && <View style={cameraStyles.resultCard}>
         <Text style={cameraStyles.hebrewCompact} numberOfLines={2}>{result.text}</Text>
         <Text style={cameraStyles.translationCompact} numberOfLines={2}>{result.translation}</Text>
-        <Button title="Read this passage" onPress={() => { userStopped.current = true; liveSession.current?.stop(); setRecognition(result); router.push('/reader') }} />
+        <Button title="Read this passage" onPress={() => { userStopped.current = true; liveSession.current?.stop(); openReader(result) }} />
       </View>}
       <View style={cameraStyles.controls}>
         <Pressable accessibilityRole="button" accessibilityLabel="Choose a photo" disabled={busy && !live} onPress={() => void importPhoto()} style={cameraStyles.sideButton}>
