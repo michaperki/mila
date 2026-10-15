@@ -82,10 +82,11 @@ reading, words due, capture.
 
 ## Implementation notes
 
-- **New server env var:** `ANTHROPIC_API_KEY` in Netlify for `word-analysis`. Without it the
-  function returns 503 `ANALYSIS_CONFIG` and the app falls back to plain word translation.
+- **Server env var:** `ANTHROPIC_API_KEY` is set in Netlify (used by `word-analysis` and page
+  reads in `mobile-ocr`). If it were ever removed, `word-analysis` returns 503 `ANALYSIS_CONFIG`
+  and the app falls back to plain word translation / OCR cleanup.
 - `word-analysis` requires sign-in (same as OCR), so anonymous traffic can't run up LLM cost.
 - Saved documents now hold one chunk per segment. The web app already renders multi-chunk docs.
-- Not yet verified: a live `word-analysis` call (no valid API key in the dev shell), and on-device
+- Not yet verified from the dev shell (it has no API key; production does): a live `word-analysis` call, and on-device
   behavior of the new camera controls and word sheet. Run the physical iPhone checklist in
   `apps/mobile/README.md`, plus: tap בחשבון in "מבחן בחשבון" and confirm "in math".
