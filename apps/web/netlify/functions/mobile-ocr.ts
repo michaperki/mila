@@ -2,6 +2,7 @@ import type { Handler } from '@netlify/functions'
 import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
 import { getDb } from './lib/mongo'
+import { readPage } from './lib/page-read'
 
 const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers, body: JSON.stringify(body) })
@@ -12,7 +13,7 @@ const positiveLimit = (value: string | undefined, fallback: number) => {
 
 // Atomic shared counters apply across serverless instances. No camera images are stored.
 let indexReady: Promise<string> | null = null
-async function checkBudget(userId: string) {
+async function checkBudget(userId: string, read = false) {
   const db = await getDb()
   const counters = db.collection<{ _id: string; requests: number; createdAt: Date; expiresAt: Date }>('mobileOcrUsage')
   if (!indexReady) {
@@ -23,6 +24,8 @@ async function checkBudget(userId: string) {
   const windows = [
     { key: now.toISOString().slice(0, 10), limit: positiveLimit(process.env.MOBILE_OCR_DAILY_LIMIT, 200) },
     { key: now.toISOString().slice(0, 16), limit: positiveLimit(process.env.MOBILE_OCR_MINUTE_LIMIT, 15) },
+    // Full page reads also call the vision model, so they get their own, smaller daily budget.
+    ...(read ? [{ key: `read:${now.toISOString().slice(0, 10)}`, limit: positiveLimit(process.env.MOBILE_READ_DAILY_LIMIT, 60) }] : []),
   ]
   for (const window of windows) {
     const counter = await counters.findOneAndUpdate(
@@ -41,7 +44,7 @@ export const handler: Handler = async (event) => {
   if (event.httpMethod !== 'POST') return reply(405, { message: 'Use POST.' })
   try {
     const auth = verifyAuth(event)
-    let payload: { image?: unknown }
+    let payload: { image?: unknown; mode?: unknown; previous?: unknown }
     try { payload = JSON.parse(event.body || '{}') } catch { return reply(400, { message: 'Invalid image request.' }) }
     const image = payload?.image
     if (typeof image !== 'string' || !image || image.length > 4_000_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(image)) {
@@ -49,7 +52,10 @@ export const handler: Handler = async (event) => {
     }
     const key = process.env.GOOGLE_VISION_API_KEY || process.env.GOOGLE_API_KEY
     if (!key) return reply(503, { message: 'Camera recognition is not configured yet.', code: 'OCR_CONFIG', requestId })
-    await checkBudget(auth.userId)
+    // "read" = the learner committed to this page (shutter, photo, "Read this passage"):
+    // after OCR, a vision model corrects and structures it. Live preview stays OCR-only.
+    const read = payload.mode === 'read' && !!process.env.ANTHROPIC_API_KEY
+    await checkBudget(auth.userId, read)
     // DOCUMENT_TEXT_DETECTION is Vision's dense-text model (book pages, worksheets);
     // TEXT_DETECTION targets sparse scene text and drops more letters on small print.
     const response = await fetch('https://vision.googleapis.com/v1/images:annotate', {
@@ -67,7 +73,16 @@ export const handler: Handler = async (event) => {
     }
     const text = String(result.responses?.[0]?.fullTextAnnotation?.text || result.responses?.[0]?.textAnnotations?.[0]?.description || '').trim()
     if (text.length > 5000) return reply(422, { message: 'There is too much text. Move closer to a smaller passage.' })
-    return reply(200, { text })
+    if (!read || !text) return reply(200, { text })
+    const previous = typeof payload.previous === 'string' ? payload.previous.trim().slice(0, 600) : ''
+    try {
+      return reply(200, { text, page: await readPage({ image, ocr: text, previous }) })
+    } catch (error) {
+      // The OCR text is still useful: the app falls back to its own cleanup and translation.
+      const failure = error as { code?: string; name?: string; status?: number }
+      console.error('Page read failed', { requestId, code: failure.code, name: failure.name, status: failure.status })
+      return reply(200, { text, readError: failure.code || 'READ_UNAVAILABLE' })
+    }
   } catch (error) {
     const failure = error as { statusCode?: number; code?: string; name?: string; message?: string }
     const status = failure.statusCode || 503

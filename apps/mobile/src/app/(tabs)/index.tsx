@@ -52,14 +52,15 @@ export default function Camera() {
     setResult(value.text ? value : null)
     setMessage(value.text ? 'Translation of the last sampled image.' : 'No text found. Move closer and hold steady.')
   }
-  const sample = async (signal: AbortSignal) => {
+  const READING_PAGE = 'Reading the page… this takes a few seconds.'
+  const sample = async (signal: AbortSignal, read = false) => {
     if (!camera.current || !session || locked.current) throw new Error('Camera is not ready yet.')
-    locked.current = true; setBusy(true); setResult(null); setMessage('Reading Hebrew…')
+    locked.current = true; setBusy(true); setResult(null); setMessage(read ? READING_PAGE : 'Reading Hebrew…')
     try {
       const picture = await camera.current.takePictureAsync({ quality: 0.85, shutterSound: false })
       if (signal.aborted) throw new Error('Canceled')
       if (!picture) throw new Error('The camera could not capture this passage. Try again.')
-      return await recognizeImage(picture.uri, picture.width, picture.height, session.token, signal)
+      return await recognizeImage({ uri: picture.uri, width: picture.width, height: picture.height }, session.token, { signal, read })
     } finally { locked.current = false; if (!signal.aborted) setBusy(false) }
   }
   const capture = async () => {
@@ -67,12 +68,26 @@ export default function Camera() {
     const controller = new AbortController(); requestController.current = controller
     setError(null); setCapturing(true)
     try {
-      const value = await sample(controller.signal)
+      const value = await sample(controller.signal, true)
       if (controller.signal.aborted) return
       present(value)
       if (value.text) openReader(value)
     } catch (failure) { if (!controller.signal.aborted) setError((failure as Error).message) }
     finally { setCapturing(false) }
+  }
+  // A live result is quick OCR of one frame; reading it in full re-reads that frame with
+  // the vision model. If that fails, the learner still gets the live result.
+  const readPassage = async (value: Recognition) => {
+    userStopped.current = true; liveSession.current?.stop()
+    if (value.source === 'page' || !value.image || !session || locked.current) { openReader(value); return }
+    const controller = new AbortController(); requestController.current = controller
+    locked.current = true; setBusy(true); setError(null); setMessage(READING_PAGE)
+    let next = value
+    try {
+      const read = await recognizeImage(value.image, session.token, { signal: controller.signal, read: true })
+      if (read.text) next = read
+    } catch { /* keep the live result */ } finally { locked.current = false; if (!controller.signal.aborted) setBusy(false) }
+    if (!controller.signal.aborted) openReader(next)
   }
   const startLive = () => {
     if (live || locked.current) return
@@ -112,9 +127,9 @@ export default function Camera() {
       if (selected.canceled) return
       const controller = new AbortController(); requestController.current = controller
       const image = selected.assets[0]
-      locked.current = true; setBusy(true); setResult(null)
+      locked.current = true; setBusy(true); setResult(null); setMessage(READING_PAGE)
       try {
-        const value = await recognizeImage(image.uri, image.width, image.height, session.token, controller.signal)
+        const value = await recognizeImage({ uri: image.uri, width: image.width, height: image.height }, session.token, { signal: controller.signal, read: true })
         if (controller.signal.aborted) return
         present(value)
         if (value.text) openReader(value)
@@ -164,7 +179,7 @@ export default function Camera() {
       {result && <View style={cameraStyles.resultCard}>
         <Text style={cameraStyles.hebrewCompact} numberOfLines={2}>{result.text}</Text>
         <Text style={cameraStyles.translationCompact} numberOfLines={2}>{result.translation}</Text>
-        <Button title="Read this passage" onPress={() => { userStopped.current = true; liveSession.current?.stop(); openReader(result) }} />
+        <Button title="Read this passage" busy={busy && !live} onPress={() => void readPassage(result)} />
       </View>}
       <View style={cameraStyles.controls}>
         <Pressable accessibilityRole="button" accessibilityLabel="Choose a photo" disabled={busy && !live} onPress={() => void importPhoto()} style={cameraStyles.sideButton}>

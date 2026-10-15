@@ -2,10 +2,10 @@ export const API_BASE = (process.env.EXPO_PUBLIC_API_URL || 'https://mila-hebrew
 export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); this.name = 'ApiError' }
 }
-export async function request<T>(path: string, options: { token?: string; body?: unknown; method?: string; signal?: AbortSignal } = {}): Promise<T> {
+export async function request<T>(path: string, options: { token?: string; body?: unknown; method?: string; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
   const controller = new AbortController()
   const abort = () => controller.abort()
-  const timeout = setTimeout(abort, 20000)
+  const timeout = setTimeout(abort, options.timeoutMs ?? 20000)
   options.signal?.addEventListener('abort', abort)
   if (options.signal?.aborted) abort()
   try {

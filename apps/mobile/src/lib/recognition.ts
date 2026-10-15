@@ -2,7 +2,8 @@ import * as Crypto from 'expo-crypto'
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator'
 import { ApiError, request } from './api'
 import { cleanOcr, segmentText } from './ocr-cleanup'
-import type { ReadingSegment, Recognition, WordAnalysis } from './types'
+import { segmentsFromPage, tailOf, usableTail, type PageRead, type PageTail } from './page'
+import type { CapturedImage, ReadingSegment, Recognition, WordAnalysis } from './types'
 const translations = new Map<string, string>()
 // Google can return HTML entities even when requesting plain text.
 const decode = (value: string) => value.replace(/&#(\d+);/g, (_, number) => String.fromCodePoint(Number(number)))
@@ -42,17 +43,37 @@ export async function readText(raw: string, options: { trimPageFurniture?: boole
 // and dagesh dots. Stay under the endpoint's 4,000,000-character base64 limit.
 const MAX_SIDE = 2048
 const MAX_BASE64 = 3_900_000
-export async function recognizeImage(uri: string, width: number, height: number, token: string, signal?: AbortSignal): Promise<Recognition> {
+let lastTail: PageTail | null = null
+
+// `read: true` is for a page the learner chose to read (shutter, photo, "Read this passage"):
+// the server has a vision model correct and structure it, which takes several seconds.
+// Live preview leaves it off and gets plain OCR plus local cleanup.
+export async function recognizeImage(image: CapturedImage, token: string, options: { signal?: AbortSignal; read?: boolean } = {}): Promise<Recognition> {
+  const { signal, read = false } = options
   const capturedAt = Date.now()
-  const context = ImageManipulator.manipulate(uri)
-  if (Math.max(width, height) > MAX_SIDE) context.resize(width >= height ? { width: MAX_SIDE } : { height: MAX_SIDE })
+  const context = ImageManipulator.manipulate(image.uri)
+  if (Math.max(image.width, image.height) > MAX_SIDE) context.resize(image.width >= image.height ? { width: MAX_SIDE } : { height: MAX_SIDE })
   const rendered = await context.renderAsync()
-  let image = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.8, base64: true })
-  if ((image.base64?.length ?? 0) > MAX_BASE64) image = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.55, base64: true })
+  let jpeg = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.8, base64: true })
+  if ((jpeg.base64?.length ?? 0) > MAX_BASE64) jpeg = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.55, base64: true })
   if (signal?.aborted) throw new Error('Canceled')
-  const result = await request<{ text: string }>('mobile-ocr', { token, body: { image: image.base64 }, signal })
+  const previous = read ? usableTail(lastTail) : undefined
+  const result = await request<{ text: string; page?: PageRead; readError?: string }>('mobile-ocr', {
+    token, signal, timeoutMs: read ? 58000 : 20000,
+    body: { image: jpeg.base64, ...(read ? { mode: 'read', ...(previous ? { previous } : {}) } : {}) },
+  })
   // The id is the document this capture is saved under, so opening it twice can't duplicate it.
-  return { ...(await readText(result.text, { signal, capturedAt })), id: Crypto.randomUUID() }
+  const meta = { id: Crypto.randomUUID(), image, ...(result.readError ? { readError: result.readError } : {}) }
+  if (result.page?.blocks.length) {
+    const segments = segmentsFromPage(result.page, previous)
+    lastTail = tailOf(result.page, segments)
+    return {
+      text: segments.map(segment => segment.he).join('\n'), translation: segments.map(segment => segment.en).join('\n'),
+      capturedAt, segments, raw: result.text, source: 'page', omitted: result.page.omitted, ...meta,
+    }
+  }
+  if (read) lastTail = null
+  return { ...(await readText(result.text, { signal, capturedAt })), ...meta }
 }
 
 const analyses = new Map<string, WordAnalysis>()

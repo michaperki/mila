@@ -9,7 +9,7 @@ vi.mock('../netlify/functions/lib/auth', () => ({ verifyAuth: vi.fn() }))
 import { verifyAuth } from '../netlify/functions/lib/auth'
 import { handler } from '../netlify/functions/word-analysis'
 
-const analysis = { word: 'בחשבון', vocalized: 'בַּחֶשְׁבּוֹן', meaning: 'in math', parts: [{ text: 'בַּ', meaning: 'in (the)' }, { text: 'חֶשְׁבּוֹן', meaning: 'arithmetic' }], lemma: 'חֶשְׁבּוֹן', lemmaMeaning: 'arithmetic, calculation, account, bill', root: 'ח־ש־ב', partOfSpeech: 'noun', binyan: '', form: 'masculine singular', note: '' }
+const analysis = { word: 'בחשבון', vocalized: 'בַּחֶשְׁבּוֹן', meaning: 'in math', parts: [{ text: 'בַּ', meaning: 'in (the)' }, { text: 'חֶשְׁבּוֹן', meaning: 'arithmetic' }], lemma: 'חֶשְׁבּוֹן', lemmaMeaning: 'arithmetic, calculation, account, bill', root: 'ח־ש־ב', partOfSpeech: 'noun', binyan: '', form: 'masculine singular', note: '', readAs: '', phrase: { text: 'מבחן בחשבון', meaning: 'a math test' } }
 const invoke = async (body: unknown) => {
   const response = await handler({ httpMethod: 'POST', body: JSON.stringify(body) } as any, {} as any, () => {}) as any
   return { status: response.statusCode, ...JSON.parse(response.body) }
@@ -30,6 +30,8 @@ describe('word analysis endpoint', () => {
     const result = await invoke({ word: 'בחשבון', sentence: 'מחר יש לי מבחן בחשבון.' })
     expect(result.status).toBe(200); expect(result.meaning).toBe('in math')
     expect(create.mock.calls[0][0].messages[0].content).toContain('מחר יש לי מבחן בחשבון.')
+    expect(result.phrase.text).toBe('מבחן בחשבון')
+    expect(create.mock.calls[0][0].output_config.format.schema.required).toEqual(expect.arrayContaining(['readAs', 'phrase']))
   })
   it('caches repeated taps on the same word in the same sentence', async () => {
     await invoke({ word: 'מבחן', sentence: 'מבחן בחשבון' }); await invoke({ word: 'מבחן', sentence: 'מבחן בחשבון' })

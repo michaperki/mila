@@ -15,7 +15,8 @@ import { explainWord } from '../lib/recognition'
 import type { StarredItem, VocabEntry, WordAnalysis } from '../lib/types'
 import { useSession } from '../state/session'
 
-const vocabId = (lemma: string) => `native-${encodeURIComponent(stripNiqqud(lemma))}`
+// Keyed by the vocalized lemma so homographs (סֵפֶר book / סַפָּר barber) don't collide.
+const vocabId = (lemma: string) => `native-${encodeURIComponent(lemma.normalize('NFC'))}`
 
 export default function Reader() {
   const { recognition, session } = useSession()
@@ -48,6 +49,8 @@ export default function Reader() {
   }, [session])
 
   const segments = useMemo(() => (recognition ? segmentsOf(recognition) : []), [recognition])
+  // A page read keeps the page's paragraphs: dividers go between paragraphs, not sentences.
+  const paged = recognition?.source === 'page'
   const words = useMemo(() => segments.flatMap((segment, index) => segment.he.split(/\s+/).filter(Boolean)
     .map(surface => ({ surface, bare: bareWord(surface), segment: index }))).filter(word => word.bare), [segments])
   const indexOfFirstWord = useMemo(() => {
@@ -99,16 +102,20 @@ export default function Reader() {
   const word = selected === null ? null : words[selected]
   const lemma = analysis?.lemma || word?.bare || ''
   const wordSaved = !!word && savedWords.has(vocabId(lemma))
-  const saveWord = async () => {
+  const phrase = analysis?.phrase?.text ? analysis.phrase : null
+  const phraseSaved = !!phrase && savedWords.has(vocabId(phrase.text))
+  // Saves the tapped word, or the multi-word phrase it belongs to, with its source sentence.
+  const saveWord = async (asPhrase = false) => {
     if (!session) { router.push('/login'); return }
-    if (!word || !gloss || savingWord || wordSaved) return
+    if (!word || !gloss || savingWord || (asPhrase ? !phrase || phraseSaved : wordSaved)) return
     const segment = segments[word.segment]
-    const id = vocabId(lemma)
+    const id = vocabId(asPhrase ? phrase!.text : lemma)
     const entry: VocabEntry = {
-      id, lemma, gloss: analysis?.lemmaMeaning || gloss, createdAt: Date.now(), frequency: 1,
-      ...(analysis?.root ? { root: analysis.root } : {}),
-      surface: word.bare, vocalized: analysis?.vocalized, partOfSpeech: analysis?.partOfSpeech,
-      context: segment.he, contextTranslation: segment.en,
+      id, createdAt: Date.now(), frequency: 1, context: segment.he, contextTranslation: segment.en,
+      ...(asPhrase ? { lemma: phrase!.text, gloss: phrase!.meaning, surface: phrase!.text, partOfSpeech: 'phrase' } : {
+        lemma, gloss: analysis?.lemmaMeaning || gloss, surface: word.bare, vocalized: analysis?.vocalized, partOfSpeech: analysis?.partOfSpeech,
+        ...(analysis?.root ? { root: analysis.root } : {}),
+      }),
       ...(saved ? { sourceRef: { textId: docId.current, chunkId: `${docId.current}-${word.segment}` } } : {}),
     }
     setSavingWord(true); setWordError(null)
@@ -125,11 +132,14 @@ export default function Reader() {
         <Pill icon={showEnglish ? 'eye-outline' : 'eye-off-outline'} label="English" active={showEnglish} onPress={toggleEnglish} accessibilityLabel={showEnglish ? 'Hide English' : 'Show English'} />
         <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />
         <Pill icon="volume-medium-outline" label="Listen" onPress={() => speak(recognition.text)} accessibilityLabel="Listen in Hebrew" />
-        <FeedbackButton screen="reader" context={() => ({ raw: recognition.raw, segments, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss, analysis })} />
+        <FeedbackButton screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss, analysis })} />
       </View>
       <Text style={[styles.copy, { fontSize: 14 }]}>Tap any word to see what it means here.</Text>
+      {!!recognition.readError && <Text style={reader.edge}>Read with basic text recognition, so some letters may be wrong.</Text>}
       <View style={[styles.card, { gap: 0, paddingVertical: 8 }]}>
-        {segments.map((segment, s) => <View key={s} style={[reader.segment, s > 0 && reader.divider]}>
+        {segments.map((segment, s) => <View key={s} style={[reader.segment, s > 0 && (paged ? segment.paragraph : true) && reader.divider, paged && !segment.paragraph && { paddingTop: 2 }]}>
+          {segment.joined && <Text style={reader.edge}>Starts on the previous page</Text>}
+          {segment.cutStart && <Text style={reader.edge}>Continued from the previous page</Text>}
           <View style={reader.line}>
             {segment.marker && <Text style={[reader.word, reader.marker]}>{segment.marker}.</Text>}
             {words.map((item, i) => item.segment !== s ? null : <Pressable key={i} accessibilityRole="button" accessibilityLabel={`Explain ${item.bare}`} onPress={() => void select(i)}
@@ -139,6 +149,7 @@ export default function Reader() {
             {indexOfFirstWord[s] === undefined && <Text style={reader.word}>{segment.he}</Text>}
           </View>
           {showEnglish && !!segment.en && <Text selectable style={[reader.english, segment.heading && { fontWeight: '600' }]}>{segment.marker ? `${segment.marker}. ` : ''}{segment.en}</Text>}
+          {segment.cutEnd && <Text style={reader.edge}>Continues on the next page</Text>}
         </View>)}
       </View>
       <ErrorNotice message={error} />
@@ -154,11 +165,16 @@ export default function Reader() {
           <Text style={reader.sheetWord}>{analysis?.vocalized || word.bare}</Text>
         </View>
       </View>
+      {!!analysis?.readAs && stripNiqqud(analysis.readAs) !== word.bare && <Text style={reader.fact}>The photo text reads <Text style={reader.factHebrew}>{word.bare}</Text>; this is probably <Text style={reader.factHebrew}>{analysis.readAs}</Text>.</Text>}
       <ScrollView style={{ maxHeight: 220 }} contentContainerStyle={{ gap: 8 }}>
         {wordBusy ? <View style={[styles.row, { gap: 8 }]}><ActivityIndicator color={colors.green} /><Text style={styles.copy}>Reading it in context…</Text></View> : <>
           {!!gloss && <Text style={reader.meaning}>{gloss}</Text>}
           {analysis && analysis.parts.length > 1 && <View style={reader.parts}>
             {analysis.parts.map((part, i) => <View key={i} style={reader.part}><Text style={reader.partHebrew}>{part.text}</Text><Text style={reader.partMeaning}>{part.meaning}</Text></View>)}
+          </View>}
+          {phrase && <View style={reader.phrase}>
+            <Text style={reader.fact}>Part of <Text style={reader.factHebrew}>{phrase.text}</Text> · {phrase.meaning}</Text>
+            <TextButton title={phraseSaved ? 'Phrase saved ✓' : 'Save phrase'} color={colors.green} onPress={() => void saveWord(true)} />
           </View>}
           {analysis && <WordFacts analysis={analysis} />}
           {!analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation of the word.</Text>}
@@ -188,6 +204,8 @@ function WordFacts({ analysis }: { analysis: WordAnalysis }) {
 
 const reader = StyleSheet.create({
   segment: { paddingVertical: 10, gap: 4 },
+  edge: { fontSize: 12, color: colors.muted, fontStyle: 'italic' },
+  phrase: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: 10, borderRadius: 12, backgroundColor: colors.paper },
   divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   line: { flexDirection: 'row-reverse', flexWrap: 'wrap', columnGap: 2 },
   wordBox: { borderRadius: 6, paddingHorizontal: 3 },

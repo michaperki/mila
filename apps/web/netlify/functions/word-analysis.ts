@@ -18,12 +18,14 @@ export type WordAnalysis = {
   binyan: string
   form: string
   note: string
+  readAs: string
+  phrase: { text: string; meaning: string }
 }
 
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['word', 'vocalized', 'meaning', 'parts', 'lemma', 'lemmaMeaning', 'root', 'partOfSpeech', 'binyan', 'form', 'note'],
+  required: ['word', 'vocalized', 'meaning', 'parts', 'lemma', 'lemmaMeaning', 'root', 'partOfSpeech', 'binyan', 'form', 'note', 'readAs', 'phrase'],
   properties: {
     word: { type: 'string', description: 'The word exactly as given.' },
     vocalized: { type: 'string', description: 'The word with full niqqud as read in this sentence.' },
@@ -39,11 +41,17 @@ const schema = {
     partOfSpeech: { type: 'string', description: 'noun, verb, adjective, adverb, preposition, pronoun, number, name, or phrase.' },
     binyan: { type: 'string', description: 'Verbs only: binyan in Latin letters (pa\'al, nif\'al, pi\'el, pu\'al, hif\'il, huf\'al, hitpa\'el); otherwise empty.' },
     form: { type: 'string', description: 'Concise grammatical form, e.g. "past, 1st person singular" or "masculine singular, construct"; empty if trivial.' },
-    note: { type: 'string', description: 'One short sentence a learner would find useful, or empty.' },
+    note: { type: 'string', description: 'Only if it matters for understanding this sentence (an idiom, register, an irregular form): one short sentence. Do not describe forms or vowel patterns that are not in the sentence. Usually empty.' },
+    readAs: { type: 'string', description: 'If the tapped text is an OCR misreading (e.g. a dropped first letter), the word you believe is printed, without niqqud; otherwise empty. Analyze that word.' },
+    phrase: {
+      type: 'object', additionalProperties: false, required: ['text', 'meaning'],
+      description: 'If the word belongs to a multi-word unit in this sentence (idiom, construct chain/סמיכות, fixed expression, multi-word name, verb with its fixed preposition), the whole unit exactly as written in the sentence and its English meaning; otherwise both empty.',
+      properties: { text: { type: 'string' }, meaning: { type: 'string' } },
+    },
   },
 } as const
 
-const SYSTEM = `You are a Hebrew tutor inside a reading app for English-speaking learners. The learner tapped one word in a sentence they photographed. Analyze that word as it is used in that sentence. Text comes from OCR and may have small recognition errors or missing niqqud; read it the way a fluent reader would. Keep every English field short. If the tapped text is not Hebrew, return it unchanged with your best short meaning and empty grammar fields.`
+const SYSTEM = `You are a Hebrew tutor inside a reading app for English-speaking learners. The learner tapped one word in a sentence they photographed. Analyze that word as it is used in that sentence. Text comes from OCR and may have recognition errors or missing niqqud. If the tapped word is misread, say what you read it as in readAs and analyze that word. Grammar claims must be ones you are certain of; leave a field empty rather than guess. Keep every English field short. If the tapped text is not Hebrew, return it unchanged with your best short meaning and empty grammar fields.`
 
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, WordAnalysis>()
