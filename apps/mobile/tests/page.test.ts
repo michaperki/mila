@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { segmentsFromPage, tailOf, usableTail, type PageRead } from '../src/lib/page.ts'
+import { paragraphsOf, segmentsFromPage, tailOf, usableTail, type PageRead } from '../src/lib/page.ts'
 
 const page = (overrides: Partial<PageRead>): PageRead => ({
   blocks: [{ kind: 'paragraph', sentences: [{ he: 'בפחד שמישהו יגלה.', en: 'in fear that someone would find out.' }, { he: 'מר דרסלי', en: 'Mr. Dursley…' }] }],
@@ -29,4 +29,14 @@ test('an unrelated or stale fragment is not joined', () => {
   const segments = segmentsFromPage(page({ startsMidSentence: true, endsMidSentence: true }), 'מר דרסלי')
   assert.equal(segments[0].he, 'בפחד שמישהו יגלה.'); assert.equal(segments[0].cutStart, true); assert.equal(segments[1].cutEnd, true)
   assert.equal(tailOf(page({}), segments), null)
+})
+
+test('paragraphs: page reads flow sentences together; other text keeps one per paragraph', () => {
+  const segments = [
+    { he: 'כותרת', en: 'Title', heading: true, paragraph: true },
+    { he: 'א.', en: 'A.', paragraph: true }, { he: 'ב.', en: 'B.' }, { he: 'ג.', en: 'C.' },
+    { he: 'ד.', en: 'D.', paragraph: true },
+  ]
+  assert.deepEqual(paragraphsOf(segments, true), [[0], [1, 2, 3], [4]])
+  assert.deepEqual(paragraphsOf(segments, false), [[0], [1], [2], [3], [4]])
 })

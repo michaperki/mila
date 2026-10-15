@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, type GestureResponderEvent, type NativeScrollEvent, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -12,7 +12,8 @@ import { isolateHebrew, otherSenses } from '../lib/bidi'
 import { rangeOf, type Rect, wordAt } from '../lib/selection'
 import { documentFromRecognition, segmentsOf } from '../lib/documents'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
-import { getPref, setPref } from '../lib/prefs'
+import { paragraphsOf } from '../lib/page'
+import { type EnglishMode, getPref, setPref } from '../lib/prefs'
 import { explainWord } from '../lib/recognition'
 import type { StarredItem, VocabEntry, WordAnalysis } from '../lib/types'
 import { useSession } from '../state/session'
@@ -38,19 +39,21 @@ export default function Reader() {
   const [dragRange, setDragRange] = useState<{ from: number; to: number } | null>(null)
   const lines = useRef(new Map<number, View>())
   const wordBoxes = useRef(new Map<number, Map<number, Rect>>())
-  const drag = useRef<{ segment: number; x0: number; y0: number; origin?: { x: number; y: number }; start?: number; range?: { from: number; to: number } } | null>(null)
+  const drag = useRef<{ line: number; x0: number; y0: number; origin?: { x: number; y: number }; start?: number; range?: { from: number; to: number } } | null>(null)
   const [analysis, setAnalysis] = useState<WordAnalysis | undefined>()
   const [gloss, setGloss] = useState('')
   const [wordBusy, setWordBusy] = useState(false)
   const [wordError, setWordError] = useState<string | null>(null)
   const [savingWord, setSavingWord] = useState(false)
   const [savedWords, setSavedWords] = useState<Set<string>>(new Set())
-  const [showEnglish, setShowEnglish] = useState(true)
+  const [english, setEnglish] = useState<EnglishMode>('tap')
+  // The sentence whose English is shown in 'tap' mode; it stays after the word sheet closes.
+  const [revealed, setRevealed] = useState<number | null>(null)
   const [showNiqqud, setShowNiqqud] = useState(true)
   const selection = useRef(0)
   const docId = useRef(recognition?.id ?? Crypto.randomUUID())
   useFocusEffect(useCallback(() => () => { selection.current++; void Speech.stop() }, []))
-  useEffect(() => { void getPref('showEnglish').then(setShowEnglish); void getPref('showNiqqud').then(setShowNiqqud) }, [])
+  useEffect(() => { void getPref('english').then(setEnglish); void getPref('showNiqqud').then(setShowNiqqud) }, [])
   // Know which words are already saved so the card can say so instead of offering a duplicate.
   useEffect(() => {
     if (!session) return
@@ -70,6 +73,13 @@ export default function Reader() {
     words.forEach((word, i) => { if (starts[word.segment] === undefined) starts[word.segment] = i })
     return starts
   }, [words])
+  const indexOfLastWord = useMemo(() => {
+    const ends: number[] = []
+    words.forEach((word, i) => { ends[word.segment] = i })
+    return ends
+  }, [words])
+  // Sentences flow together within a paragraph, like a page in a book.
+  const paragraphs = useMemo(() => paragraphsOf(segments, paged), [segments, paged])
 
   // Upserts by id, so re-opening the same capture can't create a duplicate.
   const persist = () => {
@@ -103,7 +113,7 @@ export default function Reader() {
     if (!first) return
     const text = words.slice(index, to + 1).map(item => item.bare).join(' ')
     const version = ++selection.current
-    setSelected(index); setSelectedTo(to); setAnalysis(undefined); setGloss(''); setWordError(null); setWordBusy(true)
+    setSelected(index); setSelectedTo(to); setRevealed(first.segment); setAnalysis(undefined); setGloss(''); setWordError(null); setWordBusy(true)
     try {
       const result = await explainWord(text, segments[first.segment].he, session?.token)
       if (selection.current !== version) return
@@ -142,28 +152,31 @@ export default function Reader() {
     try { await request('vocab', { token: session.token, body: entry }); setSavedWords(current => new Set(current).add(id)) }
     catch (failure) { setWordError((failure as Error).message) } finally { setSavingWord(false) }
   }
-  const toggleEnglish = () => setShowEnglish(value => { setPref('showEnglish', !value); return !value })
+  const nextEnglish: Record<EnglishMode, EnglishMode> = { tap: 'all', all: 'off', off: 'tap' }
+  const englishLabel: Record<EnglishMode, string> = { tap: 'English: tapped', all: 'English: all', off: 'English: off' }
+  const cycleEnglish = () => setEnglish(value => { setPref('english', nextEnglish[value]); return nextEnglish[value] })
   const toggleNiqqud = () => setShowNiqqud(value => { setPref('showNiqqud', !value); return !value })
-  // Drag across words in one sentence to explain them together. A mostly horizontal move
-  // takes over from the word's tap; positions come from each word's box in its line.
-  const wordUnder = (segment: number, event: GestureResponderEvent) => {
+  // Drag across words to explain them together. A mostly horizontal move takes over from
+  // the word's tap; positions come from each word's box in its paragraph. The selection
+  // stays inside the sentence the drag started in.
+  const wordUnder = (line: number, event: GestureResponderEvent) => {
     const origin = drag.current?.origin
-    const boxes = wordBoxes.current.get(segment)
+    const boxes = wordBoxes.current.get(line)
     return origin && boxes ? wordAt(boxes, event.nativeEvent.pageX - origin.x, event.nativeEvent.pageY - origin.y) : undefined
   }
-  const dragHandlers = (segment: number) => ({
+  const dragHandlers = (line: number) => ({
     onStartShouldSetResponderCapture: (event: GestureResponderEvent) => {
-      drag.current = { segment, x0: event.nativeEvent.pageX, y0: event.nativeEvent.pageY }
-      lines.current.get(segment)?.measureInWindow((x, y) => { if (drag.current?.segment === segment) drag.current.origin = { x, y } })
+      drag.current = { line, x0: event.nativeEvent.pageX, y0: event.nativeEvent.pageY }
+      lines.current.get(line)?.measureInWindow((x, y) => { if (drag.current?.line === line) drag.current.origin = { x, y } })
       return false
     },
     onMoveShouldSetResponderCapture: (event: GestureResponderEvent) => {
       const current = drag.current
-      if (!current || current.segment !== segment || !current.origin) return false
+      if (!current || current.line !== line || !current.origin) return false
       const dx = Math.abs(event.nativeEvent.pageX - current.x0)
       const dy = Math.abs(event.nativeEvent.pageY - current.y0)
       if (dx < 10 || dx < dy * 1.5) return false
-      const start = wordAt(wordBoxes.current.get(segment) ?? new Map(), current.x0 - current.origin.x, current.y0 - current.origin.y)
+      const start = wordAt(wordBoxes.current.get(line) ?? new Map(), current.x0 - current.origin.x, current.y0 - current.origin.y)
       if (start === undefined) return false
       current.start = start
       return true
@@ -176,9 +189,11 @@ export default function Reader() {
     },
     onResponderMove: (event: GestureResponderEvent) => {
       const current = drag.current
-      const under = wordUnder(segment, event)
+      const under = wordUnder(line, event)
       if (!current || current.start === undefined || under === undefined) return
-      current.range = rangeOf(current.start, under)
+      const sentence = words[current.start].segment
+      const clamped = Math.min(Math.max(under, indexOfFirstWord[sentence]), indexOfLastWord[sentence])
+      current.range = rangeOf(current.start, clamped)
       setDragRange(current.range)
     },
     onResponderTerminationRequest: () => false,
@@ -196,29 +211,41 @@ export default function Reader() {
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
     <ScrollView scrollEnabled={!dragRange} contentContainerStyle={[styles.content, { gap: 14, paddingBottom: word ? sheetHeight + 24 : 36 }]}>
       <View style={[styles.row, { gap: 8 }]}>
-        <Pill icon={showEnglish ? 'eye-outline' : 'eye-off-outline'} label="English" active={showEnglish} onPress={toggleEnglish} accessibilityLabel={showEnglish ? 'Hide English' : 'Show English'} />
+        <Pill icon={english === 'off' ? 'eye-off-outline' : 'eye-outline'} label={englishLabel[english]} active={english !== 'off'} onPress={cycleEnglish} accessibilityLabel={`${englishLabel[english]}. Change`} />
         <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />
         <Pill icon="volume-medium-outline" label="Listen" onPress={() => speak(recognition.text)} accessibilityLabel="Listen in Hebrew" />
         <FeedbackButton screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss, analysis })} />
       </View>
-      <Text style={[styles.copy, { fontSize: 14 }]}>Tap a word to see what it means here, or drag across words to explain a phrase.</Text>
+      <Text style={[styles.copy, { fontSize: 14 }]}>Tap a word to see what it means here{english === 'tap' ? ' and its sentence in English' : ''}, or drag across words to explain a phrase.</Text>
       {!!recognition.readError && <Text style={reader.edge}>Read with basic text recognition, so some letters may be wrong.</Text>}
       <View style={[styles.card, { gap: 0, paddingVertical: 8 }]}>
-        {segments.map((segment, s) => <View key={s} style={[reader.segment, s > 0 && (paged ? segment.paragraph : true) && reader.divider, paged && !segment.paragraph && { paddingTop: 2 }]}>
-          {segment.joined && <Text style={reader.edge}>Starts on the previous page</Text>}
-          {segment.cutStart && <Text style={reader.edge}>Continued from the previous page</Text>}
-          <View style={reader.line} ref={view => { if (view) lines.current.set(s, view); else lines.current.delete(s) }} {...dragHandlers(s)}>
-            {segment.marker && <Text style={[reader.word, reader.marker]}>{segment.marker}.</Text>}
-            {words.map((item, i) => item.segment !== s ? null : <Pressable key={i} accessibilityRole="button" accessibilityLabel={`Explain ${item.bare}`} onPress={() => void select(i)}
-              onLayout={event => { const boxes = wordBoxes.current.get(s) ?? new Map<number, Rect>(); boxes.set(i, event.nativeEvent.layout); wordBoxes.current.set(s, boxes) }}
-              style={[reader.wordBox, highlighted && i >= highlighted.from && i <= highlighted.to && { backgroundColor: colors.lime }]}>
-              <Text style={[reader.word, segment.heading && reader.heading]}>{showNiqqud ? item.surface : stripNiqqud(item.surface)}</Text>
-            </Pressable>)}
-            {indexOfFirstWord[s] === undefined && <Text style={reader.word}>{segment.he}</Text>}
+        {paragraphs.map((members, p) => {
+          const first = segments[members[0]]
+          const last = segments[members[members.length - 1]]
+          const shown = english === 'all' ? members : english === 'tap' && revealed !== null && members.includes(revealed) ? [revealed] : []
+          const translation = shown.map(s => segments[s]).filter(segment => segment.en).map(segment => `${segment.marker ? `${segment.marker}. ` : ''}${segment.en}`).join(' ')
+          return <View key={p} style={[reader.segment, p > 0 && !paged && reader.divider]}>
+            {first.joined && <Text style={reader.edge}>Starts on the previous page</Text>}
+            {first.cutStart && <Text style={reader.edge}>Continued from the previous page</Text>}
+            <View style={reader.line} ref={view => { if (view) lines.current.set(p, view); else lines.current.delete(p) }} {...dragHandlers(p)}>
+              {members.map(s => <Fragment key={s}>
+                {segments[s].marker && <Text style={[reader.word, reader.marker]}>{segments[s].marker}.</Text>}
+                {indexOfFirstWord[s] === undefined ? <Text style={reader.word}>{segments[s].he}</Text>
+                  : words.slice(indexOfFirstWord[s], indexOfLastWord[s] + 1).map((item, offset) => {
+                    const i = indexOfFirstWord[s] + offset
+                    const inSelection = highlighted && i >= highlighted.from && i <= highlighted.to
+                    return <Pressable key={i} accessibilityRole="button" accessibilityLabel={`Explain ${item.bare}`} onPress={() => void select(i)}
+                      onLayout={event => { const boxes = wordBoxes.current.get(p) ?? new Map<number, Rect>(); boxes.set(i, event.nativeEvent.layout); wordBoxes.current.set(p, boxes) }}
+                      style={[reader.wordBox, inSelection ? { backgroundColor: colors.lime } : english === 'tap' && shown.includes(s) && members.length > 1 && reader.current]}>
+                      <Text style={[reader.word, segments[s].heading && reader.heading]}>{showNiqqud ? item.surface : stripNiqqud(item.surface)}</Text>
+                    </Pressable>
+                  })}
+              </Fragment>)}
+            </View>
+            {!!translation && <Text selectable style={[reader.english, first.heading && { fontWeight: '600' }]}>{translation}</Text>}
+            {last.cutEnd && <Text style={reader.edge}>Continues on the next page</Text>}
           </View>
-          {showEnglish && !!segment.en && <Text selectable style={[reader.english, segment.heading && { fontWeight: '600' }]}>{segment.marker ? `${segment.marker}. ` : ''}{segment.en}</Text>}
-          {segment.cutEnd && <Text style={reader.edge}>Continues on the next page</Text>}
-        </View>)}
+        })}
       </View>
       <ErrorNotice message={error} />
       <Button title={saved ? 'Saved to library ✓' : 'Save passage'} disabled={saved} busy={busy} onPress={save} />
@@ -292,6 +319,8 @@ const reader = StyleSheet.create({
   divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   line: { flexDirection: 'row-reverse', flexWrap: 'wrap', columnGap: 2 },
   wordBox: { borderRadius: 6, paddingHorizontal: 3 },
+  // The sentence whose English is showing, when it shares a paragraph with others.
+  current: { backgroundColor: '#EEF3E4' },
   word: { fontSize: 21, lineHeight: 32, color: colors.ink, writingDirection: 'rtl' },
   heading: { fontWeight: '700' },
   marker: { color: colors.muted, paddingHorizontal: 3 },

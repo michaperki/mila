@@ -32,6 +32,19 @@ export function segmentsFromPage(page: PageRead, previous?: string): ReadingSegm
   return segments
 }
 
+// Groups segments into the paragraphs the reader shows as flowing text. Page reads carry
+// their own breaks; other text (plain OCR, pasted) keeps one sentence per paragraph.
+// Headings and numbered items always stand alone.
+export function paragraphsOf(segments: ReadingSegment[], paged: boolean): number[][] {
+  const groups: number[][] = []
+  segments.forEach((segment, i) => {
+    const previous = segments[i - 1]
+    const starts = !paged || !previous || segment.paragraph || segment.heading || previous.heading || !!segment.marker || !!previous.marker
+    if (starts) groups.push([i]); else groups[groups.length - 1].push(i)
+  })
+  return groups
+}
+
 // The fragment to carry to the next page, or null when the page ends cleanly.
 export function tailOf(page: PageRead, segments: ReadingSegment[], now = Date.now()): PageTail | null {
   const last = segments[segments.length - 1]

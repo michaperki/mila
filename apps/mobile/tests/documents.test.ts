@@ -17,3 +17,12 @@ test('older single-chunk documents still open as one segment', () => {
   const legacy = { id: 'old', source: 'ocr' as const, createdAt: 1, chunks: [{ id: 'old-0', type: 'sentence' as const, text: 'שלום', translation: 'Hello', tokens: [] }] }
   assert.deepEqual(textFromDocument(legacy).segments, [{ he: 'שלום', en: 'Hello' }])
 })
+test('page reads keep paragraphs and page-edge flags when saved and reopened', () => {
+  const recognition = { text: 'א. ב.\nג.', translation: 'A. B.\nC.', capturedAt: 1, source: 'page' as const,
+    segments: [{ he: 'א.', en: 'A.', paragraph: true, cutStart: true }, { he: 'ב.', en: 'B.' }, { he: 'ג.', en: 'C.', paragraph: true, cutEnd: true }] }
+  const document = documentFromRecognition(recognition, 'p')
+  assert.equal(document.layout, 'page')
+  const reopened = textFromDocument(document)
+  assert.equal(reopened.source, 'page')
+  assert.deepEqual(reopened.segments, recognition.segments)
+})

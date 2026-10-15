@@ -15,6 +15,12 @@ export type Chunk = {
   text: string;
   tokens: Token[];
   translation?: string;
+  // Set by the mobile app for pages read with their layout: this chunk starts a paragraph,
+  // and whether its sentence was cut at the page edge or joined across pages.
+  paragraph?: boolean;
+  joined?: boolean;
+  cutStart?: boolean;
+  cutEnd?: boolean;
 };
 
 export type TextDoc = {
@@ -24,6 +30,8 @@ export type TextDoc = {
   chunks: Chunk[];
   createdAt: number;
   thumbnail?: string;
+  // 'page': read from a photographed page with its paragraphs kept (mobile app).
+  layout?: 'page';
 };
 
 export type StarredItem = {
