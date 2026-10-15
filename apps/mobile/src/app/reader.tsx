@@ -17,6 +17,8 @@ import { type EnglishMode, getPref, setPref } from '../lib/prefs'
 import { explainWord } from '../lib/recognition'
 import type { StarredItem, VocabEntry, WordAnalysis } from '../lib/types'
 import { useSession } from '../state/session'
+import { useVowels } from '../state/vowels'
+import { isVowelled, withVowels } from '../lib/vowels'
 
 // Keyed by the vocalized lemma so homographs (סֵפֶר book / סַפָּר barber) don't collide.
 const vocabId = (lemma: string) => `native-${encodeURIComponent(lemma.normalize('NFC'))}`
@@ -58,11 +60,14 @@ export default function Reader() {
   // sentence bar), and a word or phrase selected in it (drawer). Closing the drawer goes back
   // to the sentence; closing the sentence bar goes back to reading.
   const [active, setActive] = useState<number | null>(null)
-  const [showNiqqud, setShowNiqqud] = useState(true)
+  const [showNiqqud, setShowNiqqud] = useVowels()
+  const v = (text: string) => withVowels(text, showNiqqud)
+  // The Vowels button only appears for a page that is actually vowelled.
+  const vowelled = useMemo(() => isVowelled(recognition?.text || ''), [recognition?.text])
   const selection = useRef(0)
   const docId = useRef(recognition?.id ?? Crypto.randomUUID())
   useFocusEffect(useCallback(() => () => { selection.current++; void Speech.stop() }, []))
-  useEffect(() => { void getPref('english').then(setEnglish); void getPref('showNiqqud').then(setShowNiqqud) }, [])
+  useEffect(() => { void getPref('english').then(setEnglish) }, [])
   // Keep the active sentence in view above whatever covers the bottom of the screen.
   useEffect(() => {
     if (active === null) return
@@ -193,7 +198,7 @@ export default function Reader() {
   const nextEnglish: Record<EnglishMode, EnglishMode> = { tap: 'all', all: 'off', off: 'tap' }
   const englishLabel: Record<EnglishMode, string> = { tap: 'English: tapped', all: 'English: all', off: 'English: off' }
   const cycleEnglish = () => setEnglish(value => { setPref('english', nextEnglish[value]); return nextEnglish[value] })
-  const toggleNiqqud = () => setShowNiqqud(value => { setPref('showNiqqud', !value); return !value })
+  const toggleNiqqud = () => setShowNiqqud(!showNiqqud)
   // Drag across words to explain them together. A mostly horizontal move takes over from
   // the word's tap; positions come from each word's box in its paragraph. The selection
   // stays inside the sentence the drag started in.
@@ -256,7 +261,7 @@ export default function Reader() {
       contentContainerStyle={[styles.content, { gap: 10, paddingTop: 14, paddingBottom: active !== null ? overlayHeight + 24 : 36 }]}>
       <View style={[styles.row, { gap: 8 }]}>
         <Pill icon={english === 'off' ? 'eye-off-outline' : 'eye-outline'} label={englishLabel[english]} active={english !== 'off'} onPress={cycleEnglish} accessibilityLabel={`${englishLabel[english]}. Change`} />
-        <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />
+        {vowelled && <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />}
         <Pill icon="volume-medium-outline" label="Listen" onPress={() => speak(recognition.text)} accessibilityLabel="Listen in Hebrew" />
         <FeedbackButton screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, active, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss, analysis })} />
       </View>
@@ -283,7 +288,7 @@ export default function Reader() {
                       return <Pressable key={item.i} accessibilityRole="button" accessibilityLabel={`Explain ${item.bare}`} onPress={() => void select(item.i)}
                         onLayout={event => { wordBoxes.current.set(item.i, event.nativeEvent.layout) }}
                         style={[reader.wordBox, inSelection && reader.selectedWord]}>
-                        <Text style={[reader.word, segments[s].heading && reader.heading]}>{showNiqqud ? item.surface : stripNiqqud(item.surface)}</Text>
+                        <Text style={[reader.word, segments[s].heading && reader.heading]}>{v(item.surface)}</Text>
                       </Pressable>
                     }),
                   ])}
@@ -319,25 +324,25 @@ export default function Reader() {
         <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} hitSlop={10}><Ionicons name="close" size={22} color={colors.muted} /></Pressable>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 }}>
           <Pressable accessibilityRole="button" accessibilityLabel={isPhrase ? 'Hear this phrase' : 'Hear this word'} onPress={() => speak(analysis?.vocalized || word.bare)} hitSlop={10}><Ionicons name="volume-medium-outline" size={22} color={colors.green} /></Pressable>
-          <Text style={reader.sheetWord}>{analysis?.vocalized || word.bare}</Text>
+          <Text style={reader.sheetWord}>{v(analysis?.vocalized || word.bare)}</Text>
         </View>
       </View>
       {wordBusy ? <View style={[styles.row, { gap: 8 }]}><ActivityIndicator color={colors.green} /><Text style={styles.copy}>Reading it in context…</Text></View>
-        : !!gloss && <Text style={reader.meaning}>{isolateHebrew(gloss)}</Text>}
+        : !!gloss && <Text style={reader.meaning}>{isolateHebrew(v(gloss))}</Text>}
       {!wordBusy && !analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation.</Text>}
       {details && !wordBusy && analysis && <View>
         <ScrollView style={{ maxHeight: detailsHeight }} contentContainerStyle={{ gap: 12, paddingBottom: 4 }} scrollEventThrottle={64}
           onScroll={event => measureMore(event.nativeEvent)}
           onContentSizeChange={(_, contentHeight) => setMoreBelow(contentHeight > detailsHeight + 8)}>
-          {!isPhrase && !!analysis.readAs && stripNiqqud(analysis.readAs) !== word.bare && <Text style={reader.fact}>The photo text reads <Text style={reader.factHebrew}>{isolateHebrew(word.bare)}</Text>; this is probably <Text style={reader.factHebrew}>{isolateHebrew(analysis.readAs)}</Text>.</Text>}
+          {!isPhrase && !!analysis.readAs && stripNiqqud(analysis.readAs) !== word.bare && <Text style={reader.fact}>The photo text reads <Text style={reader.factHebrew}>{isolateHebrew(word.bare)}</Text>; this is probably <Text style={reader.factHebrew}>{isolateHebrew(v(analysis.readAs))}</Text>.</Text>}
           {analysis.parts.length > 1 && <Section label="Breakdown"><View style={reader.parts}>
-            {analysis.parts.map((part, i) => <View key={i} style={reader.part}><Text style={reader.partHebrew}>{part.text}</Text><Text style={reader.partMeaning}>{isolateHebrew(part.meaning)}</Text></View>)}
+            {analysis.parts.map((part, i) => <View key={i} style={reader.part}><Text style={reader.partHebrew}>{v(part.text)}</Text><Text style={reader.partMeaning}>{isolateHebrew(v(part.meaning))}</Text></View>)}
           </View></Section>}
           {phrase && <Section label="Phrase"><View style={reader.phrase}>
-            <Text style={[reader.fact, { flex: 1 }]}><Text style={reader.factHebrew}>{isolateHebrew(phrase.text)}</Text> · {isolateHebrew(phrase.meaning)}</Text>
+            <Text style={[reader.fact, { flex: 1 }]}><Text style={reader.factHebrew}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>
             <TextButton title={phraseSaved ? 'Saved ✓' : 'Save phrase'} color={colors.green} onPress={() => void saveWord(true)} />
           </View></Section>}
-          <WordFacts analysis={analysis} gloss={gloss} />
+          <WordFacts analysis={analysis} gloss={gloss} v={v} />
         </ScrollView>
         {moreBelow && <Text style={reader.more} pointerEvents="none">More below ↓</Text>}
       </View>}
@@ -357,18 +362,18 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
 }
 
 // Dictionary entry (form, other senses, root, grammar) and an optional note, always in this order.
-function WordFacts({ analysis, gloss }: { analysis: WordAnalysis; gloss: string }) {
+function WordFacts({ analysis, gloss, v }: { analysis: WordAnalysis; gloss: string; v: (text: string) => string }) {
   const grammar = [analysis.partOfSpeech, analysis.binyan, analysis.form].filter(Boolean).join(' · ')
   const showLemma = !!analysis.lemma && stripNiqqud(analysis.lemma) !== stripNiqqud(analysis.vocalized || analysis.word)
   const senses = otherSenses(analysis.lemmaMeaning || '', gloss)
   const hasEntry = showLemma || !!senses || !!analysis.root || !!grammar
   return <>
     {hasEntry && <Section label="Dictionary">
-      {showLemma && <Text style={reader.fact}><Text style={reader.factHebrew}>{isolateHebrew(analysis.lemma)}</Text>{senses ? ` · ${isolateHebrew(senses)}` : ''}</Text>}
-      {!showLemma && !!senses && <Text style={reader.fact}>Other senses: {isolateHebrew(senses)}</Text>}
+      {showLemma && <Text style={reader.fact}><Text style={reader.factHebrew}>{isolateHebrew(v(analysis.lemma))}</Text>{senses ? ` · ${isolateHebrew(v(senses))}` : ''}</Text>}
+      {!showLemma && !!senses && <Text style={reader.fact}>Other senses: {isolateHebrew(v(senses))}</Text>}
       {(!!analysis.root || !!grammar) && <Text style={reader.fact}>{analysis.root ? <>Root <Text style={reader.factHebrew}>{isolateHebrew(analysis.root)}</Text>{grammar ? ' · ' : ''}</> : null}{grammar}</Text>}
     </Section>}
-    {!!analysis.note && <Section label="Note"><Text style={reader.fact}>{isolateHebrew(analysis.note)}</Text></Section>}
+    {!!analysis.note && <Section label="Note"><Text style={reader.fact}>{isolateHebrew(v(analysis.note))}</Text></Section>}
   </>
 }
 

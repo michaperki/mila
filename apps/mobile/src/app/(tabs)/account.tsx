@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Alert, Linking, Text, View } from 'react-native'
+import { Alert, Linking, Switch, Text, View } from 'react-native'
 import { AccountGate, Button, colors, ErrorNotice, Page, styles, TextButton } from '../../components/ui'
 import { request } from '../../lib/api'
 import { applyLatestUpdate, describeVersion } from '../../lib/app-info'
 import { useSession } from '../../state/session'
+import { useVowels } from '../../state/vowels'
 export default function Account() {
   const { session, signOut, error: restoreError } = useSession()
   const [error, setError] = useState<string | null>(null)
@@ -15,6 +16,7 @@ export default function Account() {
     try { if (!(await applyLatestUpdate())) setUpdateStatus('You have the latest version.') }
     catch { setUpdateStatus('Could not check for updates. Try again with a connection.') } finally { setChecking(false) }
   }
+  const [showVowels, setShowVowels] = useVowels()
   const [vocabStatus, setVocabStatus] = useState<string | null>(null)
   const clearVocabulary = () => Alert.alert('Delete all saved words?', 'Every saved word and its practice history will be removed. This can\'t be undone.', [
     { text: 'Cancel', style: 'cancel' },
@@ -35,6 +37,15 @@ export default function Account() {
         <Text style={styles.copy}>Live preview is off until you turn it on in the camera. It samples a few images instead of every video frame, needs internet, and pauses after a short session.</Text>
         <TextButton title="Show less" onPress={() => setPrivacyOpen(false)} />
       </> : <TextButton title="Learn more" onPress={() => setPrivacyOpen(true)} />}
+    </View>
+    <View style={styles.card}>
+      <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={styles.heading}>Vowel marks (niqqud)</Text>
+          <Text style={styles.copy}>In the reader, word explanations, flashcards and your word list.</Text>
+        </View>
+        <Switch value={showVowels} onValueChange={setShowVowels} trackColor={{ true: colors.green }} accessibilityLabel="Vowel marks" />
+      </View>
     </View>
     <Button secondary title="Open Mila on the web" onPress={() => { void Linking.openURL('https://mila-hebrew.netlify.app/') }} />
     <View style={styles.card}>

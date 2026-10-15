@@ -6,7 +6,10 @@ import { request } from '../../lib/api'
 import { textFromDocument } from '../../lib/documents'
 import { countsOf, isDue, matches, statusOf, type Status } from '../../lib/review'
 import type { TextDoc, VocabEntry } from '../../lib/types'
+import { stripNiqqud } from '../../lib/ocr-cleanup'
+import { withVowels } from '../../lib/vowels'
 import { useSession } from '../../state/session'
+import { useVowels } from '../../state/vowels'
 
 type Filter = 'all' | 'due' | Status
 const FILTERS: { key: Filter; label: string }[] = [
@@ -27,6 +30,7 @@ export default function Vocabulary() {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [showVowels] = useVowels()
   // Due dates are judged against when the list was loaded (refreshed on every visit).
   const [now, setNow] = useState(() => Date.now())
   useFocusEffect(useCallback(() => {
@@ -83,7 +87,7 @@ export default function Vocabulary() {
         </ScrollView>
         <View style={[styles.card, { padding: 0, gap: 0, overflow: 'hidden' }]}>
           {visible.length === 0 && <Text style={[styles.copy, { padding: 16 }]}>No words match.</Text>}
-          {visible.map((entry, i) => <WordRow key={entry.id} entry={entry} now={now} first={i === 0} open={expanded === entry.id}
+          {visible.map((entry, i) => <WordRow key={entry.id} entry={entry} now={now} showVowels={showVowels} first={i === 0} open={expanded === entry.id}
             onToggle={() => setExpanded(current => (current === entry.id ? null : entry.id))}
             onDelete={() => remove(entry)} onOpenPassage={entry.sourceRef ? () => void openPassage(entry.sourceRef!.textId) : undefined} />)}
         </View>
@@ -92,8 +96,9 @@ export default function Vocabulary() {
   </Page>
 }
 
-function WordRow({ entry, now, first, open, onToggle, onDelete, onOpenPassage }: { entry: VocabEntry; now: number; first: boolean; open: boolean; onToggle: () => void; onDelete: () => void; onOpenPassage?: () => void }) {
+function WordRow({ entry, now, showVowels, first, open, onToggle, onDelete, onOpenPassage }: { entry: VocabEntry; now: number; showVowels: boolean; first: boolean; open: boolean; onToggle: () => void; onDelete: () => void; onOpenPassage?: () => void }) {
   const status = statusOf(entry)
+  const v = (text: string) => withVowels(text, showVowels)
   const meta = [entry.partOfSpeech, entry.root && `root ${entry.root}`].filter(Boolean).join(' · ')
   const days = entry.review ? Math.round((entry.review.due - now) / DAY) : null
   const next = days === null ? 'Not practiced yet' : days <= 0 ? 'Due today' : days === 1 ? 'Next practice tomorrow' : `Next practice in ${days} days`
@@ -101,17 +106,17 @@ function WordRow({ entry, now, first, open, onToggle, onDelete, onOpenPassage }:
     <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${entry.lemma}, ${entry.gloss}`} onPress={onToggle} style={vocab.rowMain}>
       <StatusDot status={status} />
       <View style={{ flex: 1, gap: 2 }}>
-        <Text style={vocab.meaning} numberOfLines={open ? undefined : 1}>{entry.gloss}</Text>
+        <Text style={vocab.meaning} numberOfLines={open ? undefined : 1}>{v(entry.gloss)}</Text>
         {!!meta && <Text style={vocab.meta} numberOfLines={1}>{meta}</Text>}
       </View>
-      <Text style={vocab.hebrew} numberOfLines={1}>{entry.lemma}</Text>
+      <Text style={vocab.hebrew} numberOfLines={1}>{v(entry.lemma)}</Text>
     </Pressable>
     {open && <View style={vocab.details}>
-      {!!entry.surface && !!entry.vocalized && entry.surface !== entry.lemma && <Text style={vocab.meta}>Met as <Text style={vocab.inlineHebrew}>{entry.vocalized}</Text></Text>}
+      {!!entry.surface && !!entry.vocalized && stripNiqqud(entry.surface) !== stripNiqqud(entry.lemma) && <Text style={vocab.meta}>Met as <Text style={vocab.inlineHebrew}>{v(entry.vocalized)}</Text></Text>}
       {!!entry.form && <Text style={vocab.meta}>{[entry.form, entry.binyan].filter(Boolean).join(' · ')}</Text>}
-      {!!entry.senses && <Text style={vocab.meta}>Dictionary: {entry.senses}</Text>}
+      {!!entry.senses && <Text style={vocab.meta}>Dictionary: {v(entry.senses)}</Text>}
       {!!entry.context && <View style={vocab.context}>
-        <Text style={[styles.hebrew, { fontSize: 17, lineHeight: 27 }]}>{entry.context}</Text>
+        <Text style={[styles.hebrew, { fontSize: 17, lineHeight: 27 }]}>{v(entry.context)}</Text>
         {!!entry.contextTranslation && <Text style={[styles.copy, { fontSize: 14, lineHeight: 20 }]}>{entry.contextTranslation}</Text>}
       </View>}
       <Text style={vocab.meta}>{next}</Text>

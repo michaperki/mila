@@ -9,7 +9,9 @@ import { request } from '../lib/api'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { grade, practiceQueue, waitOf, type Rating } from '../lib/review'
 import type { VocabEntry } from '../lib/types'
+import { withVowels } from '../lib/vowels'
 import { useSession } from '../state/session'
+import { useVowels } from '../state/vowels'
 
 const RATINGS: { rating: Rating; label: string }[] = [{ rating: 'again', label: 'Again' }, { rating: 'hard', label: 'Hard' }, { rating: 'good', label: 'Got it' }]
 
@@ -19,6 +21,7 @@ const RATINGS: { rating: Rating; label: string }[] = [{ rating: 'again', label: 
 export default function Practice() {
   const { session } = useSession()
   const insets = useSafeAreaInsets()
+  const [showVowels] = useVowels()
   const [queue, setQueue] = useState<VocabEntry[] | null>(null)
   const [position, setPosition] = useState(0)
   const [revealed, setRevealed] = useState(false)
@@ -38,8 +41,12 @@ export default function Practice() {
   const card = queue[position]
   if (!card) return <Summary tally={tally} words={new Set(queue.map(entry => entry.id)).size} error={error} />
 
-  const front = card.vocalized || card.lemma
-  const speak = () => { void Speech.stop(); Speech.speak(front, { language: 'he-IL', rate: 0.8 }) }
+  const v = (text: string) => withVowels(text, showVowels)
+  // Listen always uses the vowelled form, so it pronounces the word right even when vowels are hidden.
+  const spoken = card.vocalized || card.lemma
+  const front = v(spoken)
+  const lemma = v(card.lemma)
+  const speak = () => { void Speech.stop(); Speech.speak(spoken, { language: 'he-IL', rate: 0.8 }) }
   const answer = (rating: Rating) => {
     const review = grade(card.review, rating)
     // Saved in the background; a failure is shown but doesn't stop the session.
@@ -52,7 +59,7 @@ export default function Practice() {
   const target = new Set((card.surface || card.lemma).split(/\s+/).map(token => stripNiqqud(bareWord(token))))
   const grammar = [card.form, card.binyan].filter(Boolean).join(' · ')
   const short = !!card.excerpt && !wholeSentence
-  const sentence = short ? card.excerpt! : card.context
+  const sentence = v((short ? card.excerpt : card.context) || '')
   const translation = short ? card.excerptTranslation : card.contextTranslation
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
@@ -65,10 +72,10 @@ export default function Practice() {
         </Pressable>
         <Text style={practice.front}>{front}</Text>
         {!revealed ? <Text style={practice.hint}>What does it mean here?</Text> : <View style={{ gap: 10, alignSelf: 'stretch' }}>
-          <Text style={practice.meaning}>{card.gloss}</Text>
+          <Text style={practice.meaning}>{v(card.gloss)}</Text>
           {!!grammar && <Text style={[practice.detail, { textAlign: 'center' }]}>{grammar}</Text>}
-          {(card.lemma !== front || !!card.senses) && <Text style={practice.detail}>
-            {card.lemma !== front ? <>Dictionary form <Text style={practice.inline}>{card.lemma}</Text>{card.senses ? ' · ' : ''}</> : null}{card.senses || ''}
+          {(stripNiqqud(lemma) !== stripNiqqud(front) || !!card.senses) && <Text style={practice.detail}>
+            {stripNiqqud(lemma) !== stripNiqqud(front) ? <>Dictionary form <Text style={practice.inline}>{lemma}</Text>{card.senses ? ' · ' : ''}</> : null}{v(card.senses || '')}
           </Text>}
           {!!sentence && <Pressable disabled={!card.excerpt} accessibilityRole={card.excerpt ? 'button' : undefined}
             accessibilityHint={card.excerpt ? (wholeSentence ? 'Shows the short excerpt' : 'Shows the whole sentence') : undefined}
