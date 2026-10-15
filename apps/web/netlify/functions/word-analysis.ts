@@ -29,19 +29,25 @@ const schema = {
   properties: {
     word: { type: 'string', description: 'The word exactly as given.' },
     vocalized: { type: 'string', description: 'The word with full niqqud as read in this sentence.' },
-    meaning: { type: 'string', description: 'Short English meaning of this word in this sentence, including prefixes (e.g. "in math").' },
+    meaning: { type: 'string', description: 'Short English meaning of this word in this sentence, including prefixes (e.g. "in math"). This is the main answer; other fields should not repeat it.' },
     parts: {
       type: 'array',
       description: 'Morphological pieces in reading order: attached prefixes (ו, ה, ב, כ, ל, מ, ש), the stem, any pronoun suffix. One item if the word has no affixes.',
-      items: { type: 'object', additionalProperties: false, required: ['text', 'meaning'], properties: { text: { type: 'string' }, meaning: { type: 'string' } } },
+      items: {
+        type: 'object', additionalProperties: false, required: ['text', 'meaning'],
+        properties: {
+          text: { type: 'string' },
+          meaning: { type: 'string', description: 'One to three English words: a prefix or suffix\'s function ("and", "the", "in", "my"), or the stem\'s basic meaning.' },
+        },
+      },
     },
     lemma: { type: 'string', description: 'Dictionary form, vocalized (masculine singular; verbs as the infinitive or 3rd person past).' },
-    lemmaMeaning: { type: 'string', description: 'General English senses of the lemma, comma-separated.' },
+    lemmaMeaning: { type: 'string', description: 'The lemma\'s common English senses, comma-separated, most common first; at most five.' },
     root: { type: 'string', description: 'Root letters joined with ־ (e.g. ח־ש־ב), or empty if none applies.' },
     partOfSpeech: { type: 'string', description: 'noun, verb, adjective, adverb, preposition, pronoun, number, name, or phrase.' },
     binyan: { type: 'string', description: 'Verbs only: binyan in Latin letters (pa\'al, nif\'al, pi\'el, pu\'al, hif\'il, huf\'al, hitpa\'el); otherwise empty.' },
     form: { type: 'string', description: 'Concise grammatical form, e.g. "past, 1st person singular" or "masculine singular, construct"; empty if trivial.' },
-    note: { type: 'string', description: 'Only if it matters for understanding this sentence (an idiom, register, an irregular form): one short sentence. Do not describe forms or vowel patterns that are not in the sentence. Usually empty.' },
+    note: { type: 'string', description: 'Only if it matters for understanding this sentence (an idiom, register, an irregular form): one short sentence that adds something no other field says. Do not restate the meaning, breakdown, lemma or grammar, and do not describe forms or vowel patterns that are not in the sentence. Usually empty.' },
     readAs: { type: 'string', description: 'If the tapped text is an OCR misreading (e.g. a dropped first letter), the word you believe is printed, without niqqud; otherwise empty. Analyze that word.' },
     phrase: {
       type: 'object', additionalProperties: false, required: ['text', 'meaning'],
@@ -51,7 +57,7 @@ const schema = {
   },
 } as const
 
-const SYSTEM = `You are a Hebrew tutor inside a reading app for English-speaking learners. The learner tapped one word in a sentence they photographed. Analyze that word as it is used in that sentence. Text comes from OCR and may have recognition errors or missing niqqud. If the tapped word is misread, say what you read it as in readAs and analyze that word. Grammar claims must be ones you are certain of; leave a field empty rather than guess. Keep every English field short. If the tapped text is not Hebrew, return it unchanged with your best short meaning and empty grammar fields.`
+const SYSTEM = `You are a Hebrew tutor inside a reading app for English-speaking learners. The learner tapped one word in a sentence they photographed. Analyze that word as it is used in that sentence. Text comes from OCR and may have recognition errors or missing niqqud. If the tapped word is misread, say what you read it as in readAs and analyze that word. Grammar claims must be ones you are certain of; leave a field empty rather than guess. Keep every English field short and write it in plain English; quote a Hebrew word only when the point is about that word, and never translate the same thing twice across fields. If the tapped text is not Hebrew, return it unchanged with your best short meaning and empty grammar fields.`
 
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, WordAnalysis>()

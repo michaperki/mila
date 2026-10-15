@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ActivityIndicator, type NativeScrollEvent, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -8,6 +8,7 @@ import * as Speech from 'expo-speech'
 import { Button, colors, ErrorNotice, Page, Pill, styles, TextButton } from '../components/ui'
 import { FeedbackButton } from '../components/Feedback'
 import { request } from '../lib/api'
+import { isolateHebrew, otherSenses } from '../lib/bidi'
 import { documentFromRecognition, segmentsOf } from '../lib/documents'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { getPref, setPref } from '../lib/prefs'
@@ -21,6 +22,10 @@ const vocabId = (lemma: string) => `native-${encodeURIComponent(lemma.normalize(
 export default function Reader() {
   const { recognition, session } = useSession()
   const insets = useSafeAreaInsets()
+  const { height: screenHeight } = useWindowDimensions()
+  // The passage is padded by the sheet's real height so the tapped word isn't hidden under it.
+  const [sheetHeight, setSheetHeight] = useState(360)
+  const [moreBelow, setMoreBelow] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(recognition?.library === 'saved')
   // Camera captures go straight into the library (the effect below); pasted text waits for "Save passage".
@@ -124,10 +129,12 @@ export default function Reader() {
   }
   const toggleEnglish = () => setShowEnglish(value => { setPref('showEnglish', !value); return !value })
   const toggleNiqqud = () => setShowNiqqud(value => { setPref('showNiqqud', !value); return !value })
+  // Shows a "More below" hint until the explanation is scrolled to its end.
+  const measureMore = ({ layoutMeasurement, contentOffset, contentSize }: NativeScrollEvent) => setMoreBelow(contentOffset.y + layoutMeasurement.height < contentSize.height - 8)
   const speak = (text: string) => { void Speech.stop(); Speech.speak(text, { language: 'he-IL', rate: 0.8 }) }
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <ScrollView contentContainerStyle={[styles.content, { gap: 14, paddingBottom: word ? 360 : 36 }]}>
+    <ScrollView contentContainerStyle={[styles.content, { gap: 14, paddingBottom: word ? sheetHeight + 24 : 36 }]}>
       <View style={[styles.row, { gap: 8 }]}>
         <Pill icon={showEnglish ? 'eye-outline' : 'eye-off-outline'} label="English" active={showEnglish} onPress={toggleEnglish} accessibilityLabel={showEnglish ? 'Hide English' : 'Show English'} />
         <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />
@@ -157,30 +164,36 @@ export default function Reader() {
       {saved && <TextButton title="Remove from library" onPress={() => void remove()} />}
     </ScrollView>
 
-    {word && <View style={[reader.sheet, { paddingBottom: 16 + insets.bottom }]} accessibilityViewIsModal>
+    {word && <View style={[reader.sheet, { paddingBottom: 16 + insets.bottom }]} accessibilityViewIsModal onLayout={event => setSheetHeight(event.nativeEvent.layout.height)}>
       <View style={reader.sheetHeader}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} hitSlop={10}><Ionicons name="close" size={24} color={colors.muted} /></Pressable>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 }}>
           <Pressable accessibilityRole="button" accessibilityLabel="Hear this word" onPress={() => speak(analysis?.vocalized || word.bare)} hitSlop={10}><Ionicons name="volume-medium-outline" size={24} color={colors.green} /></Pressable>
           <Text style={reader.sheetWord}>{analysis?.vocalized || word.bare}</Text>
         </View>
       </View>
-      {!!analysis?.readAs && stripNiqqud(analysis.readAs) !== word.bare && <Text style={reader.fact}>The photo text reads <Text style={reader.factHebrew}>{word.bare}</Text>; this is probably <Text style={reader.factHebrew}>{analysis.readAs}</Text>.</Text>}
-      <ScrollView style={{ maxHeight: 220 }} contentContainerStyle={{ gap: 8 }}>
-        {wordBusy ? <View style={[styles.row, { gap: 8 }]}><ActivityIndicator color={colors.green} /><Text style={styles.copy}>Reading it in context…</Text></View> : <>
-          {!!gloss && <Text style={reader.meaning}>{gloss}</Text>}
-          {analysis && analysis.parts.length > 1 && <View style={reader.parts}>
-            {analysis.parts.map((part, i) => <View key={i} style={reader.part}><Text style={reader.partHebrew}>{part.text}</Text><Text style={reader.partMeaning}>{part.meaning}</Text></View>)}
-          </View>}
-          {phrase && <View style={reader.phrase}>
-            <Text style={reader.fact}>Part of <Text style={reader.factHebrew}>{phrase.text}</Text> · {phrase.meaning}</Text>
-            <TextButton title={phraseSaved ? 'Phrase saved ✓' : 'Save phrase'} color={colors.green} onPress={() => void saveWord(true)} />
-          </View>}
-          {analysis && <WordFacts analysis={analysis} />}
-          {!analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation of the word.</Text>}
-        </>}
-        <ErrorNotice message={wordError} />
-      </ScrollView>
+      <View>
+        {/* Height follows the screen; long explanations scroll, with a hint that there is more. */}
+        <ScrollView style={{ maxHeight: Math.max(200, screenHeight * 0.42) }} contentContainerStyle={{ gap: 14, paddingBottom: 4 }} scrollEventThrottle={64}
+          onScroll={event => measureMore(event.nativeEvent)}
+          onContentSizeChange={(_, contentHeight) => setMoreBelow(contentHeight > Math.max(200, screenHeight * 0.42) + 8)}>
+          {wordBusy ? <View style={[styles.row, { gap: 8 }]}><ActivityIndicator color={colors.green} /><Text style={styles.copy}>Reading it in context…</Text></View> : <>
+            {!!analysis?.readAs && stripNiqqud(analysis.readAs) !== word.bare && <Text style={reader.fact}>The photo text reads <Text style={reader.factHebrew}>{isolateHebrew(word.bare)}</Text>; this is probably <Text style={reader.factHebrew}>{isolateHebrew(analysis.readAs)}</Text>.</Text>}
+            {!!gloss && <Section label="In this sentence"><Text style={reader.meaning}>{isolateHebrew(gloss)}</Text></Section>}
+            {analysis && analysis.parts.length > 1 && <Section label="Breakdown"><View style={reader.parts}>
+              {analysis.parts.map((part, i) => <View key={i} style={reader.part}><Text style={reader.partHebrew}>{part.text}</Text><Text style={reader.partMeaning}>{isolateHebrew(part.meaning)}</Text></View>)}
+            </View></Section>}
+            {phrase && <Section label="Phrase"><View style={reader.phrase}>
+              <Text style={[reader.fact, { flex: 1 }]}><Text style={reader.factHebrew}>{isolateHebrew(phrase.text)}</Text> · {isolateHebrew(phrase.meaning)}</Text>
+              <TextButton title={phraseSaved ? 'Saved ✓' : 'Save phrase'} color={colors.green} onPress={() => void saveWord(true)} />
+            </View></Section>}
+            {analysis && <WordFacts analysis={analysis} gloss={gloss} />}
+            {!analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation of the word.</Text>}
+          </>}
+          <ErrorNotice message={wordError} />
+        </ScrollView>
+        {moreBelow && <Text style={reader.more} pointerEvents="none">More below ↓</Text>}
+      </View>
       <View style={[styles.row, { flexWrap: 'nowrap' }]}>
         {/* Hebrew reads right-to-left: the next word is to the left. */}
         <Pressable accessibilityRole="button" accessibilityLabel="Next word" disabled={selected! >= words.length - 1} onPress={() => void select(selected! + 1)} style={[reader.nav, selected! >= words.length - 1 && { opacity: 0.3 }]}><Ionicons name="chevron-back" size={22} color={colors.green} /></Pressable>
@@ -191,21 +204,30 @@ export default function Reader() {
   </View>
 }
 
-function WordFacts({ analysis }: { analysis: WordAnalysis }) {
+function Section({ label, children }: { label: string; children: ReactNode }) {
+  return <View style={{ gap: 4 }}><Text style={reader.label}>{label}</Text>{children}</View>
+}
+
+// Dictionary entry (form, other senses, root, grammar) and an optional note, always in this order.
+function WordFacts({ analysis, gloss }: { analysis: WordAnalysis; gloss: string }) {
   const grammar = [analysis.partOfSpeech, analysis.binyan, analysis.form].filter(Boolean).join(' · ')
-  const showLemma = analysis.lemma && stripNiqqud(analysis.lemma) !== stripNiqqud(analysis.vocalized || analysis.word)
-  return <View style={{ gap: 4 }}>
-    {showLemma && <Text style={reader.fact}>Dictionary form: <Text style={reader.factHebrew}>{analysis.lemma}</Text>{analysis.lemmaMeaning ? ` · ${analysis.lemmaMeaning}` : ''}</Text>}
-    {!showLemma && !!analysis.lemmaMeaning && <Text style={reader.fact}>Also: {analysis.lemmaMeaning}</Text>}
-    {(!!analysis.root || !!grammar) && <Text style={reader.fact}>{analysis.root ? <>Root <Text style={reader.factHebrew}>{analysis.root}</Text>{grammar ? ' · ' : ''}</> : null}{grammar}</Text>}
-    {!!analysis.note && <Text style={[reader.fact, { fontStyle: 'italic' }]}>{analysis.note}</Text>}
-  </View>
+  const showLemma = !!analysis.lemma && stripNiqqud(analysis.lemma) !== stripNiqqud(analysis.vocalized || analysis.word)
+  const senses = otherSenses(analysis.lemmaMeaning || '', gloss)
+  const hasEntry = showLemma || !!senses || !!analysis.root || !!grammar
+  return <>
+    {hasEntry && <Section label="Dictionary">
+      {showLemma && <Text style={reader.fact}><Text style={reader.factHebrew}>{isolateHebrew(analysis.lemma)}</Text>{senses ? ` · ${isolateHebrew(senses)}` : ''}</Text>}
+      {!showLemma && !!senses && <Text style={reader.fact}>Other senses: {isolateHebrew(senses)}</Text>}
+      {(!!analysis.root || !!grammar) && <Text style={reader.fact}>{analysis.root ? <>Root <Text style={reader.factHebrew}>{isolateHebrew(analysis.root)}</Text>{grammar ? ' · ' : ''}</> : null}{grammar}</Text>}
+    </Section>}
+    {!!analysis.note && <Section label="Note"><Text style={reader.fact}>{isolateHebrew(analysis.note)}</Text></Section>}
+  </>
 }
 
 const reader = StyleSheet.create({
   segment: { paddingVertical: 10, gap: 4 },
   edge: { fontSize: 12, color: colors.muted, fontStyle: 'italic' },
-  phrase: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: 10, borderRadius: 12, backgroundColor: colors.paper },
+  phrase: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: colors.paper },
   divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   line: { flexDirection: 'row-reverse', flexWrap: 'wrap', columnGap: 2 },
   wordBox: { borderRadius: 6, paddingHorizontal: 3 },
@@ -215,13 +237,16 @@ const reader = StyleSheet.create({
   english: { fontSize: 15, lineHeight: 22, color: colors.muted },
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 18, gap: 12, backgroundColor: colors.white, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTopWidth: 1, borderColor: colors.line, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12 },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sheetWord: { fontSize: 28, lineHeight: 38, fontWeight: '600', color: colors.ink, writingDirection: 'rtl' },
-  meaning: { fontSize: 19, fontWeight: '600', color: colors.ink },
+  sheetWord: { fontSize: 28, lineHeight: 42, fontWeight: '600', color: colors.ink, writingDirection: 'rtl', flexShrink: 1 },
+  label: { fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: colors.muted },
+  more: { position: 'absolute', right: 0, bottom: 0, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10, overflow: 'hidden', fontSize: 12, fontWeight: '600', color: colors.green, backgroundColor: colors.white },
+  meaning: { fontSize: 19, lineHeight: 26, fontWeight: '600', color: colors.ink, writingDirection: 'ltr', textAlign: 'left' },
   parts: { flexDirection: 'row-reverse', flexWrap: 'wrap', gap: 8 },
-  part: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: colors.paper, alignItems: 'center' },
-  partHebrew: { fontSize: 19, color: colors.ink },
-  partMeaning: { fontSize: 12, color: colors.muted },
-  fact: { fontSize: 14, lineHeight: 21, color: colors.muted },
+  part: { maxWidth: '100%', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: colors.paper, alignItems: 'center' },
+  partHebrew: { fontSize: 19, lineHeight: 28, color: colors.ink, writingDirection: 'rtl' },
+  partMeaning: { fontSize: 12, color: colors.muted, textAlign: 'center', writingDirection: 'ltr' },
+  // English explanations are always left-to-right, whatever letter they start with.
+  fact: { fontSize: 14, lineHeight: 24, color: colors.muted, writingDirection: 'ltr', textAlign: 'left' },
   factHebrew: { color: colors.ink, fontSize: 16 },
   nav: { width: 46, height: 50, borderRadius: 14, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
 })
