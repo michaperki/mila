@@ -62,6 +62,12 @@ const handler: Handler = async (event) => {
     }
 
     if (event.httpMethod === 'DELETE') {
+      // `all=1` clears the whole list (Account → Delete all saved words); it must be explicit,
+      // so a request that merely lacks an id still fails.
+      if (event.queryStringParameters?.all === '1') {
+        const { deletedCount } = await vocab.deleteMany({ userId: auth.userId })
+        return { statusCode: 200, body: JSON.stringify({ deleted: deletedCount }) }
+      }
       const id = event.queryStringParameters?.id
       if (!id) {
         return { statusCode: 400, body: JSON.stringify({ message: 'Missing vocab id' }) }

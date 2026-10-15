@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 const updateOne = vi.fn()
-vi.mock('../netlify/functions/lib/mongo', () => ({ getDb: async () => ({ collection: () => ({ updateOne }) }) }))
+const deleteMany = vi.fn()
+vi.mock('../netlify/functions/lib/mongo', () => ({ getDb: async () => ({ collection: () => ({ updateOne, deleteMany }) }) }))
 vi.mock('../netlify/functions/lib/auth', () => ({ verifyAuth: () => ({ userId: 'user' }) }))
 import { handler } from '../netlify/functions/vocab'
 
@@ -21,5 +22,18 @@ describe('vocab review updates', () => {
     expect((await patch({ id: 'native-x', review: { due: 'soon' } })).statusCode).toBe(400)
     updateOne.mockResolvedValueOnce({ matchedCount: 0 })
     expect((await patch({ id: 'gone', review: { due: 1, interval: 1, reps: 1, lapses: 0 } })).statusCode).toBe(404)
+  })
+})
+
+describe('clearing vocab', () => {
+  const remove = async (query: Record<string, string> | undefined) => (await handler({ httpMethod: 'DELETE', queryStringParameters: query } as any, {} as any, () => {}) as any)
+  it('deletes all of the user\'s words only when asked explicitly', async () => {
+    deleteMany.mockResolvedValue({ deletedCount: 3 })
+    const response = await remove({ all: '1' })
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toEqual({ deleted: 3 })
+    expect(deleteMany).toHaveBeenCalledWith({ userId: 'user' })
+    expect((await remove(undefined)).statusCode).toBe(400)
+    expect(deleteMany).toHaveBeenCalledTimes(1)
   })
 })
