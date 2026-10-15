@@ -41,7 +41,7 @@ const schema = {
         },
       },
     },
-    lemma: { type: 'string', description: 'Dictionary form, vocalized (masculine singular; verbs as the infinitive or 3rd person past).' },
+    lemma: { type: 'string', description: 'Dictionary form, vocalized (masculine singular; verbs as the infinitive or 3rd person past). A word that is a dictionary entry in its own right, such as an adverb or fixed expression written as one word (לְמַעֲשֶׂה, בְּעֶצֶם, לְפָחוֹת), is its own lemma; do not reduce it to the noun it came from. partOfSpeech, lemmaMeaning and root describe this lemma.' },
     lemmaMeaning: { type: 'string', description: 'The lemma\'s common English senses, comma-separated, most common first; at most five.' },
     root: { type: 'string', description: 'Root letters joined with ־ (e.g. ח־ש־ב), or empty if none applies.' },
     partOfSpeech: { type: 'string', description: 'noun, verb, adjective, adverb, preposition, pronoun, number, name, or phrase.' },

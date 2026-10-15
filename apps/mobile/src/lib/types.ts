@@ -26,6 +26,11 @@ export type WordAnalysis = {
   readAs?: string; phrase?: { text: string; meaning: string }
 }
 // Saved vocabulary keeps where the word was met so review cards can show it in context.
+// `gloss` is the meaning where the word was met ("in fact"); `senses` are the dictionary form's
+// broader meanings. Entries saved before October 2026 have dictionary senses in `gloss`.
 export type VocabEntry = StarredItem & {
   vocalized?: string; context?: string; contextTranslation?: string; partOfSpeech?: string; surface?: string
+  senses?: string; review?: Review
 }
+// Spaced-repetition state, stored on the vocab entry (see lib/review.ts).
+export type Review = { due: number; interval: number; reps: number; lapses: number; last?: number }

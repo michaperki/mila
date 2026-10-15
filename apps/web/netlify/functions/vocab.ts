@@ -46,6 +46,21 @@ const handler: Handler = async (event) => {
       }
     }
 
+    // Records a practice result without touching the rest of the entry (POST replaces it).
+    if (event.httpMethod === 'PATCH') {
+      const payload = JSON.parse(event.body || '{}')
+      const review = payload.review
+      const valid = typeof payload.id === 'string' && review && ['due', 'interval', 'reps', 'lapses'].every(key => typeof review[key] === 'number' && Number.isFinite(review[key]))
+      if (!valid) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid review' }) }
+      const { due, interval, reps, lapses, last } = review
+      const result = await vocab.updateOne(
+        { userId: auth.userId, id: payload.id },
+        { $set: { review: { due, interval, reps, lapses, ...(typeof last === 'number' ? { last } : {}) }, updatedAt: Date.now() } },
+      )
+      if (!result.matchedCount) return { statusCode: 404, body: JSON.stringify({ message: 'This word is no longer saved.' }) }
+      return { statusCode: 204, body: '' }
+    }
+
     if (event.httpMethod === 'DELETE') {
       const id = event.queryStringParameters?.id
       if (!id) {

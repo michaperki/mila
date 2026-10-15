@@ -176,7 +176,9 @@ export default function Reader() {
       ...(asPhrase ? { lemma: phrase!.text, gloss: phrase!.meaning, surface: phrase!.text, partOfSpeech: 'phrase' } : isPhrase ? {
         lemma, gloss, surface: word.bare, vocalized: analysis?.vocalized, partOfSpeech: 'phrase',
       } : {
-        lemma, gloss: analysis?.lemmaMeaning || gloss, surface: word.bare, vocalized: analysis?.vocalized, partOfSpeech: analysis?.partOfSpeech,
+        // The meaning as met here is what practice tests; dictionary senses are kept apart.
+        lemma, gloss, surface: word.bare, vocalized: analysis?.vocalized, partOfSpeech: analysis?.partOfSpeech,
+        ...(analysis?.lemmaMeaning ? { senses: analysis.lemmaMeaning } : {}),
         ...(analysis?.root ? { root: analysis.root } : {}),
       }),
       ...(saved ? { sourceRef: { textId: docId.current, chunkId: `${docId.current}-${word.segment}` } } : {}),

@@ -13,6 +13,7 @@ function Navigator() {
     <Stack.Screen name="signup" options={{ title: 'Create account' }} />
     <Stack.Screen name="reader" options={{ title: 'Read & learn' }} />
     <Stack.Screen name="compose" options={{ title: 'Read Hebrew text' }} />
+    <Stack.Screen name="practice" options={{ title: 'Practice' }} />
   </Stack></>
 }
 export default function RootLayout() { return <SafeAreaProvider><SessionProvider><Navigator /></SessionProvider></SafeAreaProvider> }
