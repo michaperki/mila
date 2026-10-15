@@ -17,6 +17,13 @@ export function grade(review: Review | undefined, rating: Rating, now = Date.now
   return { ...base, interval: next, due: now + next * DAY }
 }
 
+// How long a rating puts the card away, for the grading buttons: "now", "1 day", "3 days".
+export function waitOf(review: Review | undefined, rating: Rating): string {
+  if (rating === 'again') return 'now'
+  const days = grade(review, rating, 0).interval
+  return days === 1 ? '1 day' : days < 60 ? `${days} days` : `${Math.round(days / 30)} months`
+}
+
 export const statusOf = (entry: VocabEntry): Status =>
   !entry.review ? 'new' : entry.review.interval >= MASTERED_DAYS ? 'mastered' : 'learning'
 

@@ -173,6 +173,7 @@ export default function Reader() {
     const id = vocabId(asPhrase ? phrase!.text : lemma)
     const entry: VocabEntry = {
       id, createdAt: Date.now(), frequency: 1, context: segment.he, contextTranslation: segment.en,
+      ...(analysis?.excerpt?.text ? { excerpt: analysis.excerpt.text, excerptTranslation: analysis.excerpt.meaning } : {}),
       ...(asPhrase ? { lemma: phrase!.text, gloss: phrase!.meaning, surface: phrase!.text, partOfSpeech: 'phrase' } : isPhrase ? {
         lemma, gloss, surface: word.bare, vocalized: analysis?.vocalized, partOfSpeech: 'phrase',
       } : {
@@ -180,6 +181,8 @@ export default function Reader() {
         lemma, gloss, surface: word.bare, vocalized: analysis?.vocalized, partOfSpeech: analysis?.partOfSpeech,
         ...(analysis?.lemmaMeaning ? { senses: analysis.lemmaMeaning } : {}),
         ...(analysis?.root ? { root: analysis.root } : {}),
+        ...(analysis?.form ? { form: analysis.form } : {}),
+        ...(analysis?.binyan ? { binyan: analysis.binyan } : {}),
       }),
       ...(saved ? { sourceRef: { textId: docId.current, chunkId: `${docId.current}-${word.segment}` } } : {}),
     }

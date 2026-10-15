@@ -23,14 +23,15 @@ export type Recognition = {
 export type WordAnalysis = {
   word: string; vocalized: string; meaning: string; parts: { text: string; meaning: string }[]
   lemma: string; lemmaMeaning: string; root: string; partOfSpeech: string; binyan: string; form: string; note: string
-  readAs?: string; phrase?: { text: string; meaning: string }
+  readAs?: string; phrase?: { text: string; meaning: string }; excerpt?: { text: string; meaning: string }
 }
 // Saved vocabulary keeps where the word was met so review cards can show it in context.
 // `gloss` is the meaning where the word was met ("in fact"); `senses` are the dictionary form's
-// broader meanings. Entries saved before October 2026 have dictionary senses in `gloss`.
+// broader meanings. `form`/`binyan` describe the form met; `excerpt` is the part of the
+// context sentence a card shows, with the whole sentence a tap away.
 export type VocabEntry = StarredItem & {
   vocalized?: string; context?: string; contextTranslation?: string; partOfSpeech?: string; surface?: string
-  senses?: string; review?: Review
+  senses?: string; form?: string; binyan?: string; excerpt?: string; excerptTranslation?: string; review?: Review
 }
 // Spaced-repetition state, stored on the vocab entry (see lib/review.ts).
 export type Review = { due: number; interval: number; reps: number; lapses: number; last?: number }

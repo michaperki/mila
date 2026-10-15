@@ -20,16 +20,17 @@ export type WordAnalysis = {
   note: string
   readAs: string
   phrase: { text: string; meaning: string }
+  excerpt: { text: string; meaning: string }
 }
 
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['word', 'vocalized', 'meaning', 'parts', 'lemma', 'lemmaMeaning', 'root', 'partOfSpeech', 'binyan', 'form', 'note', 'readAs', 'phrase'],
+  required: ['word', 'vocalized', 'meaning', 'parts', 'lemma', 'lemmaMeaning', 'root', 'partOfSpeech', 'binyan', 'form', 'note', 'readAs', 'phrase', 'excerpt'],
   properties: {
     word: { type: 'string', description: 'The word exactly as given.' },
     vocalized: { type: 'string', description: 'The word with full niqqud as read in this sentence.' },
-    meaning: { type: 'string', description: 'Short English meaning of this word in this sentence, including prefixes (e.g. "in math"). This is the main answer; other fields should not repeat it.' },
+    meaning: { type: 'string', description: 'Short English meaning of this word in this sentence, including prefixes (e.g. "in math"). Read the word inside the construction it is part of: ראיתי in "ראיתי את עצמי כותב" is "I could see (myself)", not just "I saw". This is the main answer; other fields should not repeat it.' },
     parts: {
       type: 'array',
       description: 'Morphological pieces in reading order: attached prefixes (ו, ה, ב, כ, ל, מ, ש), the stem, any pronoun suffix. One item if the word has no affixes.',
@@ -54,12 +55,17 @@ const schema = {
       description: 'If the word belongs to a multi-word unit in this sentence (idiom, construct chain/סמיכות, fixed expression, multi-word name, verb with its fixed preposition), the whole unit exactly as written in the sentence and its English meaning; otherwise both empty.',
       properties: { text: { type: 'string' }, meaning: { type: 'string' } },
     },
+    excerpt: {
+      type: 'object', additionalProperties: false, required: ['text', 'meaning'],
+      description: 'For a flashcard: the shortest stretch of the sentence, copied exactly and containing the word, that still shows what the word means here (usually its clause, about 4 to 10 words), and a natural English translation of that stretch. Never cut a phrase the word depends on. Both empty if the sentence is already that short.',
+      properties: { text: { type: 'string' }, meaning: { type: 'string' } },
+    },
   },
 } as const
 
 const SYSTEM = `You are a Hebrew tutor inside a reading app for English-speaking learners. The learner tapped one word in a sentence they photographed. Analyze that word as it is used in that sentence. Text comes from OCR and may have recognition errors or missing niqqud. If the tapped word is misread, say what you read it as in readAs and analyze that word. Grammar claims must be ones you are certain of; leave a field empty rather than guess. Keep every English field short and write it in plain English; quote a Hebrew word only when the point is about that word, and never translate the same thing twice across fields. If the tapped text is not Hebrew, return it unchanged with your best short meaning and empty grammar fields.
 
-The learner may select several words instead of one. Then explain them as one unit: "meaning" is what the words mean together here; "parts" lists each word (with its prefixes) and its meaning here; "lemma" and "lemmaMeaning" are the expression's dictionary form and senses only if it is a fixed expression, otherwise empty; root, binyan and form apply only if one word carries the meaning, otherwise empty; "partOfSpeech" is "phrase"; "phrase" and "readAs" are empty. If the words don't form a unit, still give their combined meaning and say so in "note".`
+The learner may select several words instead of one. Then explain them as one unit: "meaning" is what the words mean together here; "parts" lists each word (with its prefixes) and its meaning here; "lemma" and "lemmaMeaning" are the expression's dictionary form and senses only if it is a fixed expression, otherwise empty; root, binyan and form apply only if one word carries the meaning, otherwise empty; "partOfSpeech" is "phrase"; "phrase" and "readAs" are empty; "excerpt" is as for one word. If the words don't form a unit, still give their combined meaning and say so in "note".`
 
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, WordAnalysis>()

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { countsOf, grade, isDue, matches, practiceQueue, statusOf } from '../src/lib/review.ts'
+import { countsOf, grade, isDue, matches, practiceQueue, statusOf, waitOf } from '../src/lib/review.ts'
 
 const DAY = 24 * 60 * 60 * 1000
 const now = new Date(2026, 9, 15, 10).getTime()
@@ -35,4 +35,13 @@ test('search ignores vowels and looks at English meanings', () => {
   assert.equal(matches(entry, 'Actual'), true)
   assert.equal(matches(entry, 'house'), false)
   assert.equal(matches(entry, ' '), true)
+})
+
+test('grading buttons show how long each rating puts a card away', () => {
+  assert.equal(waitOf(undefined, 'again'), 'now')
+  assert.equal(waitOf(undefined, 'good'), '1 day')
+  assert.equal(waitOf({ due: 0, interval: 1, reps: 1, lapses: 0 }, 'good'), '3 days')
+  assert.equal(waitOf({ due: 0, interval: 3, reps: 2, lapses: 0 }, 'good'), '8 days')
+  assert.equal(waitOf({ due: 0, interval: 30, reps: 5, lapses: 0 }, 'hard'), '1 day')
+  assert.equal(waitOf({ due: 0, interval: 30, reps: 5, lapses: 0 }, 'good'), '3 months')
 })

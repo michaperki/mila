@@ -18,10 +18,14 @@ export const styles = StyleSheet.create({
 export function Page({ children, refreshControl }: { children: ReactNode; refreshControl?: React.ReactElement<RefreshControlProps> }) {
   return <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" refreshControl={refreshControl}>{children}</ScrollView>
 }
-export function Button({ title, onPress, disabled, secondary, busy, style }: { title: string; onPress: () => void; disabled?: boolean; secondary?: boolean; busy?: boolean; style?: StyleProp<ViewStyle> }) {
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled: !!disabled || !!busy }} onPress={onPress} disabled={disabled || busy}
-    style={({ pressed }) => [{ minHeight: 50, paddingHorizontal: 20, paddingVertical: 13, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: secondary ? colors.lime : colors.green, opacity: disabled || busy ? 0.5 : pressed ? 0.75 : 1 }, style]}>
-    {busy ? <ActivityIndicator color={secondary ? colors.green : colors.white} /> : <Text style={{ fontSize: 16, fontWeight: '600', color: secondary ? colors.green : colors.white }}>{title}</Text>}
+// `detail` is an optional second line under the title (e.g. "3 days" on a grading button).
+export function Button({ title, detail, onPress, disabled, secondary, busy, style }: { title: string; detail?: string; onPress: () => void; disabled?: boolean; secondary?: boolean; busy?: boolean; style?: StyleProp<ViewStyle> }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={detail ? `${title}, ${detail}` : undefined} accessibilityState={{ disabled: !!disabled || !!busy }} onPress={onPress} disabled={disabled || busy}
+    style={({ pressed }) => [{ minHeight: 50, paddingHorizontal: 20, paddingVertical: detail ? 8 : 13, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: secondary ? colors.lime : colors.green, opacity: disabled || busy ? 0.5 : pressed ? 0.75 : 1 }, style]}>
+    {busy ? <ActivityIndicator color={secondary ? colors.green : colors.white} /> : <>
+      <Text style={{ fontSize: 16, fontWeight: '600', color: secondary ? colors.green : colors.white }}>{title}</Text>
+      {!!detail && <Text style={{ fontSize: 12, color: secondary ? colors.green : colors.white, opacity: 0.8 }}>{detail}</Text>}
+    </>}
   </Pressable>
 }
 export function ErrorNotice({ message }: { message?: string | null }) {
@@ -31,10 +35,10 @@ export function AccountGate() {
   return <View style={styles.card}><Text style={styles.heading}>Your Hebrew, everywhere</Text><Text style={styles.copy}>Sign in to use camera translation and access your saved passages and vocabulary.</Text><Button title="Sign in" onPress={() => router.push('/login')} /><Button secondary title="Create account" onPress={() => router.push('/signup')} /></View>
 }
 // Small toolbar toggle, e.g. "Vowels" / "English" in the reader.
-export function Pill({ label, icon, active, onPress, accessibilityLabel }: { label?: string; icon?: React.ComponentProps<typeof Ionicons>['name']; active?: boolean; onPress: () => void; accessibilityLabel?: string }) {
+export function Pill({ label, icon, leading, active, onPress, accessibilityLabel }: { label?: string; icon?: React.ComponentProps<typeof Ionicons>['name']; leading?: ReactNode; active?: boolean; onPress: () => void; accessibilityLabel?: string }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel || label} accessibilityState={{ selected: !!active }} onPress={onPress} hitSlop={6}
     style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: 12, borderRadius: 18, borderWidth: 1, borderColor: active ? colors.green : colors.line, backgroundColor: active ? colors.lime : colors.white, opacity: pressed ? 0.7 : 1 })}>
-    {icon && <Ionicons name={icon} size={16} color={colors.green} />}{label && <Text style={{ fontSize: 14, fontWeight: '600', color: colors.green }}>{label}</Text>}
+    {leading}{icon && <Ionicons name={icon} size={16} color={colors.green} />}{label && <Text style={{ fontSize: 14, fontWeight: '600', color: colors.green }}>{label}</Text>}
   </Pressable>
 }
 // Quiet, low-emphasis action (e.g. Sign out).
