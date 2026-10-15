@@ -57,7 +57,9 @@ const schema = {
   },
 } as const
 
-const SYSTEM = `You are a Hebrew tutor inside a reading app for English-speaking learners. The learner tapped one word in a sentence they photographed. Analyze that word as it is used in that sentence. Text comes from OCR and may have recognition errors or missing niqqud. If the tapped word is misread, say what you read it as in readAs and analyze that word. Grammar claims must be ones you are certain of; leave a field empty rather than guess. Keep every English field short and write it in plain English; quote a Hebrew word only when the point is about that word, and never translate the same thing twice across fields. If the tapped text is not Hebrew, return it unchanged with your best short meaning and empty grammar fields.`
+const SYSTEM = `You are a Hebrew tutor inside a reading app for English-speaking learners. The learner tapped one word in a sentence they photographed. Analyze that word as it is used in that sentence. Text comes from OCR and may have recognition errors or missing niqqud. If the tapped word is misread, say what you read it as in readAs and analyze that word. Grammar claims must be ones you are certain of; leave a field empty rather than guess. Keep every English field short and write it in plain English; quote a Hebrew word only when the point is about that word, and never translate the same thing twice across fields. If the tapped text is not Hebrew, return it unchanged with your best short meaning and empty grammar fields.
+
+The learner may select several words instead of one. Then explain them as one unit: "meaning" is what the words mean together here; "parts" lists each word (with its prefixes) and its meaning here; "lemma" and "lemmaMeaning" are the expression's dictionary form and senses only if it is a fixed expression, otherwise empty; root, binyan and form apply only if one word carries the meaning, otherwise empty; "partOfSpeech" is "phrase"; "phrase" and "readAs" are empty. If the words don't form a unit, still give their combined meaning and say so in "note".`
 
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, WordAnalysis>()
@@ -72,7 +74,9 @@ export const handler: Handler = async (event) => {
     try { payload = JSON.parse(event.body || '{}') } catch { return reply(400, { message: 'Invalid word request.' }) }
     const word = typeof payload.word === 'string' ? payload.word.trim() : ''
     const sentence = typeof payload.sentence === 'string' ? payload.sentence.trim() : ''
-    if (!word || word.length > 40 || sentence.length > 600) return reply(400, { message: 'Choose a single word to explain.' })
+    // One tapped word, or a phrase of up to eight words dragged across in the reader.
+    const words = word.split(/\s+/).length
+    if (!word || word.length > 120 || words > 8 || sentence.length > 600) return reply(400, { message: 'Choose a word or a short phrase to explain.' })
     if (!process.env.ANTHROPIC_API_KEY) return reply(503, { message: 'Word explanations are not configured yet.', code: 'ANALYSIS_CONFIG', requestId })
 
     const key = `${word}\u0000${sentence}`
@@ -88,7 +92,7 @@ export const handler: Handler = async (event) => {
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
       system: SYSTEM,
-      messages: [{ role: 'user', content: `Sentence: ${sentence || word}\nTapped word: ${word}` }],
+      messages: [{ role: 'user', content: `Sentence: ${sentence || word}\n${words > 1 ? 'Selected words' : 'Tapped word'}: ${word}` }],
     }, { timeout: 15000, maxRetries: 1 })
 
     if (response.stop_reason === 'refusal') return reply(422, { message: 'This word could not be explained.', code: 'ANALYSIS_REFUSED', requestId })

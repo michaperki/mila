@@ -33,6 +33,11 @@ describe('word analysis endpoint', () => {
     expect(result.phrase.text).toBe('מבחן בחשבון')
     expect(create.mock.calls[0][0].output_config.format.schema.required).toEqual(expect.arrayContaining(['readAs', 'phrase']))
   })
+  it('explains a dragged phrase as one unit', async () => {
+    const result = await invoke({ word: 'מבחן בחשבון', sentence: 'מחר יש לי מבחן בחשבון.' })
+    expect(result.status).toBe(200)
+    expect(create.mock.calls[0][0].messages[0].content).toContain('Selected words: מבחן בחשבון')
+  })
   it('caches repeated taps on the same word in the same sentence', async () => {
     await invoke({ word: 'מבחן', sentence: 'מבחן בחשבון' }); await invoke({ word: 'מבחן', sentence: 'מבחן בחשבון' })
     expect(create).toHaveBeenCalledTimes(1)
@@ -43,7 +48,8 @@ describe('word analysis endpoint', () => {
     expect(result.status).toBe(503); expect(result.code).toBe('ANALYSIS_CONFIG')
   })
   it('rejects oversized input and refusals without leaking details', async () => {
-    expect((await invoke({ word: 'א'.repeat(41) })).status).toBe(400)
+    expect((await invoke({ word: 'א'.repeat(121) })).status).toBe(400)
+    expect((await invoke({ word: 'א ב ג ד ה ו ז ח ט' })).status).toBe(400)
     create.mockResolvedValueOnce({ stop_reason: 'refusal', content: [] })
     expect((await invoke({ word: 'אחר', sentence: 'משפט אחר' })).status).toBe(422)
     create.mockRejectedValueOnce(new Error('provider details'))

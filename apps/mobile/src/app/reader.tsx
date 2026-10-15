@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, type NativeScrollEvent, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, type GestureResponderEvent, type NativeScrollEvent, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -9,6 +9,7 @@ import { Button, colors, ErrorNotice, Page, Pill, styles, TextButton } from '../
 import { FeedbackButton } from '../components/Feedback'
 import { request } from '../lib/api'
 import { isolateHebrew, otherSenses } from '../lib/bidi'
+import { rangeOf, type Rect, wordAt } from '../lib/selection'
 import { documentFromRecognition, segmentsOf } from '../lib/documents'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { getPref, setPref } from '../lib/prefs'
@@ -31,7 +32,13 @@ export default function Reader() {
   // Camera captures go straight into the library (the effect below); pasted text waits for "Save passage".
   const autosave = recognition?.library === 'auto' && !!session
   const [busy, setBusy] = useState(autosave)
+  // The selection is one word or, after a drag, a run of words in one sentence.
   const [selected, setSelected] = useState<number | null>(null)
+  const [selectedTo, setSelectedTo] = useState<number | null>(null)
+  const [dragRange, setDragRange] = useState<{ from: number; to: number } | null>(null)
+  const lines = useRef(new Map<number, View>())
+  const wordBoxes = useRef(new Map<number, Map<number, Rect>>())
+  const drag = useRef<{ segment: number; x0: number; y0: number; origin?: { x: number; y: number }; start?: number; range?: { from: number; to: number } } | null>(null)
   const [analysis, setAnalysis] = useState<WordAnalysis | undefined>()
   const [gloss, setGloss] = useState('')
   const [wordBusy, setWordBusy] = useState(false)
@@ -91,23 +98,29 @@ export default function Reader() {
 
   if (!recognition) return <Page><Text style={styles.title}>Find something to read.</Text><Button title="Open camera" onPress={() => router.replace('/')} /></Page>
 
-  const select = async (index: number) => {
-    const word = words[index]
-    if (!word) return
+  const select = async (index: number, to = index) => {
+    const first = words[index]
+    if (!first) return
+    const text = words.slice(index, to + 1).map(item => item.bare).join(' ')
     const version = ++selection.current
-    setSelected(index); setAnalysis(undefined); setGloss(''); setWordError(null); setWordBusy(true)
+    setSelected(index); setSelectedTo(to); setAnalysis(undefined); setGloss(''); setWordError(null); setWordBusy(true)
     try {
-      const result = await explainWord(word.bare, segments[word.segment].he, session?.token)
+      const result = await explainWord(text, segments[first.segment].he, session?.token)
       if (selection.current !== version) return
       setAnalysis(result.analysis); setGloss(result.gloss)
     } catch (failure) { if (selection.current === version) setWordError((failure as Error).message) }
     finally { if (selection.current === version) setWordBusy(false) }
   }
   const close = () => { selection.current++; setSelected(null); void Speech.stop() }
-  const word = selected === null ? null : words[selected]
-  const lemma = analysis?.lemma || word?.bare || ''
+  const last = selected === null ? null : (selectedTo ?? selected)
+  const word = selected === null || last === null ? null
+    : { bare: words.slice(selected, last + 1).map(item => item.bare).join(' '), segment: words[selected].segment }
+  const isPhrase = selected !== null && last !== null && last > selected
+  const highlighted = dragRange ?? (selected === null ? null : { from: selected, to: last! })
+  // A selected phrase is saved as written; a single word by its dictionary form.
+  const lemma = isPhrase ? word!.bare : analysis?.lemma || word?.bare || ''
   const wordSaved = !!word && savedWords.has(vocabId(lemma))
-  const phrase = analysis?.phrase?.text ? analysis.phrase : null
+  const phrase = !isPhrase && analysis?.phrase?.text ? analysis.phrase : null
   const phraseSaved = !!phrase && savedWords.has(vocabId(phrase.text))
   // Saves the tapped word, or the multi-word phrase it belongs to, with its source sentence.
   const saveWord = async (asPhrase = false) => {
@@ -117,7 +130,9 @@ export default function Reader() {
     const id = vocabId(asPhrase ? phrase!.text : lemma)
     const entry: VocabEntry = {
       id, createdAt: Date.now(), frequency: 1, context: segment.he, contextTranslation: segment.en,
-      ...(asPhrase ? { lemma: phrase!.text, gloss: phrase!.meaning, surface: phrase!.text, partOfSpeech: 'phrase' } : {
+      ...(asPhrase ? { lemma: phrase!.text, gloss: phrase!.meaning, surface: phrase!.text, partOfSpeech: 'phrase' } : isPhrase ? {
+        lemma, gloss, surface: word.bare, vocalized: analysis?.vocalized, partOfSpeech: 'phrase',
+      } : {
         lemma, gloss: analysis?.lemmaMeaning || gloss, surface: word.bare, vocalized: analysis?.vocalized, partOfSpeech: analysis?.partOfSpeech,
         ...(analysis?.root ? { root: analysis.root } : {}),
       }),
@@ -129,28 +144,74 @@ export default function Reader() {
   }
   const toggleEnglish = () => setShowEnglish(value => { setPref('showEnglish', !value); return !value })
   const toggleNiqqud = () => setShowNiqqud(value => { setPref('showNiqqud', !value); return !value })
+  // Drag across words in one sentence to explain them together. A mostly horizontal move
+  // takes over from the word's tap; positions come from each word's box in its line.
+  const wordUnder = (segment: number, event: GestureResponderEvent) => {
+    const origin = drag.current?.origin
+    const boxes = wordBoxes.current.get(segment)
+    return origin && boxes ? wordAt(boxes, event.nativeEvent.pageX - origin.x, event.nativeEvent.pageY - origin.y) : undefined
+  }
+  const dragHandlers = (segment: number) => ({
+    onStartShouldSetResponderCapture: (event: GestureResponderEvent) => {
+      drag.current = { segment, x0: event.nativeEvent.pageX, y0: event.nativeEvent.pageY }
+      lines.current.get(segment)?.measureInWindow((x, y) => { if (drag.current?.segment === segment) drag.current.origin = { x, y } })
+      return false
+    },
+    onMoveShouldSetResponderCapture: (event: GestureResponderEvent) => {
+      const current = drag.current
+      if (!current || current.segment !== segment || !current.origin) return false
+      const dx = Math.abs(event.nativeEvent.pageX - current.x0)
+      const dy = Math.abs(event.nativeEvent.pageY - current.y0)
+      if (dx < 10 || dx < dy * 1.5) return false
+      const start = wordAt(wordBoxes.current.get(segment) ?? new Map(), current.x0 - current.origin.x, current.y0 - current.origin.y)
+      if (start === undefined) return false
+      current.start = start
+      return true
+    },
+    onResponderGrant: () => {
+      const start = drag.current!.start!
+      drag.current!.range = { from: start, to: start }
+      setDragRange({ from: start, to: start })
+      return true
+    },
+    onResponderMove: (event: GestureResponderEvent) => {
+      const current = drag.current
+      const under = wordUnder(segment, event)
+      if (!current || current.start === undefined || under === undefined) return
+      current.range = rangeOf(current.start, under)
+      setDragRange(current.range)
+    },
+    onResponderTerminationRequest: () => false,
+    onResponderRelease: () => {
+      const range = drag.current?.range
+      drag.current = null; setDragRange(null)
+      if (range) void select(range.from, range.to)
+    },
+    onResponderTerminate: () => { drag.current = null; setDragRange(null) },
+  })
   // Shows a "More below" hint until the explanation is scrolled to its end.
   const measureMore = ({ layoutMeasurement, contentOffset, contentSize }: NativeScrollEvent) => setMoreBelow(contentOffset.y + layoutMeasurement.height < contentSize.height - 8)
   const speak = (text: string) => { void Speech.stop(); Speech.speak(text, { language: 'he-IL', rate: 0.8 }) }
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <ScrollView contentContainerStyle={[styles.content, { gap: 14, paddingBottom: word ? sheetHeight + 24 : 36 }]}>
+    <ScrollView scrollEnabled={!dragRange} contentContainerStyle={[styles.content, { gap: 14, paddingBottom: word ? sheetHeight + 24 : 36 }]}>
       <View style={[styles.row, { gap: 8 }]}>
         <Pill icon={showEnglish ? 'eye-outline' : 'eye-off-outline'} label="English" active={showEnglish} onPress={toggleEnglish} accessibilityLabel={showEnglish ? 'Hide English' : 'Show English'} />
         <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />
         <Pill icon="volume-medium-outline" label="Listen" onPress={() => speak(recognition.text)} accessibilityLabel="Listen in Hebrew" />
         <FeedbackButton screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss, analysis })} />
       </View>
-      <Text style={[styles.copy, { fontSize: 14 }]}>Tap any word to see what it means here.</Text>
+      <Text style={[styles.copy, { fontSize: 14 }]}>Tap a word to see what it means here, or drag across words to explain a phrase.</Text>
       {!!recognition.readError && <Text style={reader.edge}>Read with basic text recognition, so some letters may be wrong.</Text>}
       <View style={[styles.card, { gap: 0, paddingVertical: 8 }]}>
         {segments.map((segment, s) => <View key={s} style={[reader.segment, s > 0 && (paged ? segment.paragraph : true) && reader.divider, paged && !segment.paragraph && { paddingTop: 2 }]}>
           {segment.joined && <Text style={reader.edge}>Starts on the previous page</Text>}
           {segment.cutStart && <Text style={reader.edge}>Continued from the previous page</Text>}
-          <View style={reader.line}>
+          <View style={reader.line} ref={view => { if (view) lines.current.set(s, view); else lines.current.delete(s) }} {...dragHandlers(s)}>
             {segment.marker && <Text style={[reader.word, reader.marker]}>{segment.marker}.</Text>}
             {words.map((item, i) => item.segment !== s ? null : <Pressable key={i} accessibilityRole="button" accessibilityLabel={`Explain ${item.bare}`} onPress={() => void select(i)}
-              style={[reader.wordBox, selected === i && { backgroundColor: colors.lime }]}>
+              onLayout={event => { const boxes = wordBoxes.current.get(s) ?? new Map<number, Rect>(); boxes.set(i, event.nativeEvent.layout); wordBoxes.current.set(s, boxes) }}
+              style={[reader.wordBox, highlighted && i >= highlighted.from && i <= highlighted.to && { backgroundColor: colors.lime }]}>
               <Text style={[reader.word, segment.heading && reader.heading]}>{showNiqqud ? item.surface : stripNiqqud(item.surface)}</Text>
             </Pressable>)}
             {indexOfFirstWord[s] === undefined && <Text style={reader.word}>{segment.he}</Text>}
@@ -168,7 +229,7 @@ export default function Reader() {
       <View style={reader.sheetHeader}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} hitSlop={10}><Ionicons name="close" size={24} color={colors.muted} /></Pressable>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 }}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Hear this word" onPress={() => speak(analysis?.vocalized || word.bare)} hitSlop={10}><Ionicons name="volume-medium-outline" size={24} color={colors.green} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={isPhrase ? 'Hear this phrase' : 'Hear this word'} onPress={() => speak(analysis?.vocalized || word.bare)} hitSlop={10}><Ionicons name="volume-medium-outline" size={24} color={colors.green} /></Pressable>
           <Text style={reader.sheetWord}>{analysis?.vocalized || word.bare}</Text>
         </View>
       </View>
@@ -178,7 +239,7 @@ export default function Reader() {
           onScroll={event => measureMore(event.nativeEvent)}
           onContentSizeChange={(_, contentHeight) => setMoreBelow(contentHeight > Math.max(200, screenHeight * 0.42) + 8)}>
           {wordBusy ? <View style={[styles.row, { gap: 8 }]}><ActivityIndicator color={colors.green} /><Text style={styles.copy}>Reading it in context…</Text></View> : <>
-            {!!analysis?.readAs && stripNiqqud(analysis.readAs) !== word.bare && <Text style={reader.fact}>The photo text reads <Text style={reader.factHebrew}>{isolateHebrew(word.bare)}</Text>; this is probably <Text style={reader.factHebrew}>{isolateHebrew(analysis.readAs)}</Text>.</Text>}
+            {!isPhrase && !!analysis?.readAs && stripNiqqud(analysis.readAs) !== word.bare && <Text style={reader.fact}>The photo text reads <Text style={reader.factHebrew}>{isolateHebrew(word.bare)}</Text>; this is probably <Text style={reader.factHebrew}>{isolateHebrew(analysis.readAs)}</Text>.</Text>}
             {!!gloss && <Section label="In this sentence"><Text style={reader.meaning}>{isolateHebrew(gloss)}</Text></Section>}
             {analysis && analysis.parts.length > 1 && <Section label="Breakdown"><View style={reader.parts}>
               {analysis.parts.map((part, i) => <View key={i} style={reader.part}><Text style={reader.partHebrew}>{part.text}</Text><Text style={reader.partMeaning}>{isolateHebrew(part.meaning)}</Text></View>)}
@@ -188,7 +249,7 @@ export default function Reader() {
               <TextButton title={phraseSaved ? 'Saved ✓' : 'Save phrase'} color={colors.green} onPress={() => void saveWord(true)} />
             </View></Section>}
             {analysis && <WordFacts analysis={analysis} gloss={gloss} />}
-            {!analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation of the word.</Text>}
+            {!analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation.</Text>}
           </>}
           <ErrorNotice message={wordError} />
         </ScrollView>
@@ -196,8 +257,8 @@ export default function Reader() {
       </View>
       <View style={[styles.row, { flexWrap: 'nowrap' }]}>
         {/* Hebrew reads right-to-left: the next word is to the left. */}
-        <Pressable accessibilityRole="button" accessibilityLabel="Next word" disabled={selected! >= words.length - 1} onPress={() => void select(selected! + 1)} style={[reader.nav, selected! >= words.length - 1 && { opacity: 0.3 }]}><Ionicons name="chevron-back" size={22} color={colors.green} /></Pressable>
-        <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : 'Save word'} disabled={wordBusy || !gloss || wordSaved} busy={savingWord} onPress={() => void saveWord()} style={{ flex: 1 }} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Next word" disabled={last! >= words.length - 1} onPress={() => void select(last! + 1)} style={[reader.nav, last! >= words.length - 1 && { opacity: 0.3 }]}><Ionicons name="chevron-back" size={22} color={colors.green} /></Pressable>
+        <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : isPhrase ? 'Save phrase' : 'Save word'} disabled={wordBusy || !gloss || wordSaved} busy={savingWord} onPress={() => void saveWord()} style={{ flex: 1 }} />
         <Pressable accessibilityRole="button" accessibilityLabel="Previous word" disabled={selected! <= 0} onPress={() => void select(selected! - 1)} style={[reader.nav, selected! <= 0 && { opacity: 0.3 }]}><Ionicons name="chevron-forward" size={22} color={colors.green} /></Pressable>
       </View>
     </View>}
