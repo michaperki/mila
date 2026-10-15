@@ -1,0 +1,38 @@
+# Publishes the mobile app's JavaScript to the `preview` channel on every push to main that
+# touches it. Runs on GitHub's machines because Expo's free queue can hold jobs for a long time.
+# A change to the native layer gets a new runtime version that no installed build accepts:
+# start a build by hand then (see apps/mobile/README.md). Needs the EXPO_TOKEN secret.
+name: Mobile preview update
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/mobile/**', 'apps/web/src/types.ts', '.github/workflows/mobile-preview-update.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-preview-update
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - name: Publish update
+        env:
+          MESSAGE: ${{ github.event.head_commit.message || 'Manual publish' }}
+        run: eas update --channel preview --platform ios --environment preview --message "${MESSAGE%%$'\n'*}" --non-interactive

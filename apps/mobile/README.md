@@ -40,7 +40,9 @@ One-time setup:
 1. Register the iPhone: `npx eas-cli@latest device:create`, choose the website option, and open the link on the iPhone to install the profile.
 2. On the iPhone, turn on Settings → Privacy & Security → Developer Mode. iOS requires this for ad hoc apps.
 3. Build: `npx eas-cli@latest build --platform ios --profile preview`, sign in with your Apple ID when asked, then open the install link on the iPhone.
-4. Connect GitHub at expo.dev → project → Settings → GitHub, with base directory `apps/mobile`. After that, `.eas/workflows/preview.yml` runs on every push to `main`. If the native layer is unchanged (same fingerprint), it publishes an OTA update. Otherwise it starts a new preview build, which also has to be installed from its link.
+4. Create an access token at expo.dev → Account settings → Access tokens and add it in GitHub → repository Settings → Secrets and variables → Actions as `EXPO_TOKEN`. After that, `.github/workflows/mobile-preview-update.yml` publishes an OTA update to `preview` on every push to `main` that touches the mobile app. It runs on GitHub rather than EAS Workflows because Expo's free queue can hold jobs for a long time.
+
+When the native layer changes (a native package, an `app.json` plugin or permission), the update gets a new runtime version (fingerprint) that the installed app won't accept. Build again by hand, either with step 3 or with `npx eas-cli@latest workflow:run .eas/workflows/preview.yml`, which builds only if no compatible build exists. Then install it from its link.
 
 Ship JS changes by hand: `npx eas-cli@latest update --channel preview --message "..."`. The app downloads updates when it launches and applies them the next time it starts. Account → Check for updates applies one immediately. Account → App version shows which update is running.
 

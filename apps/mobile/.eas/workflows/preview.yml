@@ -1,11 +1,8 @@
-# Keeps the preview build on your iPhone current without a computer.
-# On every push to main: if the native layer (fingerprint) is unchanged, publish an
-# over-the-air update to the `preview` channel; otherwise start a new preview build.
+# Builds a new preview app when the native layer (fingerprint) changed; otherwise publishes
+# an over-the-air update. Pushes to main are handled by GitHub Actions
+# (.github/workflows/mobile-preview-update.yml), so this only runs by hand:
+#   npx eas-cli@latest workflow:run .eas/workflows/preview.yml
 name: Ship to preview
-
-on:
-  push:
-    branches: ['main']
 
 jobs:
   fingerprint:
