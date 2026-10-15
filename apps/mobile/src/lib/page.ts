@@ -45,6 +45,22 @@ export function paragraphsOf(segments: ReadingSegment[], paged: boolean): number
   return groups
 }
 
+// A paragraph is drawn as runs of flowing words. The active sentence gets a run of its own
+// so its highlight and English sit directly under it; with every translation showing,
+// each sentence is its own run (interlinear reading).
+export type Run = { segments: number[]; active: boolean }
+export function runsOf(members: number[], everySentence: boolean, active: number | null): Run[] {
+  if (everySentence) return members.map(s => ({ segments: [s], active: s === active }))
+  const runs: Run[] = []
+  for (const s of members) {
+    const previous = runs[runs.length - 1]
+    if (s === active) runs.push({ segments: [s], active: true })
+    else if (previous && !previous.active) previous.segments.push(s)
+    else runs.push({ segments: [s], active: false })
+  }
+  return runs
+}
+
 // The fragment to carry to the next page, or null when the page ends cleanly.
 export function tailOf(page: PageRead, segments: ReadingSegment[], now = Date.now()): PageTail | null {
   const last = segments[segments.length - 1]

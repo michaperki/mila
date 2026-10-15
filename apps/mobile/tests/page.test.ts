@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { paragraphsOf, segmentsFromPage, tailOf, usableTail, type PageRead } from '../src/lib/page.ts'
+import { paragraphsOf, runsOf, segmentsFromPage, tailOf, usableTail, type PageRead } from '../src/lib/page.ts'
 
 const page = (overrides: Partial<PageRead>): PageRead => ({
   blocks: [{ kind: 'paragraph', sentences: [{ he: 'בפחד שמישהו יגלה.', en: 'in fear that someone would find out.' }, { he: 'מר דרסלי', en: 'Mr. Dursley…' }] }],
@@ -39,4 +39,11 @@ test('paragraphs: page reads flow sentences together; other text keeps one per p
   ]
   assert.deepEqual(paragraphsOf(segments, true), [[0], [1, 2, 3], [4]])
   assert.deepEqual(paragraphsOf(segments, false), [[0], [1], [2], [3], [4]])
+})
+
+test('runs: the active sentence stands alone; every sentence does when all English shows', () => {
+  assert.deepEqual(runsOf([3, 4, 5, 6], false, null), [{ segments: [3, 4, 5, 6], active: false }])
+  assert.deepEqual(runsOf([3, 4, 5, 6], false, 5), [{ segments: [3, 4], active: false }, { segments: [5], active: true }, { segments: [6], active: false }])
+  assert.deepEqual(runsOf([3, 4], false, 3), [{ segments: [3], active: true }, { segments: [4], active: false }])
+  assert.deepEqual(runsOf([3, 4], true, 4), [{ segments: [3], active: false }, { segments: [4], active: true }])
 })
