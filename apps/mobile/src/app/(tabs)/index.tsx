@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, AppState, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, AppState, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import * as ImagePicker from 'expo-image-picker'
 import { router, useFocusEffect } from 'expo-router'
@@ -10,7 +10,7 @@ import { useSession } from '../../state/session'
 import { recognizeImage } from '../../lib/recognition'
 import { createLiveSession, skip } from '../../lib/live-session'
 import { getPref, setPref } from '../../lib/prefs'
-import type { Recognition } from '../../lib/types'
+import type { CapturedImage, Recognition } from '../../lib/types'
 
 export default function Camera() {
   const { session, setRecognition } = useSession()
@@ -27,13 +27,16 @@ export default function Camera() {
   const [message, setMessage] = useState('Point at a short Hebrew passage.')
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState(false)
+  // Once a page read starts, the photo is already taken: the viewfinder freezes on it and
+  // the camera turns off, so it's clear the phone no longer needs to point at the page.
+  const [reading, setReading] = useState<CapturedImage | null>(null)
   const liveSession = useRef<{ stop: () => void } | null>(null)
   const userStopped = useRef(false)
   const requestController = useRef<AbortController | null>(null)
   const cancel = useCallback(() => {
     liveSession.current?.stop(); liveSession.current = null
     requestController.current?.abort()
-    setLive(false); setBusy(false); setResult(null); setCameraReady(false)
+    setLive(false); setBusy(false); setResult(null); setCameraReady(false); setReading(null)
   }, [])
   useFocusEffect(useCallback(() => {
     setFocused(true)
@@ -60,7 +63,9 @@ export default function Camera() {
       const picture = await camera.current.takePictureAsync({ quality: 0.85, shutterSound: false })
       if (signal.aborted) throw new Error('Canceled')
       if (!picture) throw new Error('The camera could not capture this passage. Try again.')
-      return await recognizeImage({ uri: picture.uri, width: picture.width, height: picture.height }, session.token, { signal, read })
+      const image = { uri: picture.uri, width: picture.width, height: picture.height }
+      if (read) setReading(image)
+      return await recognizeImage(image, session.token, { signal, read })
     } finally { locked.current = false; if (!signal.aborted) setBusy(false) }
   }
   const capture = async () => {
@@ -73,7 +78,7 @@ export default function Camera() {
       present(value)
       if (value.text) openReader(value)
     } catch (failure) { if (!controller.signal.aborted) setError((failure as Error).message) }
-    finally { setCapturing(false) }
+    finally { setCapturing(false); setReading(null) }
   }
   // A live result is quick OCR of one frame; reading it in full re-reads that frame with
   // the vision model. If that fails, the learner still gets the live result.
@@ -81,13 +86,19 @@ export default function Camera() {
     userStopped.current = true; liveSession.current?.stop()
     if (value.source === 'page' || !value.image || !session || locked.current) { openReader(value); return }
     const controller = new AbortController(); requestController.current = controller
-    locked.current = true; setBusy(true); setError(null); setMessage(READING_PAGE)
+    locked.current = true; setBusy(true); setError(null); setMessage(READING_PAGE); setReading(value.image)
     let next = value
     try {
       const read = await recognizeImage(value.image, session.token, { signal: controller.signal, read: true })
       if (read.text) next = read
-    } catch { /* keep the live result */ } finally { locked.current = false; if (!controller.signal.aborted) setBusy(false) }
+    } catch { /* keep the live result */ } finally { locked.current = false; setReading(null); if (!controller.signal.aborted) setBusy(false) }
     if (!controller.signal.aborted) openReader(next)
+  }
+  // Stops a page read in progress and brings the camera back.
+  const cancelReading = () => {
+    requestController.current?.abort()
+    locked.current = false
+    setReading(null); setBusy(false); setCapturing(false); setMessage('Point at a short Hebrew passage.')
   }
   const startLive = () => {
     if (live || locked.current) return
@@ -126,14 +137,15 @@ export default function Camera() {
       const selected = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 1 })
       if (selected.canceled) return
       const controller = new AbortController(); requestController.current = controller
-      const image = selected.assets[0]
-      locked.current = true; setBusy(true); setResult(null); setMessage(READING_PAGE)
+      const asset = selected.assets[0]
+      const image = { uri: asset.uri, width: asset.width, height: asset.height }
+      locked.current = true; setBusy(true); setResult(null); setMessage(READING_PAGE); setReading(image)
       try {
-        const value = await recognizeImage({ uri: image.uri, width: image.width, height: image.height }, session.token, { signal: controller.signal, read: true })
+        const value = await recognizeImage(image, session.token, { signal: controller.signal, read: true })
         if (controller.signal.aborted) return
         present(value)
         if (value.text) openReader(value)
-      } finally { locked.current = false; if (!controller.signal.aborted) setBusy(false) }
+      } finally { locked.current = false; setReading(null); if (!controller.signal.aborted) setBusy(false) }
     } catch (failure) { if (!requestController.current?.signal.aborted) setError((failure as Error).message) }
   }
 
@@ -152,9 +164,18 @@ export default function Camera() {
   // Full-bleed viewfinder: the shutter and live-preview controls float over the
   // camera feed so they stay reachable without scrolling the page out of frame.
   return <View style={cameraStyles.page}>
-    {focused && foreground && <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="back" onCameraReady={() => setCameraReady(true)} onMountError={() => { setCameraReady(false); setError('The camera could not start. Try reopening this screen.') }} />}
-    <View pointerEvents="none" style={cameraStyles.guide} />
+    {focused && foreground && !reading && <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="back" onCameraReady={() => setCameraReady(true)} onMountError={() => { setCameraReady(false); setError('The camera could not start. Try reopening this screen.') }} />}
+    {reading ? <>
+      <Image source={{ uri: reading.uri }} style={StyleSheet.absoluteFill} resizeMode="cover" accessibilityIgnoresInvertColors />
+      <View style={cameraStyles.readingScrim}>
+        <ActivityIndicator color={colors.white} size="large" accessibilityLabel="Reading the page" />
+        <Pressable accessibilityRole="button" accessibilityLabel="Cancel" onPress={cancelReading} hitSlop={10} style={cameraStyles.cancel}>
+          <Ionicons name="close" size={22} color={colors.white} />
+        </Pressable>
+      </View>
+    </> : <View pointerEvents="none" style={cameraStyles.guide} />}
 
+    {!reading && <>
     <Pressable accessibilityRole="switch" accessibilityLabel="Live preview" accessibilityState={{ checked: live }} disabled={!cameraReady || (!live && busy)} onPress={toggleLive} style={[cameraStyles.livePill, live && cameraStyles.livePillOn]}>
       <View style={[cameraStyles.liveDot, live && { backgroundColor: colors.lime }]} />
       <Text style={cameraStyles.livePillText}>{live ? 'Live on' : 'Live off'}</Text>
@@ -193,10 +214,13 @@ export default function Camera() {
         </Pressable>
       </View>
     </View>
+    </>}
   </View>
 }
 const cameraStyles = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#142621' },
+  readingScrim: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: '#0E1E1A80', alignItems: 'center', justifyContent: 'center' },
+  cancel: { position: 'absolute', top: 16, left: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: '#00000066', alignItems: 'center', justifyContent: 'center' },
   guide: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, margin: 16, borderWidth: 1, borderColor: '#FFFFFF66', borderRadius: 16 },
   livePill: { position: 'absolute', top: 16, left: 16, flexDirection: 'row', alignItems: 'center', gap: 8, height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: '#00000066' },
   livePillOn: { backgroundColor: '#145C4BDD' },
