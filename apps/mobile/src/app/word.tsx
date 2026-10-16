@@ -3,7 +3,9 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import * as Speech from 'expo-speech'
+import Animated, { FadeInDown, LinearTransition, ReduceMotion, ZoomIn } from 'react-native-reanimated'
 import { colors, ErrorNotice, Page, styles, TextButton } from '../components/ui'
+import { feel } from '../lib/feedback'
 import { EncounterView } from '../components/Encounter'
 import { request } from '../lib/api'
 import { isolateHebrew } from '../lib/bidi'
@@ -97,22 +99,23 @@ export default function Word() {
       {!!grammar && <Text style={word.meta}>{isolateHebrew(grammar)}</Text>}
     </View>
 
-    {stagesOf(entry).map(stage => {
+    {stagesOf(entry).map((stage, i) => {
       const state = stageState(entry, stage.key)
       const forms = formsIn(entry, stage.key)
-      return <View key={stage.key} style={[styles.card, { gap: 8 }, state === 'locked' && { opacity: 0.6 }]}>
+      return <Animated.View key={stage.key} entering={FadeInDown.delay(i * 60).duration(240).reduceMotion(ReduceMotion.System)} layout={LinearTransition.springify().damping(24).reduceMotion(ReduceMotion.System)}
+        style={[styles.card, { gap: 8 }, state === 'locked' && { opacity: 0.6 }]}>
         <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
           <Text style={styles.heading}>{stage.label}</Text>
-          <Text style={[word.state, (state === 'known' || state === 'done') && { color: colors.green }]}>
+          <Animated.Text key={state} entering={ZoomIn.springify().damping(14).reduceMotion(ReduceMotion.System)} style={[word.state, (state === 'known' || state === 'done') && { color: colors.green }]}>
             {STATE[state]}{state === 'learning' && forms.length ? ` · ${forms.filter(isSolid).length} of ${forms.length}` : ''}
-          </Text>
+          </Animated.Text>
         </View>
         {state !== 'locked' && forms.map(form => <FormRow key={form.key} label={slotLabel(entry, form)} form={form} v={v} />)}
         {state !== 'locked' && !forms.length && (preparing ? <ActivityIndicator color={colors.green} style={{ alignSelf: 'flex-start' }} />
           : <TextButton title="Prepare these forms" color={colors.green} onPress={() => prepare(entry)} />)}
-        {state === 'learning' && <TextButton title="I know this already" color={colors.green} onPress={() => setKnown([...known, stage.key])} />}
-        {state === 'known' && <TextButton title="Undo" onPress={() => setKnown(known.filter(key => key !== stage.key))} />}
-      </View>
+        {state === 'learning' && <TextButton title="I know this already" color={colors.green} onPress={() => { feel('unlock'); setKnown([...known, stage.key]) }} />}
+        {state === 'known' && <TextButton title="Undo" onPress={() => { feel('tick'); setKnown(known.filter(key => key !== stage.key)) }} />}
+      </Animated.View>
     })}
 
     {encountersOf(entry).length > 0 && <View style={[styles.card, { gap: 4 }]}>

@@ -8,6 +8,7 @@ import { getPref, setPref } from './prefs'
 // Sounds: Kenney "Interface Sounds" (CC0), assets/sounds; Account → Sounds / Haptics.
 export type Moment =
   | 'press' // any button
+  | 'shutter' // taking a photo
   | 'tick' // a selection moving: a word added to a drag, the next sentence
   | 'select' // a word or sentence picked
   | 'reveal' // Show answer
@@ -33,6 +34,7 @@ const SOUND_OF: Partial<Record<Moment, Sound>> = {
 }
 const HAPTIC: Record<Moment, () => Promise<void>> = {
   press: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),
+  shutter: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy),
   tick: () => Haptics.selectionAsync(),
   select: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft),
   reveal: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),

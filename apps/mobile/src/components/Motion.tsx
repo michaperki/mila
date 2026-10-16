@@ -1,6 +1,7 @@
-import { type ReactNode, useEffect } from 'react'
-import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native'
-import Animated, { Easing, interpolate, ReduceMotion, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated'
+import { type ComponentProps, type ReactNode, useEffect, useState } from 'react'
+import { StyleSheet, Text, View, type ImageStyle, type StyleProp, type ViewStyle } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import Animated, { Easing, interpolate, ReduceMotion, SlideInDown, SlideOutDown, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withSpring, withTiming } from 'react-native-reanimated'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { scheduleOnRN } from 'react-native-worklets'
 import { colors } from './ui'
@@ -100,4 +101,51 @@ const motion = StyleSheet.create({
   burst: { position: 'absolute', left: '50%', top: '40%', width: 0, height: 0 },
   particle: { position: 'absolute', width: 9, height: 9, borderRadius: 2, left: -4.5, top: -4.5 },
   count: { fontSize: 30, fontWeight: '700', color: colors.ink },
+  grabber: { alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: colors.line, marginBottom: 8 },
+  band: { position: 'absolute', left: 0, right: 0, height: 160 },
 })
+
+// A bottom sheet that rises into place and can be dragged down by its `handle` area to close.
+// Dragged past the line (or flicked), it slides away and calls `onDismiss`.
+export function DraggableSheet({ onDismiss, handle, children, style, onLayout, ...props }: {
+  onDismiss: () => void; handle: ReactNode; children: ReactNode; style?: StyleProp<ViewStyle>
+  onLayout?: ComponentProps<typeof View>['onLayout']; accessibilityViewIsModal?: boolean
+}) {
+  const y = useSharedValue(0)
+  const pan = Gesture.Pan().activeOffsetY(10).failOffsetX([-20, 20])
+    .onUpdate(event => { y.set(Math.max(0, event.translationY)) })
+    .onEnd(event => {
+      if (event.translationY < 70 && event.velocityY < 800) { y.set(withSpring(0, SPRING.gentle)); return }
+      y.set(withTiming(600, { duration: 180, reduceMotion: ReduceMotion.System }, done => { if (done) scheduleOnRN(onDismiss) }))
+    })
+  const moving = useAnimatedStyle(() => ({ transform: [{ translateY: y.get() }] }))
+  return <Animated.View {...props} onLayout={onLayout} entering={SHEET_IN} exiting={SHEET_OUT} style={[style, moving]}>
+    <GestureDetector gesture={pan}>
+      <View><View style={motion.grabber} />{handle}</View>
+    </GestureDetector>
+    {children}
+  </Animated.View>
+}
+export const SHEET_IN = SlideInDown.springify().damping(24).stiffness(240).reduceMotion(ReduceMotion.System)
+export const SHEET_OUT = SlideOutDown.duration(160).reduceMotion(ReduceMotion.System)
+
+// A soft band of light sweeping down over a frozen photo while it is being read.
+export function ScanShimmer() {
+  const t = useSharedValue(0)
+  const [height, setHeight] = useState(0)
+  useEffect(() => { t.set(withRepeat(withTiming(1, { duration: 1700, easing: Easing.inOut(Easing.quad), reduceMotion: ReduceMotion.System }), -1, false)) }, [t])
+  const band = useAnimatedStyle(() => ({ transform: [{ translateY: interpolate(t.get(), [0, 1], [-160, height]) }] }))
+  return <View pointerEvents="none" style={StyleSheet.absoluteFill} onLayout={event => setHeight(event.nativeEvent.layout.height)}>
+    <Animated.View style={[motion.band, band]}>
+      <LinearGradient colors={['#DCECBA00', '#DCECBA55', '#DCECBA00']} style={StyleSheet.absoluteFill} />
+    </Animated.View>
+  </View>
+}
+
+// A photo that settles into place when it appears, as if just taken.
+export function SettlingImage({ uri, style }: { uri: string; style?: StyleProp<ImageStyle> }) {
+  const scale = useSharedValue(1.06)
+  useEffect(() => { scale.set(withSpring(1, SPRING.gentle)) }, [scale])
+  const settle = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }))
+  return <Animated.Image source={{ uri }} resizeMode="cover" accessibilityIgnoresInvertColors style={[style, settle]} />
+}

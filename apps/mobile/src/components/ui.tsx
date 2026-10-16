@@ -24,7 +24,7 @@ export function Page({ children, refreshControl }: { children: ReactNode; refres
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 // A Pressable that presses down a little under the finger and springs back, with a light tap
 // (`moment`, or none). Every button in the app is one of these.
-export function Pressy({ moment = 'press', onPressIn, onPressOut, style, depth = 0.97, ...props }: Omit<ComponentProps<typeof Pressable>, 'style'> & { moment?: 'press' | 'tick' | 'select' | null; style?: StyleProp<ViewStyle>; depth?: number }) {
+export function Pressy({ moment = 'press', onPressIn, onPressOut, style, depth = 0.97, ...props }: Omit<ComponentProps<typeof Pressable>, 'style'> & { moment?: 'press' | 'tick' | 'select' | 'shutter' | null; style?: StyleProp<ViewStyle>; depth?: number }) {
   const scale = useSharedValue(1)
   const pressed = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }))
   return <AnimatedPressable {...props}

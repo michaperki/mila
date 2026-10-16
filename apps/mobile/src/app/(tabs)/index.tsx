@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, AppState, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, AppState, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import * as ImagePicker from 'expo-image-picker'
 import { router, useFocusEffect } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { AccountGate, Button, colors, ErrorNotice, Page, styles } from '../../components/ui'
+import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated'
+import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles } from '../../components/ui'
+import { ScanShimmer, SettlingImage } from '../../components/Motion'
 import { FeedbackButton } from '../../components/Feedback'
 import { useSession } from '../../state/session'
 import { recognizeImage } from '../../lib/recognition'
@@ -166,9 +168,9 @@ export default function Camera() {
   return <View style={cameraStyles.page}>
     {focused && foreground && !reading && <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="back" onCameraReady={() => setCameraReady(true)} onMountError={() => { setCameraReady(false); setError('The camera could not start. Try reopening this screen.') }} />}
     {reading ? <>
-      <Image source={{ uri: reading.uri }} style={StyleSheet.absoluteFill} resizeMode="cover" accessibilityIgnoresInvertColors />
-      <View style={cameraStyles.readingScrim}>
-        <ActivityIndicator color={colors.white} size="large" accessibilityLabel="Reading the page" />
+      <SettlingImage uri={reading.uri} style={StyleSheet.absoluteFill} />
+      <View style={cameraStyles.readingScrim} accessible accessibilityLabel="Reading the page">
+        <ScanShimmer />
         <Pressable accessibilityRole="button" accessibilityLabel="Cancel" onPress={cancelReading} hitSlop={10} style={cameraStyles.cancel}>
           <Ionicons name="close" size={22} color={colors.white} />
         </Pressable>
@@ -197,18 +199,18 @@ export default function Camera() {
         {busy && <ActivityIndicator size="small" color={colors.white} />}
         <Text accessibilityLiveRegion="polite" numberOfLines={2} style={[cameraStyles.message, { flex: 1 }]}>{message}</Text>
       </View>
-      {result && <View style={cameraStyles.resultCard}>
+      {result && <Animated.View entering={FadeInDown.duration(220).reduceMotion(ReduceMotion.System)} style={cameraStyles.resultCard}>
         <Text style={cameraStyles.hebrewCompact} numberOfLines={2}>{result.text}</Text>
         <Text style={cameraStyles.translationCompact} numberOfLines={2}>{result.translation}</Text>
         <Button title="Read this passage" busy={busy && !live} onPress={() => void readPassage(result)} />
-      </View>}
+      </Animated.View>}
       <View style={cameraStyles.controls}>
         <Pressable accessibilityRole="button" accessibilityLabel="Choose a photo" disabled={busy && !live} onPress={() => void importPhoto()} style={cameraStyles.sideButton}>
           <Ionicons name="images-outline" size={24} color={colors.white} /><Text style={cameraStyles.sideLabel}>Photo</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Capture" accessibilityState={{ disabled: !cameraReady || capturing, busy: capturing }} disabled={!cameraReady || capturing} onPress={() => void capture()} style={({ pressed }) => [cameraStyles.shutter, (!cameraReady || pressed) && { opacity: 0.6 }]}>
+        <Pressy moment="shutter" depth={0.88} accessibilityRole="button" accessibilityLabel="Capture" accessibilityState={{ disabled: !cameraReady || capturing, busy: capturing }} disabled={!cameraReady || capturing} onPress={() => void capture()} style={[cameraStyles.shutter, !cameraReady && { opacity: 0.6 }]}>
           {capturing ? <ActivityIndicator color={colors.green} /> : <View style={cameraStyles.shutterInner} />}
-        </Pressable>
+        </Pressy>
         <Pressable accessibilityRole="button" accessibilityLabel="Paste Hebrew text" onPress={() => router.push('/compose')} style={cameraStyles.sideButton}>
           <Ionicons name="clipboard-outline" size={24} color={colors.white} /><Text style={cameraStyles.sideLabel}>Paste</Text>
         </Pressable>
