@@ -52,6 +52,6 @@ export function countsOf(entries: VocabEntry[], now = Date.now()) {
 export function matches(entry: VocabEntry, query: string) {
   const needle = stripNiqqud(query.trim().toLowerCase())
   if (!needle) return true
-  return [entry.lemma, entry.surface, entry.vocalized, entry.gloss, entry.senses]
+  return [entry.lemma, entry.surface, entry.vocalized, entry.gloss, entry.senses, ...(entry.encounters || []).flatMap(item => [item.surface, item.meaning])]
     .some(field => !!field && stripNiqqud(field.toLowerCase()).includes(needle))
 }

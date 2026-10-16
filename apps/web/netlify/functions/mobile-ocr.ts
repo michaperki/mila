@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
 import { getDb } from './lib/mongo'
 import { readPage } from './lib/page-read'
+import { recordVision } from './lib/ai-usage'
 
 const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers, body: JSON.stringify(body) })
@@ -58,6 +59,7 @@ export const handler: Handler = async (event) => {
     await checkBudget(auth.userId, read)
     // DOCUMENT_TEXT_DETECTION is Vision's dense-text model (book pages, worksheets);
     // TEXT_DETECTION targets sparse scene text and drops more letters on small print.
+    const started = Date.now()
     const response = await fetch('https://vision.googleapis.com/v1/images:annotate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key },
@@ -65,6 +67,7 @@ export const handler: Handler = async (event) => {
       signal: AbortSignal.timeout(15000),
     })
     const result = await response.json()
+    if (response.ok) await recordVision(auth.userId, Date.now() - started)
     const providerError = result.error || result.responses?.[0]?.error
     if (!response.ok || providerError) {
       // Log only provider classifications; images, recognized text and API keys stay out of logs.
@@ -76,7 +79,7 @@ export const handler: Handler = async (event) => {
     if (!read || !text) return reply(200, { text })
     const previous = typeof payload.previous === 'string' ? payload.previous.trim().slice(0, 600) : ''
     try {
-      return reply(200, { text, page: await readPage({ image, ocr: text, previous }) })
+      return reply(200, { text, page: await readPage({ image, ocr: text, previous, userId: auth.userId }) })
     } catch (error) {
       // The OCR text is still useful: the app falls back to its own cleanup and translation.
       const failure = error as { code?: string; name?: string; status?: number }

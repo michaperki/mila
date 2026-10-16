@@ -6,6 +6,8 @@ vi.mock('@anthropic-ai/sdk', () => {
   return { default: Anthropic }
 })
 vi.mock('../netlify/functions/lib/auth', () => ({ verifyAuth: vi.fn() }))
+vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn() }))
+import { recordClaude } from '../netlify/functions/lib/ai-usage'
 import { verifyAuth } from '../netlify/functions/lib/auth'
 import { handler } from '../netlify/functions/word-analysis'
 
@@ -18,7 +20,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   process.env.ANTHROPIC_API_KEY = 'test-only'
   vi.mocked(verifyAuth).mockReturnValue({ userId: 'user' })
-  create.mockResolvedValue({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(analysis) }] })
+  create.mockResolvedValue({ model: 'claude-opus-5-5', usage: { input_tokens: 900, output_tokens: 300 }, stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(analysis) }] })
 })
 describe('word analysis endpoint', () => {
   it('requires sign-in before calling the model', async () => {
@@ -55,5 +57,9 @@ describe('word analysis endpoint', () => {
     create.mockRejectedValueOnce(new Error('provider details'))
     const failed = await invoke({ word: 'עוד', sentence: 'עוד משפט' })
     expect(failed.status).toBe(503); expect(JSON.stringify(failed)).not.toContain('provider details')
+  })
+  it('records the call\'s usage for the signed-in user', async () => {
+    await invoke({ word: 'בחשבון', sentence: 'יש לי מבחן בחשבון מחר' })
+    expect(recordClaude).toHaveBeenCalledWith('user', 'word', expect.objectContaining({ model: 'claude-opus-5-5' }), expect.any(Number))
   })
 })

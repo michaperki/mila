@@ -2,6 +2,7 @@ import type { Handler } from '@netlify/functions'
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
+import { recordClaude } from './lib/ai-usage'
 
 // Explains one tapped Hebrew word *in its sentence*: contextual meaning, prefix/suffix
 // breakdown, lemma, root, binyan. Word-by-word machine translation can't do this
@@ -42,8 +43,8 @@ const schema = {
         },
       },
     },
-    lemma: { type: 'string', description: 'Dictionary form, vocalized (masculine singular; verbs as the infinitive or 3rd person past). A word that is a dictionary entry in its own right, such as an adverb or fixed expression written as one word (לְמַעֲשֶׂה, בְּעֶצֶם, לְפָחוֹת), is its own lemma; do not reduce it to the noun it came from. partOfSpeech, lemmaMeaning and root describe this lemma.' },
-    lemmaMeaning: { type: 'string', description: 'The lemma\'s common English senses, comma-separated, most common first; at most five.' },
+    lemma: { type: 'string', description: 'Dictionary form, vocalized: verbs always as the infinitive with ל (לְהַדְבִּיק for הִדְבִּיק, never a past-tense form); adjectives masculine singular (יָפֶה for יָפוֹת); nouns singular without prefixes or possessive suffixes, unless the word only exists in the plural. A word that is a dictionary entry in its own right, such as an adverb or fixed expression written as one word (לְמַעֲשֶׂה, בְּעֶצֶם, לְפָחוֹת), is its own lemma; do not reduce it to the noun it came from. partOfSpeech, lemmaMeaning and root describe this lemma.' },
+    lemmaMeaning: { type: 'string', description: 'The lemma\'s common English senses, comma-separated, most common first; at most five. Verbs as "to …" ("to stick, to attach").' },
     root: { type: 'string', description: 'Root letters joined with ־ (e.g. ח־ש־ב), or empty if none applies.' },
     partOfSpeech: { type: 'string', description: 'noun, verb, adjective, adverb, preposition, pronoun, number, name, or phrase.' },
     binyan: { type: 'string', description: 'Verbs only: binyan in Latin letters (pa\'al, nif\'al, pi\'el, pu\'al, hif\'il, huf\'al, hitpa\'el); otherwise empty.' },
@@ -75,7 +76,7 @@ export const handler: Handler = async (event) => {
   const requestId = randomUUID()
   if (event.httpMethod !== 'POST') return reply(405, { message: 'Use POST.' })
   try {
-    verifyAuth(event)
+    const auth = verifyAuth(event)
     let payload: { word?: unknown; sentence?: unknown }
     try { payload = JSON.parse(event.body || '{}') } catch { return reply(400, { message: 'Invalid word request.' }) }
     const word = typeof payload.word === 'string' ? payload.word.trim() : ''
@@ -90,6 +91,7 @@ export const handler: Handler = async (event) => {
     if (cached) return reply(200, cached)
 
     client ??= new Anthropic()
+    const started = Date.now()
     const response = await client.beta.messages.create({
       model: 'claude-opus-5-5',
       max_tokens: 4000,
@@ -100,6 +102,7 @@ export const handler: Handler = async (event) => {
       system: SYSTEM,
       messages: [{ role: 'user', content: `Sentence: ${sentence || word}\n${words > 1 ? 'Selected words' : 'Tapped word'}: ${word}` }],
     }, { timeout: 15000, maxRetries: 1 })
+    await recordClaude(auth.userId, 'word', response, Date.now() - started)
 
     if (response.stop_reason === 'refusal') return reply(422, { message: 'This word could not be explained.', code: 'ANALYSIS_REFUSED', requestId })
     const text = response.content.flatMap(block => (block.type === 'text' ? [block.text] : [])).join('')

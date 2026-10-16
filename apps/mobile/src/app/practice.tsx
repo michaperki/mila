@@ -6,7 +6,9 @@ import Ionicons from '@expo/vector-icons/Ionicons'
 import * as Speech from 'expo-speech'
 import { Button, colors, ErrorNotice, Page, styles } from '../components/ui'
 import { request } from '../lib/api'
-import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
+import { isolateHebrew } from '../lib/bidi'
+import { encountersOf } from '../lib/words'
+import { EncounterView } from '../components/Encounter'
 import { grade, practiceQueue, waitOf, type Rating } from '../lib/review'
 import type { VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
@@ -25,7 +27,6 @@ export default function Practice() {
   const [queue, setQueue] = useState<VocabEntry[] | null>(null)
   const [position, setPosition] = useState(0)
   const [revealed, setRevealed] = useState(false)
-  const [wholeSentence, setWholeSentence] = useState(false)
   const [tally, setTally] = useState<Record<Rating, number>>({ again: 0, hard: 0, good: 0 })
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
@@ -42,11 +43,9 @@ export default function Practice() {
   if (!card) return <Summary tally={tally} words={new Set(queue.map(entry => entry.id)).size} error={error} />
 
   const v = (text: string) => withVowels(text, showVowels)
-  // Listen always uses the vowelled form, so it pronounces the word right even when vowels are hidden.
-  const spoken = card.vocalized || card.lemma
-  const front = v(spoken)
-  const lemma = v(card.lemma)
-  const speak = () => { void Speech.stop(); Speech.speak(spoken, { language: 'he-IL', rate: 0.8 }) }
+  // The card is the dictionary form; Listen uses its vowels even when they are hidden.
+  const front = v(card.lemma)
+  const speak = () => { void Speech.stop(); Speech.speak(card.lemma, { language: 'he-IL', rate: 0.8 }) }
   const answer = (rating: Rating) => {
     const review = grade(card.review, rating)
     // Saved in the background; a failure is shown but doesn't stop the session.
@@ -54,13 +53,10 @@ export default function Practice() {
       .catch((failure: Error) => setError(`A result wasn't saved. ${failure.message}`))
     if (rating === 'again') setQueue(current => [...current!, { ...card, review }])
     setTally(current => ({ ...current, [rating]: current[rating] + 1 }))
-    setRevealed(false); setWholeSentence(false); setPosition(value => value + 1)
+    setRevealed(false); setPosition(value => value + 1)
   }
-  const target = new Set((card.surface || card.lemma).split(/\s+/).map(token => stripNiqqud(bareWord(token))))
-  const grammar = [card.form, card.binyan].filter(Boolean).join(' · ')
-  const short = !!card.excerpt && !wholeSentence
-  const sentence = v((short ? card.excerpt : card.context) || '')
-  const translation = short ? card.excerptTranslation : card.contextTranslation
+  const grammar = [card.partOfSpeech, card.binyan, card.root && `root ${card.root}`].filter(Boolean).join(' · ')
+  const encounters = encountersOf(card)
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
     <Text style={practice.progress}>{position + 1} / {queue.length}</Text>
@@ -71,19 +67,11 @@ export default function Practice() {
           <Ionicons name="volume-medium-outline" size={24} color={colors.green} />
         </Pressable>
         <Text style={practice.front}>{front}</Text>
-        {!revealed ? <Text style={practice.hint}>What does it mean here?</Text> : <View style={{ gap: 10, alignSelf: 'stretch' }}>
+        {!revealed ? <Text style={practice.hint}>What does it mean?</Text> : <View style={{ gap: 10, alignSelf: 'stretch' }}>
           <Text style={practice.meaning}>{v(card.gloss)}</Text>
-          {!!grammar && <Text style={[practice.detail, { textAlign: 'center' }]}>{grammar}</Text>}
-          {(stripNiqqud(lemma) !== stripNiqqud(front) || !!card.senses) && <Text style={practice.detail}>
-            {stripNiqqud(lemma) !== stripNiqqud(front) ? <>Dictionary form <Text style={practice.inline}>{lemma}</Text>{card.senses ? ' · ' : ''}</> : null}{v(card.senses || '')}
-          </Text>}
-          {!!sentence && <Pressable disabled={!card.excerpt} accessibilityRole={card.excerpt ? 'button' : undefined}
-            accessibilityHint={card.excerpt ? (wholeSentence ? 'Shows the short excerpt' : 'Shows the whole sentence') : undefined}
-            onPress={() => setWholeSentence(value => !value)} style={practice.context}>
-            <Text style={practice.sentence}>{short ? '… ' : ''}{sentence.split(/(\s+)/).map((token, i) =>
-              <Text key={i} style={target.has(stripNiqqud(bareWord(token))) ? practice.mark : undefined}>{token}</Text>)}{short ? ' …' : ''}</Text>
-            {!!translation && <Text style={practice.detail}>{translation}</Text>}
-          </Pressable>}
+          {!!grammar && <Text style={[practice.detail, { textAlign: 'center' }]}>{isolateHebrew(grammar)}</Text>}
+          {!!encounters[0] && <EncounterView key={`${card.id}-${position}`} encounter={encounters[0]} showVowels={showVowels} />}
+          {encounters.length > 1 && <Text style={[practice.detail, { textAlign: 'center' }]}>Met {encounters.length} times</Text>}
         </View>}
       </View>
     </ScrollView>
@@ -124,10 +112,6 @@ const practice = StyleSheet.create({
   hint: { fontSize: 15, color: colors.muted },
   meaning: { fontSize: 22, fontWeight: '700', color: colors.ink, textAlign: 'center' },
   detail: { fontSize: 14, lineHeight: 21, color: colors.muted, writingDirection: 'ltr', textAlign: 'left' },
-  inline: { fontSize: 16, color: colors.ink },
-  context: { gap: 4, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-  sentence: { fontSize: 19, lineHeight: 30, color: colors.ink, writingDirection: 'rtl', textAlign: 'right' },
-  mark: { backgroundColor: colors.lime, fontWeight: '600' },
   actions: { flexDirection: 'row', gap: 10, paddingHorizontal: 22, paddingTop: 12, backgroundColor: colors.paper, borderTopWidth: 1, borderTopColor: colors.line },
   tally: { flexDirection: 'row', gap: 10 },
   count: { flex: 1, paddingVertical: 16, borderRadius: 14, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, alignItems: 'center' },

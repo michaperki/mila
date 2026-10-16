@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../netlify/functions/lib/auth', () => ({ verifyAuth: vi.fn() }))
 vi.mock('../netlify/functions/lib/mongo', () => ({ getDb: vi.fn() }))
 vi.mock('../netlify/functions/lib/page-read', () => ({ readPage: vi.fn() }))
+vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordVision: vi.fn() }))
 import { readPage } from '../netlify/functions/lib/page-read'
 import { verifyAuth } from '../netlify/functions/lib/auth'
 import { getDb } from '../netlify/functions/lib/mongo'

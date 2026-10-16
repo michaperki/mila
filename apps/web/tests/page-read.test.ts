@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 const create = vi.fn()
 vi.mock('@anthropic-ai/sdk', () => ({ default: function Anthropic() { return { beta: { messages: { create } } } } }))
+vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn() }))
 import { readPage } from '../netlify/functions/lib/page-read'
 
 const reply = (page: unknown, stop_reason = 'end_turn') => ({ stop_reason, content: [{ type: 'text', text: JSON.stringify(page) }] })

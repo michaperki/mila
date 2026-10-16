@@ -25,13 +25,20 @@ export type WordAnalysis = {
   lemma: string; lemmaMeaning: string; root: string; partOfSpeech: string; binyan: string; form: string; note: string
   readAs?: string; phrase?: { text: string; meaning: string }; excerpt?: { text: string; meaning: string }
 }
-// Saved vocabulary keeps where the word was met so review cards can show it in context.
-// `gloss` is the meaning where the word was met ("in fact"); `senses` are the dictionary form's
-// broader meanings. `form`/`binyan` describe the form met; `excerpt` is the part of the
-// context sentence a card shows, with the whole sentence a tap away.
+// A saved word is its dictionary form (להדביק, not the הדביק that was tapped): `lemma`, `gloss`
+// (the dictionary form's meanings), part of speech, root and binyan describe it. Each place it
+// was met is an `Encounter`, so the same word met in several books stays one entry with one
+// practice history. Entries saved before encounters existed keep that data at the top level.
 export type VocabEntry = StarredItem & {
-  vocalized?: string; context?: string; contextTranslation?: string; partOfSpeech?: string; surface?: string
-  senses?: string; form?: string; binyan?: string; excerpt?: string; excerptTranslation?: string; review?: Review
+  partOfSpeech?: string; binyan?: string; encounters?: Encounter[]; review?: Review
+  vocalized?: string; context?: string; contextTranslation?: string; surface?: string
+  senses?: string; form?: string; excerpt?: string; excerptTranslation?: string
+}
+// Where a word was met: the form on the page, its grammatical form and meaning there, the
+// sentence, and a short excerpt of it for cards.
+export type Encounter = {
+  surface: string; vocalized?: string; form?: string; meaning: string; context: string; contextTranslation?: string
+  excerpt?: string; excerptTranslation?: string; sourceRef?: { textId: string; chunkId: string }; at: number
 }
 // Spaced-repetition state, stored on the vocab entry (see lib/review.ts).
 export type Review = { due: number; interval: number; reps: number; lapses: number; last?: number }

@@ -6,7 +6,8 @@ import { request } from '../../lib/api'
 import { textFromDocument } from '../../lib/documents'
 import { countsOf, isDue, matches, statusOf, type Status } from '../../lib/review'
 import type { TextDoc, VocabEntry } from '../../lib/types'
-import { stripNiqqud } from '../../lib/ocr-cleanup'
+import { encountersOf } from '../../lib/words'
+import { EncounterView } from '../../components/Encounter'
 import { withVowels } from '../../lib/vowels'
 import { useSession } from '../../state/session'
 import { useVowels } from '../../state/vowels'
@@ -89,17 +90,17 @@ export default function Vocabulary() {
           {visible.length === 0 && <Text style={[styles.copy, { padding: 16 }]}>No words match.</Text>}
           {visible.map((entry, i) => <WordRow key={entry.id} entry={entry} now={now} showVowels={showVowels} first={i === 0} open={expanded === entry.id}
             onToggle={() => setExpanded(current => (current === entry.id ? null : entry.id))}
-            onDelete={() => remove(entry)} onOpenPassage={entry.sourceRef ? () => void openPassage(entry.sourceRef!.textId) : undefined} />)}
+            onDelete={() => remove(entry)} onOpenPassage={textId => void openPassage(textId)} />)}
         </View>
       </>}
     </>}
   </Page>
 }
 
-function WordRow({ entry, now, showVowels, first, open, onToggle, onDelete, onOpenPassage }: { entry: VocabEntry; now: number; showVowels: boolean; first: boolean; open: boolean; onToggle: () => void; onDelete: () => void; onOpenPassage?: () => void }) {
+function WordRow({ entry, now, showVowels, first, open, onToggle, onDelete, onOpenPassage }: { entry: VocabEntry; now: number; showVowels: boolean; first: boolean; open: boolean; onToggle: () => void; onDelete: () => void; onOpenPassage: (textId: string) => void }) {
   const status = statusOf(entry)
   const v = (text: string) => withVowels(text, showVowels)
-  const meta = [entry.partOfSpeech, entry.root && `root ${entry.root}`].filter(Boolean).join(' · ')
+  const meta = [entry.partOfSpeech, entry.binyan, entry.root && `root ${entry.root}`].filter(Boolean).join(' · ')
   const days = entry.review ? Math.round((entry.review.due - now) / DAY) : null
   const next = days === null ? 'Not practiced yet' : days <= 0 ? 'Due today' : days === 1 ? 'Next practice tomorrow' : `Next practice in ${days} days`
   return <View style={[vocab.row, !first && vocab.divider]}>
@@ -112,16 +113,10 @@ function WordRow({ entry, now, showVowels, first, open, onToggle, onDelete, onOp
       <Text style={vocab.hebrew} numberOfLines={1}>{v(entry.lemma)}</Text>
     </Pressable>
     {open && <View style={vocab.details}>
-      {!!entry.surface && !!entry.vocalized && stripNiqqud(entry.surface) !== stripNiqqud(entry.lemma) && <Text style={vocab.meta}>Met as <Text style={vocab.inlineHebrew}>{v(entry.vocalized)}</Text></Text>}
-      {!!entry.form && <Text style={vocab.meta}>{[entry.form, entry.binyan].filter(Boolean).join(' · ')}</Text>}
-      {!!entry.senses && <Text style={vocab.meta}>Dictionary: {v(entry.senses)}</Text>}
-      {!!entry.context && <View style={vocab.context}>
-        <Text style={[styles.hebrew, { fontSize: 17, lineHeight: 27 }]}>{v(entry.context)}</Text>
-        {!!entry.contextTranslation && <Text style={[styles.copy, { fontSize: 14, lineHeight: 20 }]}>{entry.contextTranslation}</Text>}
-      </View>}
-      <Text style={vocab.meta}>{next}</Text>
+      {encountersOf(entry).map(encounter => <EncounterView key={`${encounter.context}-${encounter.at}`} encounter={encounter} showVowels={showVowels}
+        footer={encounter.sourceRef ? <TextButton title="Open passage" color={colors.green} onPress={() => onOpenPassage(encounter.sourceRef!.textId)} /> : undefined} />)}
       <View style={[styles.row, { justifyContent: 'space-between' }]}>
-        {onOpenPassage ? <TextButton title="Open passage" color={colors.green} onPress={onOpenPassage} /> : <View />}
+        <Text style={vocab.meta}>{next}</Text>
         <TextButton title="Delete" color={colors.red} onPress={onDelete} />
       </View>
     </View>}
@@ -142,7 +137,5 @@ const vocab = StyleSheet.create({
   meaning: { fontSize: 15, fontWeight: '600', color: colors.ink },
   meta: { fontSize: 12, lineHeight: 18, color: colors.muted },
   hebrew: { fontSize: 21, lineHeight: 30, color: colors.ink, writingDirection: 'rtl', maxWidth: '50%' },
-  inlineHebrew: { fontSize: 15, color: colors.ink },
   details: { gap: 6, paddingBottom: 8, paddingLeft: 20 },
-  context: { gap: 2, paddingTop: 4 },
 })

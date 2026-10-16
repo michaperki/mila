@@ -1,4 +1,6 @@
 import type { Handler } from '@netlify/functions'
+import { verifyAuth } from './lib/auth'
+import { recordTranslation } from './lib/ai-usage'
 
 interface TranslatePayload {
   sourceLang?: string
@@ -91,7 +93,11 @@ const handler: Handler = async (event) => {
       }
     }
 
+    // Billed per character sent; counted for the usage summary when the caller is signed in.
+    let billed = 0
+    const started = Date.now()
     const translate = async (segments: string[]) => {
+      billed += segments.reduce((sum, segment) => sum + segment.length, 0)
       const url = `https://translation.googleapis.com/language/translate/v2?key=${GOOGLE_API_KEY}`
       const body = {
         q: segments,
@@ -139,6 +145,9 @@ const handler: Handler = async (event) => {
       }
     }
 
+    const userId = signedInUser(event)
+    if (userId) await recordTranslation(userId, billed, Date.now() - started)
+
     const result: TranslateResult = {
       sentenceTranslations,
       tokenGlosses,
@@ -163,6 +172,11 @@ const handler: Handler = async (event) => {
       body: JSON.stringify({ error: 'Internal server error' }),
     }
   }
+}
+
+// Translation works signed out (the web reader); usage is only attributed when signed in.
+function signedInUser(event: Parameters<Handler>[0]) {
+  try { return verifyAuth(event).userId } catch { return null }
 }
 
 export { handler }

@@ -15,7 +15,8 @@ import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { paragraphsOf, runsOf } from '../lib/page'
 import { type EnglishMode, getPref, setPref } from '../lib/prefs'
 import { explainWord } from '../lib/recognition'
-import type { StarredItem, VocabEntry, WordAnalysis } from '../lib/types'
+import type { Encounter, VocabEntry, WordAnalysis } from '../lib/types'
+import { savedKey, savedKeysOf } from '../lib/words'
 import { useSession } from '../state/session'
 import { useVowels } from '../state/vowels'
 import { isVowelled, withVowels } from '../lib/vowels'
@@ -88,8 +89,8 @@ export default function Reader() {
   useEffect(() => {
     if (!session) return
     const controller = new AbortController()
-    void request<{ vocab?: StarredItem[] }>('vocab', { token: session.token, signal: controller.signal })
-      .then(data => setSavedWords(new Set((data.vocab || []).map(item => item.id)))).catch(() => {})
+    void request<{ vocab?: VocabEntry[] }>('vocab', { token: session.token, signal: controller.signal })
+      .then(data => setSavedWords(savedKeysOf(data.vocab || []))).catch(() => {})
     return () => controller.abort()
   }, [session])
 
@@ -167,32 +168,37 @@ export default function Reader() {
   const highlighted = dragRange ?? (selected === null ? null : { from: selected, to: last! })
   // A selected phrase is saved as written; a single word by its dictionary form.
   const lemma = isPhrase ? word!.bare : analysis?.lemma || word?.bare || ''
-  const wordSaved = !!word && savedWords.has(vocabId(lemma))
+  const sentence = word ? segments[word.segment].he : ''
+  const wordSaved = !!word && savedWords.has(savedKey(vocabId(lemma), sentence))
   const phrase = !isPhrase && analysis?.phrase?.text ? analysis.phrase : null
-  const phraseSaved = !!phrase && savedWords.has(vocabId(phrase.text))
+  const phraseSaved = !!phrase && savedWords.has(savedKey(vocabId(phrase.text), sentence))
   // Saves the tapped word, or the multi-word phrase it belongs to, with its source sentence.
   const saveWord = async (asPhrase = false) => {
     if (!session) { router.push('/login'); return }
     if (!word || !gloss || savingWord || (asPhrase ? !phrase || phraseSaved : wordSaved)) return
     const segment = segments[word.segment]
     const id = vocabId(asPhrase ? phrase!.text : lemma)
-    const entry: VocabEntry = {
-      id, createdAt: Date.now(), frequency: 1, context: segment.he, contextTranslation: segment.en,
+    // The entry is the dictionary form; this sentence is added to it as one encounter.
+    const encounter: Encounter = {
+      surface: asPhrase ? phrase!.text : word.bare, meaning: asPhrase ? phrase!.meaning : gloss, context: segment.he, at: Date.now(),
+      ...(segment.en ? { contextTranslation: segment.en } : {}),
+      ...(!asPhrase && analysis?.vocalized ? { vocalized: analysis.vocalized } : {}),
+      ...(!asPhrase && !isPhrase && analysis?.form ? { form: analysis.form } : {}),
       ...(analysis?.excerpt?.text ? { excerpt: analysis.excerpt.text, excerptTranslation: analysis.excerpt.meaning } : {}),
-      ...(asPhrase ? { lemma: phrase!.text, gloss: phrase!.meaning, surface: phrase!.text, partOfSpeech: 'phrase' } : isPhrase ? {
-        lemma, gloss, surface: word.bare, vocalized: analysis?.vocalized, partOfSpeech: 'phrase',
-      } : {
-        // The meaning as met here is what practice tests; dictionary senses are kept apart.
-        lemma, gloss, surface: word.bare, vocalized: analysis?.vocalized, partOfSpeech: analysis?.partOfSpeech,
-        ...(analysis?.lemmaMeaning ? { senses: analysis.lemmaMeaning } : {}),
-        ...(analysis?.root ? { root: analysis.root } : {}),
-        ...(analysis?.form ? { form: analysis.form } : {}),
-        ...(analysis?.binyan ? { binyan: analysis.binyan } : {}),
-      }),
       ...(saved ? { sourceRef: { textId: docId.current, chunkId: `${docId.current}-${word.segment}` } } : {}),
     }
+    const entry: VocabEntry & { encounter: Encounter } = {
+      id, createdAt: Date.now(), frequency: 1, encounter,
+      ...(asPhrase ? { lemma: phrase!.text, gloss: phrase!.meaning, partOfSpeech: 'phrase' }
+        : isPhrase ? { lemma, gloss: analysis?.lemmaMeaning || gloss, partOfSpeech: 'phrase' } : {
+          lemma, gloss: analysis?.lemmaMeaning || gloss,
+          ...(analysis?.partOfSpeech ? { partOfSpeech: analysis.partOfSpeech } : {}),
+          ...(analysis?.root ? { root: analysis.root } : {}),
+          ...(analysis?.binyan ? { binyan: analysis.binyan } : {}),
+        }),
+    }
     setSavingWord(true); setWordError(null)
-    try { await request('vocab', { token: session.token, body: entry }); setSavedWords(current => new Set(current).add(id)) }
+    try { await request('vocab', { token: session.token, body: entry }); setSavedWords(current => new Set(current).add(savedKey(id, segment.he))) }
     catch (failure) { setWordError((failure as Error).message) } finally { setSavingWord(false) }
   }
   const nextEnglish: Record<EnglishMode, EnglishMode> = { tap: 'all', all: 'off', off: 'tap' }

@@ -31,18 +31,34 @@ const handler: Handler = async (event) => {
           ? new Date(payload.createdAt).getTime()
           : Date.now()
 
+      // `encounter` (mobile): one place the word was met. It is added to the entry's
+      // `encounters` (one per sentence, newest last) instead of replacing the entry's context,
+      // so meeting a word again in another book keeps one entry and one practice history.
+      const { encounter, createdAt: _sent, ...fields } = payload
+      if (encounter !== undefined && !(encounter && typeof encounter === 'object' && typeof encounter.context === 'string')) {
+        return { statusCode: 400, body: JSON.stringify({ message: 'Invalid encounter' }) }
+      }
       const doc = {
-        ...payload,
+        ...fields,
         id,
         userId: auth.userId,
-        createdAt,
         updatedAt: Date.now(),
       }
 
-      await vocab.updateOne({ userId: auth.userId, id }, { $set: doc }, { upsert: true })
+      if (encounter) await vocab.updateOne({ userId: auth.userId, id }, { $pull: { encounters: { context: encounter.context } } } as never)
+      await vocab.updateOne(
+        { userId: auth.userId, id },
+        {
+          $set: doc,
+          // Saving again keeps the word's place in the practice order.
+          $setOnInsert: { createdAt },
+          ...(encounter ? { $push: { encounters: { $each: [encounter], $slice: -20 } } } : {}),
+        } as never,
+        { upsert: true },
+      )
       return {
         statusCode: 200,
-        body: JSON.stringify({ item: normalizeItem(doc) }),
+        body: JSON.stringify({ item: normalizeItem({ ...doc, createdAt }) }),
       }
     }
 

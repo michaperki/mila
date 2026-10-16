@@ -8,11 +8,11 @@ export default function Compose() {
   const [text, setText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const { setRecognition } = useSession()
+  const { session, setRecognition } = useSession()
   const read = async () => {
     if (busy || !text.trim()) return
     setBusy(true); setError(null)
-    try { setRecognition(await readText(text, { trimPageFurniture: false })); router.replace('/reader') }
+    try { setRecognition(await readText(text, { trimPageFurniture: false, token: session?.token })); router.replace('/reader') }
     catch (failure) { setError((failure as Error).message) } finally { setBusy(false) }
   }
   return <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={96}><Page>

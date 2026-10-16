@@ -12,24 +12,25 @@ const remember = (text: string, value: string) => {
   if (translations.size >= 200) translations.delete(translations.keys().next().value!)
   translations.set(text, value)
 }
-export async function translateMany(texts: string[], signal?: AbortSignal) {
+// `token` attributes the cost to the signed-in user (Account → AI usage); translation works without it.
+export async function translateMany(texts: string[], signal?: AbortSignal, token?: string) {
   const missing = [...new Set(texts.filter(text => !translations.has(text)))]
   if (missing.length) {
-    const result = await request<{ sentenceTranslations: string[] }>('translate', { body: { sourceLang: 'he', targetLang: 'en', sentences: missing }, signal })
+    const result = await request<{ sentenceTranslations: string[] }>('translate', { token, body: { sourceLang: 'he', targetLang: 'en', sentences: missing }, signal })
     if (result.sentenceTranslations?.length !== missing.length) throw new Error('No translation was returned. Please try again.')
     missing.forEach((text, i) => remember(text, decode(result.sentenceTranslations[i])))
   }
   return texts.map(text => translations.get(text)!)
 }
-export async function translate(text: string, signal?: AbortSignal) { return (await translateMany([text], signal))[0] }
+export async function translate(text: string, signal?: AbortSignal, token?: string) { return (await translateMany([text], signal, token))[0] }
 
 // Each segment is translated on its own so the English lines up with the Hebrew and a
 // merged title or list number can't bleed into the neighbouring sentence.
-export async function readText(raw: string, options: { trimPageFurniture?: boolean; signal?: AbortSignal; capturedAt?: number } = {}): Promise<Recognition> {
+export async function readText(raw: string, options: { trimPageFurniture?: boolean; signal?: AbortSignal; capturedAt?: number; token?: string } = {}): Promise<Recognition> {
   const capturedAt = options.capturedAt ?? Date.now()
   const pieces = cleanOcr(raw, options)
   if (!pieces.length) return { text: '', translation: '', capturedAt, segments: [], raw }
-  const english = await translateMany(pieces.map(piece => piece.text), options.signal)
+  const english = await translateMany(pieces.map(piece => piece.text), options.signal, options.token)
   const segments: ReadingSegment[] = pieces.map((piece, i) => ({ he: piece.text, en: english[i], ...(piece.heading ? { heading: true } : {}), ...(piece.marker ? { marker: piece.marker } : {}) }))
   return {
     text: pieces.map(segmentText).join('\n'),
@@ -73,7 +74,7 @@ export async function recognizeImage(image: CapturedImage, token: string, option
     }
   }
   if (read) lastTail = null
-  return { ...(await readText(result.text, { signal, capturedAt })), ...meta }
+  return { ...(await readText(result.text, { signal, capturedAt, token })), ...meta }
 }
 
 const analyses = new Map<string, WordAnalysis>()
@@ -91,6 +92,6 @@ export async function explainWord(word: string, sentence: string, token: string 
     return { analysis, gloss: analysis.meaning }
   } catch (failure) {
     if (signal?.aborted || (failure instanceof ApiError && failure.status === 401)) throw failure
-    return { gloss: await translate(word, signal) }
+    return { gloss: await translate(word, signal, token) }
   }
 }

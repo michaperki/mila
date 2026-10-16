@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { recordClaude } from './ai-usage'
 
 // One vision-model pass over a photographed page, used when the learner commits to
 // reading it (not for live preview). The model sees the photo and Google Vision's OCR
@@ -57,11 +58,12 @@ You get a photo and the text Google's OCR read from it. The OCR is a hint: it of
 
 let client: Anthropic | null = null
 
-export async function readPage(input: { image: string; ocr: string; previous?: string }): Promise<PageRead> {
+export async function readPage(input: { image: string; ocr: string; previous?: string; userId: string }): Promise<PageRead> {
   client ??= new Anthropic()
   const previous = input.previous
     ? `\n\nThe previous page ended mid-sentence with:\n${input.previous}\nIf this page's first sentence completes it, set continuesPrevious, give only the part printed on this page as the first sentence's "he", and translate the complete joined sentence as its "en". If it does not (a different page or book), ignore it.`
     : ''
+  const started = Date.now()
   const response = await client.beta.messages.create({
     model: 'claude-opus-5-5',
     max_tokens: 16000,
@@ -79,6 +81,8 @@ export async function readPage(input: { image: string; ocr: string; previous?: s
       ],
     }],
   }, { timeout: 45000, maxRetries: 0 })
+  // Recorded before any checks: a refused or truncated read still used tokens.
+  await recordClaude(input.userId, 'page', response, Date.now() - started)
   if (response.stop_reason === 'refusal') throw Object.assign(new Error('Page read refused'), { code: 'READ_REFUSED' })
   if (response.stop_reason === 'max_tokens') throw Object.assign(new Error('Page read truncated'), { code: 'READ_TRUNCATED' })
   const text = response.content.flatMap(block => (block.type === 'text' ? [block.text] : [])).join('')

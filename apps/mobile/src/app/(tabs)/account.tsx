@@ -1,10 +1,16 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
+import { useFocusEffect } from 'expo-router'
 import { Alert, Linking, Switch, Text, View } from 'react-native'
 import { AccountGate, Button, colors, ErrorNotice, Page, styles, TextButton } from '../../components/ui'
 import { request } from '../../lib/api'
 import { applyLatestUpdate, describeVersion } from '../../lib/app-info'
 import { useSession } from '../../state/session'
 import { useVowels } from '../../state/vowels'
+// Account → AI usage: the `ai-usage` function's summary of this month's paid calls.
+type Usage = { since: string; cost: number; requests: number; features: { feature: string; requests: number; cost: number }[] }
+const FEATURES: Record<string, string> = { page: 'Page reads', word: 'Word explanations', ocr: 'Text recognition', translate: 'Translation' }
+const dollars = (value: number) => (value > 0 && value < 0.01 ? '< $0.01' : `$${value.toFixed(2)}`)
+
 export default function Account() {
   const { session, signOut, error: restoreError } = useSession()
   const [error, setError] = useState<string | null>(null)
@@ -17,6 +23,13 @@ export default function Account() {
     catch { setUpdateStatus('Could not check for updates. Try again with a connection.') } finally { setChecking(false) }
   }
   const [showVowels, setShowVowels] = useVowels()
+  const [usage, setUsage] = useState<Usage | null>(null)
+  useFocusEffect(useCallback(() => {
+    if (!session) return
+    const controller = new AbortController()
+    void request<Usage>('ai-usage', { token: session.token, signal: controller.signal }).then(setUsage, () => {})
+    return () => controller.abort()
+  }, [session]))
   const [vocabStatus, setVocabStatus] = useState<string | null>(null)
   const clearVocabulary = () => Alert.alert('Delete all saved words?', 'Every saved word and its practice history will be removed. This can\'t be undone.', [
     { text: 'Cancel', style: 'cancel' },
@@ -54,6 +67,15 @@ export default function Account() {
       {!!updateStatus && <Text style={styles.copy}>{updateStatus}</Text>}
       <Button secondary title="Check for updates" busy={checking} onPress={() => void checkForUpdate()} />
     </View>
+    {session && !!usage && <View style={styles.card}>
+      <Text style={styles.heading}>AI usage this month</Text>
+      <Text style={{ fontSize: 30, fontWeight: '700', color: colors.ink }}>{dollars(usage.cost)}</Text>
+      {usage.features.map(row => <View key={row.feature} style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
+        <Text style={styles.copy}>{FEATURES[row.feature] || row.feature} · {row.requests}</Text>
+        <Text style={[styles.copy, { color: colors.ink }]}>{dollars(row.cost)}</Text>
+      </View>)}
+      <Text style={[styles.copy, { fontSize: 13 }]}>Estimated at list prices, before free tiers.</Text>
+    </View>}
     {session && <View style={styles.card}>
       <Text style={styles.heading}>Saved words</Text>
       {!!vocabStatus && <Text style={styles.copy}>{vocabStatus}</Text>}

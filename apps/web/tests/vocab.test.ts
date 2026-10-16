@@ -37,3 +37,23 @@ describe('clearing vocab', () => {
     expect(deleteMany).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('saving a word', () => {
+  const post = async (body: unknown) => (await handler({ httpMethod: 'POST', body: JSON.stringify(body) } as any, {} as any, () => {}) as any)
+  it('adds an encounter to the entry instead of replacing it', async () => {
+    const encounter = { surface: 'הדביק', meaning: 'planted (a kiss)', context: 'מר דרסלי הדביק נשיקה', at: 1 }
+    expect((await post({ id: 'native-x', lemma: 'לְהַדְבִּיק', gloss: 'to stick', createdAt: 5, encounter })).statusCode).toBe(200)
+    const [pull, upsert] = updateOne.mock.calls
+    expect(pull[1]).toEqual({ $pull: { encounters: { context: encounter.context } } })
+    const update = upsert[1]
+    expect(update.$push).toEqual({ encounters: { $each: [encounter], $slice: -20 } })
+    expect(update.$set.encounter).toBeUndefined()
+    expect(update.$set.createdAt).toBeUndefined()
+    expect(update.$setOnInsert).toEqual({ createdAt: 5 })
+    expect(upsert[2]).toEqual({ upsert: true })
+  })
+  it('rejects a malformed encounter', async () => {
+    expect((await post({ id: 'native-x', lemma: 'x', gloss: 'y', encounter: { surface: 'x' } })).statusCode).toBe(400)
+    expect(updateOne).not.toHaveBeenCalled()
+  })
+})
