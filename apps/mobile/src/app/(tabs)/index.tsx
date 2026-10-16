@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, AppState, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, AppState, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import * as ImagePicker from 'expo-image-picker'
 import { router, useFocusEffect } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated'
+import Animated from 'react-native-reanimated'
+import { APPEAR } from '../../lib/motion'
 import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles } from '../../components/ui'
-import { ScanShimmer, SettlingImage } from '../../components/Motion'
+import { ScanShimmer } from '../../components/Motion'
 import { FeedbackButton } from '../../components/Feedback'
 import { useSession } from '../../state/session'
 import { recognizeImage } from '../../lib/recognition'
@@ -168,7 +169,7 @@ export default function Camera() {
   return <View style={cameraStyles.page}>
     {focused && foreground && !reading && <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="back" onCameraReady={() => setCameraReady(true)} onMountError={() => { setCameraReady(false); setError('The camera could not start. Try reopening this screen.') }} />}
     {reading ? <>
-      <SettlingImage uri={reading.uri} style={StyleSheet.absoluteFill} />
+      <Image source={{ uri: reading.uri }} style={StyleSheet.absoluteFill} resizeMode="cover" accessibilityIgnoresInvertColors />
       <View style={cameraStyles.readingScrim} accessible accessibilityLabel="Reading the page">
         <ScanShimmer />
         <Pressable accessibilityRole="button" accessibilityLabel="Cancel" onPress={cancelReading} hitSlop={10} style={cameraStyles.cancel}>
@@ -199,7 +200,7 @@ export default function Camera() {
         {busy && <ActivityIndicator size="small" color={colors.white} />}
         <Text accessibilityLiveRegion="polite" numberOfLines={2} style={[cameraStyles.message, { flex: 1 }]}>{message}</Text>
       </View>
-      {result && <Animated.View entering={FadeInDown.duration(220).reduceMotion(ReduceMotion.System)} style={cameraStyles.resultCard}>
+      {result && <Animated.View entering={APPEAR} style={cameraStyles.resultCard}>
         <Text style={cameraStyles.hebrewCompact} numberOfLines={2}>{result.text}</Text>
         <Text style={cameraStyles.translationCompact} numberOfLines={2}>{result.translation}</Text>
         <Button title="Read this passage" busy={busy && !live} onPress={() => void readPassage(result)} />

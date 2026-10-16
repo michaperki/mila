@@ -5,9 +5,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import * as Crypto from 'expo-crypto'
 import * as Speech from 'expo-speech'
-import Animated, { FadeIn, FadeInDown, LinearTransition, ReduceMotion } from 'react-native-reanimated'
+import Animated from 'react-native-reanimated'
 import { Button, colors, ErrorNotice, Page, Pill, styles, TextButton } from '../components/ui'
-import { DraggableSheet, Reaction, SHEET_IN, SHEET_OUT } from '../components/Motion'
+import { DraggableSheet } from '../components/Motion'
+import { APPEAR, REFLOW, SHEET_IN, SHEET_OUT } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { FeedbackButton } from '../components/Feedback'
 import { request } from '../lib/api'
@@ -26,9 +27,7 @@ import { useVowels } from '../state/vowels'
 import { isVowelled, withVowels } from '../lib/vowels'
 
 // Keyed by the vocalized lemma so homographs (סֵפֶר book / סַפָּר barber) don't collide.
-// Runs reflow smoothly when a sentence is selected and its English opens beneath it.
-const REFLOW = LinearTransition.springify().damping(26).stiffness(260).reduceMotion(ReduceMotion.System)
-const APPEAR = FadeIn.duration(200).reduceMotion(ReduceMotion.System)
+// Runs reflow (REFLOW) when a sentence is selected and its English opens beneath it.
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 const vocabId = (lemma: string) => `native-${encodeURIComponent(lemma.normalize('NFC'))}`
 
@@ -63,8 +62,6 @@ export default function Reader() {
   const [wordBusy, setWordBusy] = useState(false)
   const [wordError, setWordError] = useState<string | null>(null)
   const [savingWord, setSavingWord] = useState(false)
-  // True right after a save, for its little pop; any new selection clears it.
-  const [justSaved, setJustSaved] = useState(false)
   const [savedWords, setSavedWords] = useState<Set<string>>(new Set())
   const [english, setEnglish] = useState<EnglishMode>('tap')
   // Three states: reading (nothing active), a sentence active (highlighted, English under it,
@@ -166,7 +163,7 @@ export default function Reader() {
     if (!first) return
     const text = words.slice(index, to + 1).map(item => item.bare).join(' ')
     const version = ++selection.current
-    feel('select'); setJustSaved(false)
+    feel('select')
     setSelected(index); setSelectedTo(to); setActive(first.segment); setDetails(false); setAnalysis(undefined); setGloss(''); setWordError(null); setWordBusy(true)
     try {
       const result = await explainWord(text, segments[first.segment].he, session?.token)
@@ -175,7 +172,7 @@ export default function Reader() {
     } catch (failure) { if (selection.current === version) setWordError((failure as Error).message) }
     finally { if (selection.current === version) setWordBusy(false) }
   }
-  const close = () => { selection.current++; setSelected(null); setJustSaved(false); void Speech.stop() }
+  const close = () => { selection.current++; setSelected(null); void Speech.stop() }
   const sentences = segments.map((_, i) => i).filter(i => indexOfFirstWord[i] !== undefined)
   const activePosition = active === null ? -1 : sentences.indexOf(active)
   const goSentence = (step: number) => {
@@ -228,7 +225,7 @@ export default function Reader() {
     setSavingWord(true); setWordError(null)
     try {
       await request('vocab', { token: session.token, body: entry }); setSavedWords(current => new Set(current).add(savedKey(id, segment.he)))
-      feel('saved'); setJustSaved(true)
+      feel('saved')
       // Write the word's first practice cards now, so they are ready by the next practice.
       void ensureForms({ ...entry, forms: [] }, session.token).catch(() => {})
     }
@@ -322,7 +319,7 @@ export default function Reader() {
         {paragraphs.map((members, p) => {
           const first = segments[members[0]]
           const last = segments[members[members.length - 1]]
-          return <Animated.View key={p} entering={FadeInDown.delay(Math.min(p, 10) * 45).duration(260).reduceMotion(ReduceMotion.System)} style={[reader.paragraph, p > 0 && !paged && reader.divider]}>
+          return <View key={p} style={[reader.paragraph, p > 0 && !paged && reader.divider]}>
             {first.joined && <Text style={reader.edge}>Starts on the previous page</Text>}
             {first.cutStart && <Text style={reader.edge}>Continued from the previous page</Text>}
             {runsOf(members, english === 'all', active).map(run => {
@@ -348,7 +345,7 @@ export default function Reader() {
               </AnimatedPressable>
             })}
             {last.cutEnd && <Text style={reader.edge}>Continues on the next page</Text>}
-          </Animated.View>
+          </View>
         })}
       </View>
       <ErrorNotice message={error} />
@@ -375,7 +372,7 @@ export default function Reader() {
         <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} hitSlop={10}><Ionicons name="close" size={22} color={colors.muted} /></Pressable>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 }}>
           <Pressable accessibilityRole="button" accessibilityLabel={isPhrase ? 'Hear this phrase' : 'Hear this word'} onPress={() => speak(analysis?.vocalized || word.bare)} hitSlop={10}><Ionicons name="volume-medium-outline" size={22} color={colors.green} /></Pressable>
-          <Reaction state={justSaved ? 'right' : 'idle'}><Text style={reader.sheetWord}>{v(analysis?.vocalized || word.bare)}</Text></Reaction>
+          <Text style={reader.sheetWord}>{v(analysis?.vocalized || word.bare)}</Text>
         </View>
       </View>}>
       {wordBusy && !quickMeaning ? <View style={[styles.row, { gap: 8 }]}><ActivityIndicator color={colors.green} /><Text style={styles.copy}>Reading it in context…</Text></View>
@@ -384,7 +381,7 @@ export default function Reader() {
           {wordBusy && <ActivityIndicator color={colors.green} />}
         </View>}
       {!wordBusy && !analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation.</Text>}
-      {details && !wordBusy && analysis && <Animated.View entering={FadeInDown.duration(200).reduceMotion(ReduceMotion.System)}>
+      {details && !wordBusy && analysis && <Animated.View entering={APPEAR}>
         <ScrollView style={{ maxHeight: detailsHeight }} contentContainerStyle={{ gap: 12, paddingBottom: 4 }} scrollEventThrottle={64}
           onScroll={event => measureMore(event.nativeEvent)}
           onContentSizeChange={(_, contentHeight) => setMoreBelow(contentHeight > detailsHeight + 8)}>
@@ -405,9 +402,7 @@ export default function Reader() {
         {hasDetails && !wordBusy && <Pressable accessibilityRole="button" onPress={() => setDetails(value => !value)} style={reader.detailsToggle} hitSlop={6}>
           <Text style={reader.barLabel}>{details ? 'Less' : 'Details'}</Text><Ionicons name={details ? 'chevron-down' : 'chevron-up'} size={16} color={colors.green} />
         </Pressable>}
-        <Reaction state={justSaved ? 'right' : 'idle'} style={{ flex: 1 }}>
-          <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : isPhrase ? 'Save phrase' : 'Save word'} disabled={wordBusy || !gloss || wordSaved} busy={savingWord} onPress={() => void saveWord()} />
-        </Reaction>
+        <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : isPhrase ? 'Save phrase' : 'Save word'} disabled={wordBusy || !gloss || wordSaved} busy={savingWord} onPress={() => void saveWord()} style={{ flex: 1 }} />
       </View>
     </DraggableSheet>}
   </View>

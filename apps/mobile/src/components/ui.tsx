@@ -2,7 +2,7 @@ import type { ComponentProps, ReactNode } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, type GestureResponderEvent, type StyleProp, type ViewStyle, type RefreshControlProps } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated'
 import { feel } from '../lib/feedback'
-import { spring } from '../lib/motion'
+import { DURATION, settle } from '../lib/motion'
 import { router } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
 export const colors = { paper: '#F6F5F1', ink: '#172B29', muted: '#65736E', green: '#145C4B', lime: '#DCECBA', line: '#DBE2DA', white: '#FFFFFF', red: '#A52D35' }
@@ -22,14 +22,14 @@ export function Page({ children, refreshControl }: { children: ReactNode; refres
   return <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" refreshControl={refreshControl}>{children}</ScrollView>
 }
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
-// A Pressable that presses down a little under the finger and springs back, with a light tap
+// A Pressable that presses down a little under the finger and comes back up, with a light tap
 // (`moment`, or none). Every button in the app is one of these.
 export function Pressy({ moment = 'press', onPressIn, onPressOut, style, depth = 0.97, ...props }: Omit<ComponentProps<typeof Pressable>, 'style'> & { moment?: 'press' | 'tick' | 'select' | 'shutter' | null; style?: StyleProp<ViewStyle>; depth?: number }) {
   const scale = useSharedValue(1)
   const pressed = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }))
   return <AnimatedPressable {...props}
-    onPressIn={(event: GestureResponderEvent) => { scale.set(spring(depth)); if (moment) feel(moment); onPressIn?.(event) }}
-    onPressOut={(event: GestureResponderEvent) => { scale.set(spring(1)); onPressOut?.(event) }}
+    onPressIn={(event: GestureResponderEvent) => { scale.set(settle(depth, DURATION.press)); if (moment) feel(moment); onPressIn?.(event) }}
+    onPressOut={(event: GestureResponderEvent) => { scale.set(settle(1, DURATION.press)); onPressOut?.(event) }}
     style={[style, pressed]} />
 }
 // `detail` is an optional second line under the title (e.g. "3 days" on a grading button).

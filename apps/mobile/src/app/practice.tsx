@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import Animated, { FadeIn, FadeInDown, FadeOutLeft, ReduceMotion, SlideInRight } from 'react-native-reanimated'
+import Animated from 'react-native-reanimated'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import * as Speech from 'expo-speech'
 import { Button, colors, ErrorNotice, Page, Pressy, styles } from '../components/ui'
-import { Burst, CountUp, ProgressBar, Reaction, SwipeCard } from '../components/Motion'
+import { ProgressBar, Shake, SwipeCard } from '../components/Motion'
+import { APPEAR, CARD_IN, CARD_OUT } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { answer, type Card, choicesFor, drillOf, extraQueue, missingStages, practiceQueue, stagesOf, unlockedStages } from '../lib/forms'
@@ -20,10 +21,6 @@ import { useVowels } from '../state/vowels'
 
 const RATINGS: { rating: Rating; label: string }[] = [{ rating: 'again', label: 'Again' }, { rating: 'hard', label: 'Hard' }, { rating: 'good', label: 'Got it' }]
 const bare = (text: string) => stripNiqqud(bareWord(text))
-// The next card slides in; the last one leaves to the left (or flies off where it was swiped).
-const CARD_IN = SlideInRight.springify().damping(22).stiffness(210).reduceMotion(ReduceMotion.System)
-const CARD_OUT = FadeOutLeft.duration(160).reduceMotion(ReduceMotion.System)
-const ANSWER_IN = FadeInDown.duration(220).reduceMotion(ReduceMotion.System)
 
 // The one place to study. Each card is one form of a saved word (to open, I opened, they will
 // open …) in its own sentence. A new form is read first: what does the marked word mean? Once
@@ -129,7 +126,7 @@ export default function Practice() {
     </View>
     <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: answered ? 'flex-start' : 'center' }]}>
       <ErrorNotice message={error} />
-      <Animated.View key={position} entering={position ? CARD_IN : FadeIn} exiting={CARD_OUT}>
+      <Animated.View key={position} entering={position ? CARD_IN : undefined} exiting={CARD_OUT}>
       <SwipeCard enabled={revealed && !choices} onSwipe={rating => finish(rating)} style={[styles.card, practice.card]}>
         <View style={[styles.row, { justifyContent: 'space-between', alignSelf: 'stretch', flexWrap: 'nowrap' }]}>
           <Text style={practice.stage}>{stage?.label}{recall && !answered ? '' : <> · <Text style={practice.lemma}>{v(entry.lemma)}</Text></>}</Text>
@@ -144,15 +141,15 @@ export default function Practice() {
           {choices.map(option => {
             const isAnswer = bare(option) === formBare
             const chosen = picked !== null && bare(option) === bare(picked)
-            return <Reaction key={option} state={chosen ? (isAnswer ? 'right' : 'wrong') : 'idle'}>
+            return <Shake key={option} on={chosen && !isAnswer}>
               <Pressy moment={null} accessibilityRole="button" disabled={answered} onPress={() => { setPicked(option); feel(isAnswer ? 'right' : 'wrong') }}
                 style={[practice.option, answered && isAnswer && practice.optionRight, answered && chosen && !isAnswer && practice.optionWrong]}>
                 <Text style={practice.optionText}>{v(option)}</Text>
               </Pressy>
-            </Reaction>
+            </Shake>
           })}
         </View>}
-        {answered && <Animated.View entering={ANSWER_IN} style={{ gap: 6, alignSelf: 'stretch' }}>
+        {answered && <Animated.View entering={APPEAR} style={{ gap: 6, alignSelf: 'stretch' }}>
           {choices && <Text style={[practice.verdict, { color: right ? colors.green : colors.red }]}>{right ? 'Right' : 'Not quite'}</Text>}
           <Text style={practice.meaning}>{form.en}</Text>
           <Text style={[practice.detail, { textAlign: 'center' }]}>{v(form.he)}</Text>
@@ -201,17 +198,16 @@ function Summary({ tally, words, unlocked, error, onMore }: { tally: Record<Rati
     <Button title="Back to vocabulary" onPress={() => router.back()} />
   </Page>
   return <Page>
-    <Burst count={unlocked.length ? 28 : 16} />
-    <Animated.Text entering={FadeInDown.duration(260).reduceMotion(ReduceMotion.System)} style={styles.title}>Practice complete</Animated.Text>
+    <Text style={styles.title}>Practice complete</Text>
     <Text style={styles.copy}>{attempts} {attempts === 1 ? 'card' : 'cards'} from {words} {words === 1 ? 'word' : 'words'}</Text>
     <View style={practice.tally}>
-      {RATINGS.slice().reverse().map(({ rating, label }, i) => <View key={rating} style={practice.count}>
-        <CountUp value={tally[rating]} delay={120 + i * 110} /><Text style={practice.countLabel}>{label}</Text>
+      {RATINGS.slice().reverse().map(({ rating, label }) => <View key={rating} style={practice.count}>
+        <Text style={practice.countValue}>{tally[rating]}</Text><Text style={practice.countLabel}>{label}</Text>
       </View>)}
     </View>
-    {unlocked.map((line, i) => <Animated.View key={line} entering={FadeInDown.delay(450 + i * 120).duration(260).reduceMotion(ReduceMotion.System)} style={practice.unlocked}>
+    {unlocked.map(line => <View key={line} style={practice.unlocked}>
       <Ionicons name="lock-open-outline" size={18} color={colors.green} /><Text style={[styles.copy, { color: colors.ink, flexShrink: 1 }]}>Unlocked {line}</Text>
-    </Animated.View>)}
+    </View>)}
     <ErrorNotice message={error} />
     {onMore && <Button title="Keep practicing" onPress={onMore} />}
     <Button secondary={!!onMore} title="Back to vocabulary" onPress={() => router.back()} />
@@ -239,6 +235,7 @@ const practice = StyleSheet.create({
   detail: { fontSize: 15, lineHeight: 22, color: colors.muted, writingDirection: 'ltr', textAlign: 'left' },
   actions: { flexDirection: 'row', gap: 10, paddingHorizontal: 22, paddingTop: 12, backgroundColor: colors.paper, borderTopWidth: 1, borderTopColor: colors.line },
   tally: { flexDirection: 'row', gap: 10 },
+  countValue: { fontSize: 30, fontWeight: '700', color: colors.ink },
   count: { flex: 1, paddingVertical: 16, borderRadius: 14, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, alignItems: 'center' },
   countLabel: { fontSize: 13, color: colors.muted },
 })

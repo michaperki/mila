@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
-import Animated, { FadeIn, FadeOut, LinearTransition, ReduceMotion } from 'react-native-reanimated'
 import { AccountGate, Button, colors, ErrorNotice, Page, Pill, Pressy, styles } from '../../components/ui'
 import { request } from '../../lib/api'
 import { countsOf, formsIn, isDue, isSolid, statusOf, type Status, unlockedStages } from '../../lib/forms'
@@ -85,9 +84,7 @@ function WordRow({ entry, showVowels, first, onOpen }: { entry: VocabEntry; show
   const stage = unlockedStages(entry).at(-1)!
   const forms = formsIn(entry, stage.key)
   const progress = forms.length ? `${stage.label} · ${forms.filter(isSolid).length} of ${forms.length}` : stage.label
-  // Rows fade in and out as the search or filter changes, and the rest slide into place.
-  return <Animated.View entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)} layout={LinearTransition.duration(200).reduceMotion(ReduceMotion.System)}>
-  <Pressy moment={null} depth={0.985} accessibilityRole="button" accessibilityLabel={`${entry.lemma}, ${entry.gloss}`} onPress={onOpen} style={[vocab.row, vocab.rowMain, !first && vocab.divider]}>
+  return <Pressy moment={null} depth={0.985} accessibilityRole="button" accessibilityLabel={`${entry.lemma}, ${entry.gloss}`} onPress={onOpen} style={[vocab.row, vocab.rowMain, !first && vocab.divider]}>
     <StatusDot status={statusOf(entry)} />
     <View style={{ flex: 1, gap: 2 }}>
       <Text style={vocab.meaning} numberOfLines={1}>{v(entry.gloss)}</Text>
@@ -95,7 +92,6 @@ function WordRow({ entry, showVowels, first, onOpen }: { entry: VocabEntry; show
     </View>
     <Text style={vocab.hebrew} numberOfLines={1}>{v(entry.lemma)}</Text>
   </Pressy>
-  </Animated.View>
 }
 
 // Hollow: new. Lime: learning. Green: mastered. The filter pills carry the same dots as a key.
