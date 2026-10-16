@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
+import Animated, { FadeIn, FadeInDown, FadeOutLeft, ReduceMotion, SlideInRight } from 'react-native-reanimated'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import * as Speech from 'expo-speech'
-import { Button, colors, ErrorNotice, Page, styles } from '../components/ui'
+import { Button, colors, ErrorNotice, Page, Pressy, styles } from '../components/ui'
+import { Burst, CountUp, ProgressBar, Reaction, SwipeCard } from '../components/Motion'
+import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { answer, type Card, choicesFor, drillOf, extraQueue, missingStages, practiceQueue, stagesOf, unlockedStages } from '../lib/forms'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
@@ -17,6 +20,10 @@ import { useVowels } from '../state/vowels'
 
 const RATINGS: { rating: Rating; label: string }[] = [{ rating: 'again', label: 'Again' }, { rating: 'hard', label: 'Hard' }, { rating: 'good', label: 'Got it' }]
 const bare = (text: string) => stripNiqqud(bareWord(text))
+// The next card slides in; the last one leaves to the left (or flies off where it was swiped).
+const CARD_IN = SlideInRight.springify().damping(22).stiffness(210).reduceMotion(ReduceMotion.System)
+const CARD_OUT = FadeOutLeft.duration(160).reduceMotion(ReduceMotion.System)
+const ANSWER_IN = FadeInDown.duration(220).reduceMotion(ReduceMotion.System)
 
 // The one place to study. Each card is one form of a saved word (to open, I opened, they will
 // open …) in its own sentence. A new form is read first: what does the marked word mean? Once
@@ -82,7 +89,9 @@ export default function Practice() {
   const right = !!choices && picked !== null && bare(picked) === bare(form.he)
   const speak = () => { void Speech.stop(); Speech.speak(form.sentence, { language: 'he-IL', rate: 0.8 }) }
 
-  const finish = (rating: Rating) => {
+  // `felt`: the moment was already felt (a choice is felt when picked, not on Continue).
+  const finish = (rating: Rating, felt = false) => {
+    if (!felt) feel(rating === 'good' ? 'gotIt' : 'graded')
     const result = answer(form, rating)
     void request('vocab', { token: session.token, method: 'PATCH', body: { id: entry.id, form: { key: form.key, ...result } } })
       .catch((failure: Error) => setError(`A result wasn't saved. ${failure.message}`))
@@ -93,6 +102,7 @@ export default function Practice() {
     const opened = unlockedStages(updated).filter(item => !before.includes(item.key))
     if (opened.length) {
       setUnlocked(current => [...current, ...opened.map(item => `${v(entry.lemma)}: ${item.label}`)])
+      setTimeout(() => feel('unlock'), 250)
       void ensureForms(updated, session.token).then(keep)
     }
     if (rating === 'again') setQueue(current => [...current!, { entry: updated, form: { ...form, ...result } }])
@@ -113,10 +123,14 @@ export default function Practice() {
   })
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <Text style={practice.progress}>{position + 1} / {queue.length}</Text>
+    <View style={practice.top}>
+      <ProgressBar value={position / queue.length} />
+      <Text style={practice.progress}>{position + 1} / {queue.length}</Text>
+    </View>
     <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: answered ? 'flex-start' : 'center' }]}>
       <ErrorNotice message={error} />
-      <View style={[styles.card, practice.card]}>
+      <Animated.View key={position} entering={position ? CARD_IN : FadeIn} exiting={CARD_OUT}>
+      <SwipeCard enabled={revealed && !choices} onSwipe={rating => finish(rating)} style={[styles.card, practice.card]}>
         <View style={[styles.row, { justifyContent: 'space-between', alignSelf: 'stretch', flexWrap: 'nowrap' }]}>
           <Text style={practice.stage}>{stage?.label}{recall && !answered ? '' : <> · <Text style={practice.lemma}>{v(entry.lemma)}</Text></>}</Text>
           {(!recall || answered) && <Pressable accessibilityRole="button" accessibilityLabel="Hear the sentence" onPress={speak} hitSlop={10}>
@@ -130,26 +144,29 @@ export default function Practice() {
           {choices.map(option => {
             const isAnswer = bare(option) === formBare
             const chosen = picked !== null && bare(option) === bare(picked)
-            return <Pressable key={option} accessibilityRole="button" disabled={answered} onPress={() => setPicked(option)}
-              style={[practice.option, answered && isAnswer && practice.optionRight, answered && chosen && !isAnswer && practice.optionWrong]}>
-              <Text style={practice.optionText}>{v(option)}</Text>
-            </Pressable>
+            return <Reaction key={option} state={chosen ? (isAnswer ? 'right' : 'wrong') : 'idle'}>
+              <Pressy moment={null} accessibilityRole="button" disabled={answered} onPress={() => { setPicked(option); feel(isAnswer ? 'right' : 'wrong') }}
+                style={[practice.option, answered && isAnswer && practice.optionRight, answered && chosen && !isAnswer && practice.optionWrong]}>
+                <Text style={practice.optionText}>{v(option)}</Text>
+              </Pressy>
+            </Reaction>
           })}
         </View>}
-        {answered && <View style={{ gap: 6, alignSelf: 'stretch' }}>
+        {answered && <Animated.View entering={ANSWER_IN} style={{ gap: 6, alignSelf: 'stretch' }}>
           {choices && <Text style={[practice.verdict, { color: right ? colors.green : colors.red }]}>{right ? 'Right' : 'Not quite'}</Text>}
           <Text style={practice.meaning}>{form.en}</Text>
           <Text style={[practice.detail, { textAlign: 'center' }]}>{v(form.he)}</Text>
           {!!form.translation && !recall && <Text style={practice.detail}>{form.translation}</Text>}
-        </View>}
-      </View>
+        </Animated.View>}
+      </SwipeCard>
+      </Animated.View>
     </ScrollView>
     <View style={[practice.actions, { paddingBottom: 12 + insets.bottom }]}>
       {choices
-        ? (answered ? <Button title="Continue" onPress={() => finish(right ? 'good' : 'again')} style={{ flex: 1 }} />
+        ? (answered ? <Button title="Continue" onPress={() => finish(right ? 'good' : 'again', true)} style={{ flex: 1 }} />
           : <Text style={[practice.hint, { flex: 1, textAlign: 'center', paddingVertical: 14 }]}>Choose the form</Text>)
-        : !revealed ? <Button title="Show answer" onPress={() => setRevealed(true)} style={{ flex: 1 }} />
-          : RATINGS.map(({ rating, label }) => <Button key={rating} secondary={rating !== 'good'} title={label} detail={waitOf(form.review, rating)}
+        : !revealed ? <Button title="Show answer" moment={null} onPress={() => { feel('reveal'); setRevealed(true) }} style={{ flex: 1 }} />
+          : RATINGS.map(({ rating, label }) => <Button key={rating} moment={null} secondary={rating !== 'good'} title={label} detail={waitOf(form.review, rating)}
             onPress={() => finish(rating)} style={{ flex: 1, paddingHorizontal: 8 }} />)}
     </View>
   </View>
@@ -175,6 +192,7 @@ function withNewForms(current: VocabEntry | undefined, ready: VocabEntry): Vocab
 // session, so cards can outnumber words.
 function Summary({ tally, words, unlocked, error, onMore }: { tally: Record<Rating, number>; words: number; unlocked: string[]; error: string | null; onMore?: () => void }) {
   const attempts = tally.again + tally.hard + tally.good
+  useEffect(() => { if (attempts) feel('complete') }, [attempts])
   if (!attempts) return <Page>
     <Text style={styles.title}>Nothing due.</Text>
     <Text style={styles.copy}>{onMore ? 'You can still practice ahead.' : 'Save words as you read and they will show up here.'}</Text>
@@ -183,14 +201,17 @@ function Summary({ tally, words, unlocked, error, onMore }: { tally: Record<Rati
     <Button title="Back to vocabulary" onPress={() => router.back()} />
   </Page>
   return <Page>
-    <Text style={styles.title}>Practice complete</Text>
+    <Burst count={unlocked.length ? 28 : 16} />
+    <Animated.Text entering={FadeInDown.duration(260).reduceMotion(ReduceMotion.System)} style={styles.title}>Practice complete</Animated.Text>
     <Text style={styles.copy}>{attempts} {attempts === 1 ? 'card' : 'cards'} from {words} {words === 1 ? 'word' : 'words'}</Text>
     <View style={practice.tally}>
-      {RATINGS.slice().reverse().map(({ rating, label }) => <View key={rating} style={practice.count}>
-        <Text style={practice.countValue}>{tally[rating]}</Text><Text style={practice.countLabel}>{label}</Text>
+      {RATINGS.slice().reverse().map(({ rating, label }, i) => <View key={rating} style={practice.count}>
+        <CountUp value={tally[rating]} delay={120 + i * 110} /><Text style={practice.countLabel}>{label}</Text>
       </View>)}
     </View>
-    {unlocked.map(line => <Text key={line} style={styles.copy}>Unlocked {line}</Text>)}
+    {unlocked.map((line, i) => <Animated.View key={line} entering={FadeInDown.delay(450 + i * 120).duration(260).reduceMotion(ReduceMotion.System)} style={practice.unlocked}>
+      <Ionicons name="lock-open-outline" size={18} color={colors.green} /><Text style={[styles.copy, { color: colors.ink, flexShrink: 1 }]}>Unlocked {line}</Text>
+    </Animated.View>)}
     <ErrorNotice message={error} />
     {onMore && <Button title="Keep practicing" onPress={onMore} />}
     <Button secondary={!!onMore} title="Back to vocabulary" onPress={() => router.back()} />
@@ -198,7 +219,9 @@ function Summary({ tally, words, unlocked, error, onMore }: { tally: Record<Rati
 }
 
 const practice = StyleSheet.create({
-  progress: { fontSize: 13, color: colors.muted, textAlign: 'center', paddingTop: 12 },
+  top: { gap: 6, paddingHorizontal: 22, paddingTop: 12 },
+  progress: { fontSize: 12, color: colors.muted, textAlign: 'center' },
+  unlocked: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 14, backgroundColor: colors.lime },
   card: { alignItems: 'center', gap: 14, paddingVertical: 18 },
   stage: { fontSize: 13, color: colors.muted, flexShrink: 1 },
   lemma: { fontSize: 15, color: colors.ink },
@@ -217,6 +240,5 @@ const practice = StyleSheet.create({
   actions: { flexDirection: 'row', gap: 10, paddingHorizontal: 22, paddingTop: 12, backgroundColor: colors.paper, borderTopWidth: 1, borderTopColor: colors.line },
   tally: { flexDirection: 'row', gap: 10 },
   count: { flex: 1, paddingVertical: 16, borderRadius: 14, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, alignItems: 'center' },
-  countValue: { fontSize: 30, fontWeight: '700', color: colors.ink },
   countLabel: { fontSize: 13, color: colors.muted },
 })
