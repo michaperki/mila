@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { router } from 'expo-router'
+import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import * as Speech from 'expo-speech'
 import { Button, colors, ErrorNotice, Page, styles } from '../components/ui'
 import { request } from '../lib/api'
-import { answer, type Card, choicesFor, drillOf, missingStages, practiceQueue, stagesOf, unlockedStages } from '../lib/forms'
+import { answer, type Card, choicesFor, drillOf, extraQueue, missingStages, practiceQueue, stagesOf, unlockedStages } from '../lib/forms'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { waitOf, type Rating } from '../lib/review'
 import type { FormCard, VocabEntry } from '../lib/types'
@@ -24,6 +24,8 @@ const bare = (text: string) => stripNiqqud(bareWord(text))
 // Stages unlock as forms become solid (lib/forms.ts); their cards are written in the background.
 export default function Practice() {
   const { session } = useSession()
+  // ?extra=1: practice beyond what's due (Vocabulary → Practice anyway).
+  const { extra } = useLocalSearchParams<{ extra?: string }>()
   const insets = useSafeAreaInsets()
   const [showVowels] = useVowels()
   const v = (text: string) => withVowels(text, showVowels)
@@ -33,6 +35,7 @@ export default function Practice() {
   const [picked, setPicked] = useState<string | null>(null)
   const [tally, setTally] = useState<Record<Rating, number>>({ again: 0, hard: 0, good: 0 })
   const [unlocked, setUnlocked] = useState<string[]>([])
+  const [practiced, setPracticed] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   // The latest copy of each word, so results and unlocks build on each other within a session.
   const [words, setWords] = useState<Record<string, VocabEntry>>({})
@@ -51,18 +54,22 @@ export default function Practice() {
         // what is ready; only if nothing is does it wait for them.
         const preparing = Promise.all(entries.map(entry => (missingStages(entry).length ? ensureForms(entry, session.token) : entry)))
         void preparing.then(ready => { if (!controller.signal.aborted) ready.forEach(keep) })
-        let cards = practiceQueue(entries)
-        if (!cards.length) cards = practiceQueue(await preparing)
+        const build = extra ? extraQueue : practiceQueue
+        let cards = build(entries)
+        if (!cards.length) cards = build(await preparing)
         if (!controller.signal.aborted) setQueue(cards)
       } catch (failure) { if (!controller.signal.aborted) setError((failure as Error).message) }
     })()
     return () => { controller.abort(); void Speech.stop() }
-  }, [session])
+  }, [session, extra])
 
   if (!session) return <Page><Text style={styles.copy}>Sign in to practice your saved words.</Text></Page>
   if (!queue) return <Page>{error ? <ErrorNotice message={error} /> : <ActivityIndicator color={colors.green} />}</Page>
   const card = queue[position]
-  if (!card) return <Summary tally={tally} words={new Set(queue.map(item => item.entry.id)).size} unlocked={unlocked} error={error} />
+  // More cards on request: the next batch of extra practice from the latest copy of each word.
+  const more = extraQueue(Object.values(words))
+  const keepGoing = () => { setQueue(more); setPosition(0) }
+  if (!card) return <Summary tally={tally} words={new Set(practiced).size} unlocked={unlocked} error={error} onMore={more.length ? keepGoing : undefined} />
 
   const entry = words[card.entry.id] || card.entry
   const form = entry.forms?.find(item => item.key === card.form.key) || card.form
@@ -86,7 +93,7 @@ export default function Practice() {
       void ensureForms(updated, session.token).then(keep)
     }
     if (rating === 'again') setQueue(current => [...current!, { entry: updated, form: { ...form, ...result } }])
-    setTally(current => ({ ...current, [rating]: current[rating] + 1 }))
+    setTally(current => ({ ...current, [rating]: current[rating] + 1 })); setPracticed(current => [...current, entry.id])
     setRevealed(false); setPicked(null); setPosition(value => value + 1)
   }
 
@@ -155,12 +162,13 @@ function withNewForms(current: VocabEntry | undefined, ready: VocabEntry): Vocab
 
 // End of a session: how it went, and which stages opened. Missed cards come back within the
 // session, so cards can outnumber words.
-function Summary({ tally, words, unlocked, error }: { tally: Record<Rating, number>; words: number; unlocked: string[]; error: string | null }) {
+function Summary({ tally, words, unlocked, error, onMore }: { tally: Record<Rating, number>; words: number; unlocked: string[]; error: string | null; onMore?: () => void }) {
   const attempts = tally.again + tally.hard + tally.good
   if (!attempts) return <Page>
     <Text style={styles.title}>Nothing due.</Text>
-    <Text style={styles.copy}>Save words as you read and they will show up here.</Text>
+    <Text style={styles.copy}>{onMore ? 'You can still practice ahead.' : 'Save words as you read and they will show up here.'}</Text>
     <ErrorNotice message={error} />
+    {onMore && <Button title="Keep practicing" onPress={onMore} />}
     <Button title="Back to vocabulary" onPress={() => router.back()} />
   </Page>
   return <Page>
@@ -173,7 +181,8 @@ function Summary({ tally, words, unlocked, error }: { tally: Record<Rating, numb
     </View>
     {unlocked.map(line => <Text key={line} style={styles.copy}>Unlocked {line}</Text>)}
     <ErrorNotice message={error} />
-    <Button title="Back to vocabulary" onPress={() => router.back()} />
+    {onMore && <Button title="Keep practicing" onPress={onMore} />}
+    <Button secondary={!!onMore} title="Back to vocabulary" onPress={() => router.back()} />
   </Page>
 }
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { answer, choicesFor, drillOf, missingStages, practiceQueue, spread, stageState, statusOf, unlockedStages } from '../src/lib/forms.ts'
+import { answer, choicesFor, drillOf, extraQueue, missingStages, practiceQueue, spread, stageState, statusOf, unlockedStages } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -70,4 +70,16 @@ test('choices are the word\'s own forms, same stage first, in a stable order', (
   assert.ok(!options.includes('פּוֹתֵחַ'))
   assert.deepEqual(choicesFor(entry, target, 'seed'), options)
   assert.equal(choicesFor(verb([form('infinitive:inf'), form('present:m.sg')]), form('infinitive:inf'), 's'), null)
+})
+
+test('extra practice: not-yet-due cards first, then new, then today\'s; drilling ahead keeps the schedule', () => {
+  const later = { review: { due: now + 5 * DAY, interval: 3, reps: 2, lapses: 0, last: now - 3 * DAY } }
+  const soon = { review: { due: now + 2 * DAY, interval: 3, reps: 2, lapses: 0, last: now - DAY } }
+  const today = { review: { due: now + DAY, interval: 1, reps: 1, lapses: 0, last: now - 60_000 } }
+  const entry = verb([form('infinitive:inf', solid), form('present:m.sg', later), form('present:f.sg', today), form('present:m.pl', soon), form('present:f.pl')])
+  assert.deepEqual(extraQueue([entry], now).map(card => card.form.key), ['present:m.pl', 'infinitive:inf', 'present:m.sg', 'present:f.pl', 'present:f.sg'])
+  const ahead = answer(form('present:m.sg', later), 'good', now)
+  assert.equal(ahead.review!.due, now + 5 * DAY); assert.equal(ahead.review!.interval, 3); assert.equal(ahead.review!.last, now)
+  assert.equal(answer(form('present:m.sg', later), 'hard', now).review!.due, now + DAY)
+  assert.equal(answer(form('present:m.sg', later), 'again', now).review!.due, now)
 })

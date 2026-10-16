@@ -2,6 +2,8 @@ import { stripNiqqud } from './ocr-cleanup.ts'
 import { endOfDay, grade, type Rating } from './review.ts'
 import type { FormCard, VocabEntry } from './types'
 
+const DAY = 24 * 60 * 60 * 1000
+
 // A saved word is learned form by form, in stages: a verb's infinitive first, then present,
 // past, future, imperative and verbal noun. Each form is its own practice card. A stage
 // unlocks when every form of the one before it is solid (answered right on two different
@@ -103,6 +105,16 @@ export function spread(cards: Card[]): Card[] {
   return out
 }
 
+// Extra practice, after the day's cards are done: cards not yet due (soonest first), then new
+// cards past the daily limit, then cards already practiced today.
+export function extraQueue(entries: VocabEntry[], now = Date.now(), size = 20): Card[] {
+  const today = dayOf(now)
+  const rank = ({ form }: Card) => (!form.review ? 1 : form.review.last && dayOf(form.review.last) === today ? 2 : 0)
+  const cards = entries.flatMap(entry => activeForms(entry).map(form => ({ entry, form })))
+    .sort((a, b) => rank(a) - rank(b) || (a.form.review?.due ?? a.entry.createdAt) - (b.form.review?.due ?? b.entry.createdAt))
+  return spread(cards.slice(0, size))
+}
+
 export function countsOf(entries: VocabEntry[], now = Date.now()) {
   return {
     saved: entries.length,
@@ -139,8 +151,12 @@ function shuffle<T>(items: T[], seed: string): T[] {
 
 // A card's result: its next review, how often it was right (Hard counts), and the days it was
 // answered with Got it, which is what makes a form solid.
+// A card practiced before it is due (extra practice) keeps its schedule on Got it, so drilling
+// ahead can't push it weeks away; Hard brings it back by tomorrow and Again resets it as usual.
 export function answer(form: FormCard, rating: Rating, now = Date.now()): Pick<FormCard, 'review' | 'correct' | 'goodDays'> {
   const day = dayOf(now)
   const goodDays = rating === 'good' && !form.goodDays?.includes(day) ? [...(form.goodDays || []), day].slice(-5) : form.goodDays || []
-  return { review: grade(form.review, rating, now), correct: (form.correct ?? 0) + (rating === 'again' ? 0 : 1), goodDays }
+  const early = !!form.review && form.review.due > endOfDay(now) && rating !== 'again'
+  const review = early ? { ...form.review!, last: now, due: rating === 'hard' ? Math.min(form.review!.due, now + DAY) : form.review!.due } : grade(form.review, rating, now)
+  return { review, correct: (form.correct ?? 0) + (rating === 'again' ? 0 : 1), goodDays }
 }

@@ -59,7 +59,9 @@ export default function Vocabulary() {
         <Text style={vocab.summary}>{counts.saved} {counts.saved === 1 ? 'word' : 'words'} · {counts.learning} learning · {counts.mastered} mastered</Text>
         {counts.due > 0
           ? <Button title={`Practice ${counts.due} ${counts.due === 1 ? 'card' : 'cards'}`} onPress={() => router.push('/practice')} />
-          : <Text style={[styles.copy, { textAlign: 'center' }]}>Nothing due. Come back tomorrow, or save new words as you read.</Text>}
+          : entries.some(entry => entry.forms?.length)
+            ? <Button secondary title="Nothing due · practice anyway" onPress={() => router.push({ pathname: '/practice', params: { extra: '1' } })} />
+            : <Text style={[styles.copy, { textAlign: 'center' }]}>Save words as you read and they will show up here.</Text>}
         <TextInput value={query} onChangeText={setQuery} placeholder="Search Hebrew or English" placeholderTextColor={colors.muted} style={[styles.input, { minHeight: 44, paddingVertical: 10 }]}
           autoCorrect={false} autoCapitalize="none" clearButtonMode="while-editing" returnKeyType="search" />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -22, flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 22 }}>
