@@ -31,6 +31,9 @@ export type WordAnalysis = {
 // practice history. Entries saved before encounters existed keep that data at the top level.
 export type VocabEntry = StarredItem & {
   partOfSpeech?: string; binyan?: string; encounters?: Encounter[]; review?: Review
+  // Practice cards, one per form, written stage by stage (see lib/forms.ts); `known` lists the
+  // stages the learner marked as already known.
+  forms?: FormCard[]; known?: string[]
   vocalized?: string; context?: string; contextTranslation?: string; surface?: string
   senses?: string; form?: string; excerpt?: string; excerptTranslation?: string
 }
@@ -40,5 +43,12 @@ export type Encounter = {
   surface: string; vocalized?: string; form?: string; meaning: string; context: string; contextTranslation?: string
   excerpt?: string; excerptTranslation?: string; sourceRef?: { textId: string; chunkId: string }; at: number
 }
-// Spaced-repetition state, stored on the vocab entry (see lib/review.ts).
-export type Review = { due: number; interval: number; reps: number; lapses: number; last?: number }
+// One form of a saved word as a practice card: the form (vocalized), its English, an example
+// sentence (`mark` is the form as written there) and the learner's record on it. `goodDays`
+// are the days it was answered right; two of them make the form solid (see lib/forms.ts).
+export type FormCard = {
+  key: string; stage: string; slot: string; he: string; en: string; sentence: string; mark: string; translation: string
+  review?: Review; correct?: number; goodDays?: string[]
+}
+// Spaced-repetition state (see lib/review.ts). `first` is when the card was first practiced.
+export type Review = { due: number; interval: number; reps: number; lapses: number; last?: number; first?: number }

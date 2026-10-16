@@ -57,3 +57,18 @@ describe('saving a word', () => {
     expect(updateOne).not.toHaveBeenCalled()
   })
 })
+
+describe('form results', () => {
+  it('updates one form card in place and the stages marked known', async () => {
+    const review = { due: 10, interval: 1, reps: 1, lapses: 0, first: 9 }
+    expect((await patch({ id: 'native-x', form: { key: 'past:3pl', review, correct: 1, goodDays: ['2026-10-16'] } })).statusCode).toBe(204)
+    const [filter, update, options] = updateOne.mock.calls[0]
+    expect(filter).toEqual({ userId: 'user', id: 'native-x', 'forms.key': 'past:3pl' })
+    expect(update.$set['forms.$[card].review']).toEqual(review)
+    expect(update.$set['forms.$[card].goodDays']).toEqual(['2026-10-16'])
+    expect(options).toEqual({ arrayFilters: [{ 'card.key': 'past:3pl' }] })
+    expect((await patch({ id: 'native-x', known: ['present'] })).statusCode).toBe(204)
+    expect(updateOne.mock.calls[1][1].$set.known).toEqual(['present'])
+    expect((await patch({ id: 'native-x', form: { key: 'past:3pl', review: { due: 'x' }, correct: 1, goodDays: [] } })).statusCode).toBe(400)
+  })
+})

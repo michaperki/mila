@@ -8,7 +8,7 @@ import { useSession } from '../../state/session'
 import { useVowels } from '../../state/vowels'
 // Account → AI usage: the `ai-usage` function's summary of this month's paid calls.
 type Usage = { since: string; cost: number; requests: number; features: { feature: string; requests: number; cost: number }[] }
-const FEATURES: Record<string, string> = { page: 'Page reads', word: 'Word explanations', ocr: 'Text recognition', translate: 'Translation' }
+const FEATURES: Record<string, string> = { page: 'Page reads', word: 'Word explanations', forms: 'Practice cards', ocr: 'Text recognition', translate: 'Translation' }
 const dollars = (value: number) => (value > 0 && value < 0.01 ? '< $0.01' : `$${value.toFixed(2)}`)
 
 export default function Account() {

@@ -62,16 +62,35 @@ const handler: Handler = async (event) => {
       }
     }
 
-    // Records a practice result without touching the rest of the entry (POST replaces it).
+    // Records practice without touching the rest of the entry (POST replaces it):
+    // `form` is one form card's result, `known` the stages the learner marked as known,
+    // `review` a whole-word result (entries from before form cards).
     if (event.httpMethod === 'PATCH') {
       const payload = JSON.parse(event.body || '{}')
+      if (typeof payload.id === 'string' && Array.isArray(payload.known)) {
+        if (!payload.known.every((stage: unknown) => typeof stage === 'string')) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid stages' }) }
+        const result = await vocab.updateOne({ userId: auth.userId, id: payload.id }, { $set: { known: payload.known, updatedAt: Date.now() } })
+        if (!result.matchedCount) return { statusCode: 404, body: JSON.stringify({ message: 'This word is no longer saved.' }) }
+        return { statusCode: 204, body: '' }
+      }
+      if (typeof payload.id === 'string' && payload.form) {
+        const { key, review, correct, goodDays } = payload.form
+        const valid = typeof key === 'string' && isReview(review) && typeof correct === 'number'
+          && Array.isArray(goodDays) && goodDays.every((day: unknown) => typeof day === 'string')
+        if (!valid) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
+        const result = await vocab.updateOne(
+          { userId: auth.userId, id: payload.id, 'forms.key': key },
+          { $set: { 'forms.$[card].review': cleanReview(review), 'forms.$[card].correct': correct, 'forms.$[card].goodDays': goodDays.slice(-5), updatedAt: Date.now() } },
+          { arrayFilters: [{ 'card.key': key }] },
+        )
+        if (!result.matchedCount) return { statusCode: 404, body: JSON.stringify({ message: 'This word is no longer saved.' }) }
+        return { statusCode: 204, body: '' }
+      }
       const review = payload.review
-      const valid = typeof payload.id === 'string' && review && ['due', 'interval', 'reps', 'lapses'].every(key => typeof review[key] === 'number' && Number.isFinite(review[key]))
-      if (!valid) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid review' }) }
-      const { due, interval, reps, lapses, last } = review
+      if (typeof payload.id !== 'string' || !isReview(review)) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid review' }) }
       const result = await vocab.updateOne(
         { userId: auth.userId, id: payload.id },
-        { $set: { review: { due, interval, reps, lapses, ...(typeof last === 'number' ? { last } : {}) }, updatedAt: Date.now() } },
+        { $set: { review: cleanReview(review), updatedAt: Date.now() } },
       )
       if (!result.matchedCount) return { statusCode: 404, body: JSON.stringify({ message: 'This word is no longer saved.' }) }
       return { statusCode: 204, body: '' }
@@ -104,6 +123,11 @@ const handler: Handler = async (event) => {
 }
 
 export { handler }
+
+const isReview = (review: any) => !!review && ['due', 'interval', 'reps', 'lapses'].every(key => typeof review[key] === 'number' && Number.isFinite(review[key]))
+const cleanReview = ({ due, interval, reps, lapses, last, first }: any) => ({
+  due, interval, reps, lapses, ...(typeof last === 'number' ? { last } : {}), ...(typeof first === 'number' ? { first } : {}),
+})
 
 const normalizeItem = (item: any) => ({
   ...item,

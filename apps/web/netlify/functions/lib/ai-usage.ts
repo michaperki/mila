@@ -5,7 +5,7 @@ import { getDb } from './mongo'
 // and discounts; the provider's billing console stays the authoritative total.
 // Prices: platform.claude.com/docs/en/about-claude/pricing, cloud.google.com/vision/pricing,
 // cloud.google.com/translate/pricing (checked 2026-10-16).
-export type Feature = 'page' | 'word' | 'ocr' | 'translate'
+export type Feature = 'page' | 'word' | 'forms' | 'ocr' | 'translate'
 
 // USD per million tokens. Cache writes are the 5-minute rate.
 const CLAUDE: Record<string, { input: number; cacheWrite: number; cacheRead: number; output: number }> = {

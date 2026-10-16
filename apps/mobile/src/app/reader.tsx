@@ -17,6 +17,7 @@ import { type EnglishMode, getPref, setPref } from '../lib/prefs'
 import { explainWord } from '../lib/recognition'
 import type { Encounter, VocabEntry, WordAnalysis } from '../lib/types'
 import { savedKey, savedKeysOf } from '../lib/words'
+import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
 import { useVowels } from '../state/vowels'
 import { isVowelled, withVowels } from '../lib/vowels'
@@ -198,7 +199,11 @@ export default function Reader() {
         }),
     }
     setSavingWord(true); setWordError(null)
-    try { await request('vocab', { token: session.token, body: entry }); setSavedWords(current => new Set(current).add(savedKey(id, segment.he))) }
+    try {
+      await request('vocab', { token: session.token, body: entry }); setSavedWords(current => new Set(current).add(savedKey(id, segment.he)))
+      // Write the word's first practice cards now, so they are ready by the next practice.
+      void ensureForms({ ...entry, forms: [] }, session.token).catch(() => {})
+    }
     catch (failure) { setWordError((failure as Error).message) } finally { setSavingWord(false) }
   }
   const nextEnglish: Record<EnglishMode, EnglishMode> = { tap: 'all', all: 'off', off: 'tap' }
