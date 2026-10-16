@@ -16,6 +16,11 @@ import { encountersOf } from '../lib/words'
 import { useSession } from '../state/session'
 import { useVowels } from '../state/vowels'
 
+// Saved word ids hold a percent-encoded lemma (native-%D7%9C…), and the router decodes the
+// query string, so the id arrives as native-ל…. Compare them decoded.
+const decoded = (value: string) => { try { return decodeURIComponent(value) } catch { return value } }
+const sameId = (a: string, b: string) => a === b || decoded(a) === decoded(b)
+
 const STATE: Record<StageState, string> = { known: 'Known', done: 'Learned', learning: 'Learning', locked: 'Locked' }
 
 // One saved word: its meanings, its stages with every form and how each is going, and where it
@@ -43,7 +48,7 @@ export default function Word() {
     const controller = new AbortController()
     void request<{ vocab?: VocabEntry[] }>('vocab', { token: session.token, signal: controller.signal })
       .then(data => {
-        const word = data.vocab?.find(item => item.id === id)
+        const word = data.vocab?.find(item => sameId(item.id, id))
         if (controller.signal.aborted) return
         if (!word) { setError('This word is no longer saved.'); return }
         setEntry(word); prepare(word, controller.signal)
