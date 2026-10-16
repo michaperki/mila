@@ -5,13 +5,15 @@ import { verifyAuth } from './lib/auth'
 import { getDb } from './lib/mongo'
 import { recordClaude } from './lib/ai-usage'
 
-// Writes one stage of a saved word's forms (e.g. the past tense of לִפְתֹּחַ), each with its own
-// short example sentence, and adds them to the vocab entry as practice cards. Stages are
-// generated when they unlock, so a word only costs what the learner actually reaches.
-// The stage/slot lists mirror apps/mobile/src/lib/forms.ts.
+// Writes one stage of a saved word's practice cards, each with its own short example sentence,
+// and adds them to the vocab entry. "meanings" is every word's first stage: one card per
+// distinct common meaning, using the dictionary form. Later stages are forms (the past tense
+// of לִפְתֹּחַ …). Stages are written when they open, so a word only costs what the learner
+// reaches. The stage/slot lists mirror apps/mobile/src/lib/forms.ts.
 type Slot = { slot: string; means: string }
+const MEANINGS: Slot[] = [1, 2, 3].map(n => ({ slot: `sense${n}`, means: `meaning ${n}` }))
 const VERB: Record<string, Slot[]> = {
-  infinitive: [{ slot: 'inf', means: 'infinitive with ל' }],
+  meanings: MEANINGS,
   present: [
     { slot: 'm.sg', means: 'masculine singular' }, { slot: 'f.sg', means: 'feminine singular' },
     { slot: 'm.pl', means: 'masculine plural' }, { slot: 'f.pl', means: 'feminine plural' },
@@ -34,14 +36,14 @@ const VERB: Record<string, Slot[]> = {
 const STAGES: Record<string, Record<string, Slot[]>> = {
   verb: VERB,
   adjective: {
-    base: [{ slot: 'm.sg', means: 'masculine singular' }],
+    meanings: MEANINGS,
     inflected: [{ slot: 'f.sg', means: 'feminine singular' }, { slot: 'm.pl', means: 'masculine plural' }, { slot: 'f.pl', means: 'feminine plural' }],
   },
   noun: {
-    singular: [{ slot: 'sg', means: 'singular' }],
+    meanings: MEANINGS,
     plural: [{ slot: 'pl', means: 'plural' }],
   },
-  other: { base: [{ slot: 'base', means: 'the word or expression itself' }] },
+  other: { meanings: MEANINGS },
 }
 export const kindOf = (partOfSpeech?: string) =>
   partOfSpeech === 'verb' || partOfSpeech === 'adjective' || partOfSpeech === 'noun' ? partOfSpeech : 'other'
@@ -53,7 +55,7 @@ const schema = {
       type: 'array',
       items: {
         type: 'object', additionalProperties: false,
-        required: ['slot', 'form', 'english', 'sentence', 'inSentence', 'translation'],
+        required: ['slot', 'form', 'english', 'sentence', 'inSentence', 'translation', 'inTranslation'],
         properties: {
           slot: { type: 'string' },
           form: { type: 'string', description: 'The form, fully vocalized.' },
@@ -61,22 +63,25 @@ const schema = {
           sentence: { type: 'string', description: 'A short, natural, everyday Hebrew sentence (5 to 12 words, no niqqud) that uses exactly this form.' },
           inSentence: { type: 'string', description: 'The form exactly as written in the sentence, with any attached prefix (e.g. ושפתחנו).' },
           translation: { type: 'string', description: 'Natural English translation of the sentence.' },
+          inTranslation: { type: 'string', description: 'The words of the translation that render this form, copied exactly from it.' },
         },
       },
     },
   },
 } as const
 
-const SYSTEM = `You write practice material for an English-speaking learner of modern Hebrew who is learning one word form by form. For each requested form, give the correct modern Hebrew form and one example sentence that uses exactly that form.
+const SYSTEM = `You write practice material for an English-speaking learner of modern Hebrew who is learning one word, meaning by meaning and form by form. Each card is one sentence written for the card, never a sentence copied from the learner's reading.
 
-Sentences must differ from each other and from the sentences already used for this word: vary who acts, the setting, the objects and the sentence shape, so no two read as the same sentence with the person changed. Keep the rest of each sentence simple, common vocabulary, so the target form is the only hard part. Use the word in its common meaning; do not force a rare sense.
+Meanings: when asked for the word's meanings, give one card per distinct meaning a learner meets in everyday modern Hebrew, most common first; most words have one, give at most three, and never split one meaning into near-synonyms. Each card uses the dictionary form (verbs: the infinitive) in that meaning; "english" is that meaning in 1 to 4 words (verbs as "to …"). Include the meaning the learner met the word in.
 
-Forms must be correct standard modern Hebrew. Leave out a form that is not in real use (for example a verbal noun the verb doesn't have) rather than inventing one. If the learner met the word in a sentence and that sentence uses one of the requested forms, use the learner's sentence for that form, copied exactly.`
+Forms: for each requested form, give the correct standard modern Hebrew form and a sentence that uses exactly that form. Leave out a form that is not in real use (for example a verbal noun the verb doesn't have) rather than inventing one.
+
+Sentences must differ from each other and from the sentences already used for this word: vary who acts, the setting, the objects and the sentence shape, so no two read as the same sentence with the person changed. Keep the rest of each sentence simple, common vocabulary, so the target word is the only hard part and its meaning is clear from the sentence.`
 
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 let client: Anthropic | null = null
 
-type Generated = { slot: string; form: string; english: string; sentence: string; inSentence: string; translation: string }
+type Generated = { slot: string; form: string; english: string; sentence: string; inSentence: string; translation: string; inTranslation: string }
 type Entry = { lemma: string; gloss: string; partOfSpeech?: string; binyan?: string; forms?: { stage: string; sentence: string }[]; encounters?: { surface: string; context: string }[] }
 
 export const handler: Handler = async (event) => {
@@ -101,9 +106,11 @@ export const handler: Handler = async (event) => {
     const met = (entry.encounters || []).slice(-5).map(item => `${item.surface} in: ${item.context}`)
     const prompt = [
       `Word: ${entry.lemma} (${entry.partOfSpeech || 'word'}${entry.binyan ? `, ${entry.binyan}` : ''}) — ${entry.gloss}`,
-      `Forms to write (${stage}):`, ...slots.map(item => `- slot "${item.slot}": ${item.means}`),
+      ...(stage === 'meanings'
+        ? ['Write its meanings, one card each, using slots "sense1", "sense2", "sense3" in order (only as many as it has).']
+        : [`Forms to write (${stage}):`, ...slots.map(item => `- slot "${item.slot}": ${item.means}`)]),
       ...(used.length ? ['Sentences already used for this word (do not repeat or imitate):', ...used.map(item => `- ${item}`)] : []),
-      ...(met.length ? ['Where the learner met this word:', ...met.map(item => `- ${item}`)] : []),
+      ...(met.length ? ['Where the learner met this word (for its meaning only; do not reuse these sentences):', ...met.map(item => `- ${item}`)] : []),
     ].join('\n')
 
     client ??= new Anthropic()
@@ -114,7 +121,7 @@ export const handler: Handler = async (event) => {
       output_config: { effort: 'low', format: { type: 'json_schema', schema } },
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
-      system: SYSTEM,
+      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: prompt }],
     }, { timeout: 40000, maxRetries: 1 })
     await recordClaude(auth.userId, 'forms', response, Date.now() - started)
@@ -126,7 +133,7 @@ export const handler: Handler = async (event) => {
       const item = generated.find(candidate => candidate.slot === slot && candidate.form.trim() && candidate.sentence.trim())
       return item ? [{
         key: `${stage}:${slot}`, stage, slot, he: item.form.trim(), en: item.english.trim(),
-        sentence: item.sentence.trim(), mark: item.inSentence.trim(), translation: item.translation.trim(),
+        sentence: item.sentence.trim(), mark: item.inSentence.trim(), translation: item.translation.trim(), enMark: item.inTranslation.trim(),
       }] : []
     })
     if (!forms.length) return reply(422, { message: 'These forms could not be written.', requestId })

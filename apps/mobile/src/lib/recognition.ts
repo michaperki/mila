@@ -95,3 +95,18 @@ export async function explainWord(word: string, sentence: string, token: string 
     return { gloss: await translate(word, signal, token) }
   }
 }
+
+const quick = new Map<string, Promise<string[]>>()
+// A short meaning for every word of a sentence, fetched when the sentence is selected so a
+// tapped word can show its meaning before the full explanation arrives. Failures give [].
+export function quickMeanings(sentence: string, words: string[], token: string): Promise<string[]> {
+  const key = `${sentence}\u0000${words.join(' ')}`
+  let pending = quick.get(key)
+  if (!pending) {
+    pending = request<{ meanings: string[] }>('sentence-glosses', { token, body: { sentence, words } })
+      .then(result => result.meanings, () => { quick.delete(key); return [] })
+    if (quick.size >= 100) quick.delete(quick.keys().next().value!)
+    quick.set(key, pending)
+  }
+  return pending
+}

@@ -99,7 +99,9 @@ export const handler: Handler = async (event) => {
       output_config: { effort: 'low', format: { type: 'json_schema', schema } },
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
-      system: SYSTEM,
+      // The instructions and schema are the same on every call; caching them makes a tap
+      // cheaper and a little faster.
+      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: `Sentence: ${sentence || word}\n${words > 1 ? 'Selected words' : 'Tapped word'}: ${word}` }],
     }, { timeout: 15000, maxRetries: 1 })
     await recordClaude(auth.userId, 'word', response, Date.now() - started)

@@ -14,7 +14,7 @@ import { documentFromRecognition, segmentsOf } from '../lib/documents'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { paragraphsOf, runsOf } from '../lib/page'
 import { type EnglishMode, getPref, setPref } from '../lib/prefs'
-import { explainWord } from '../lib/recognition'
+import { explainWord, quickMeanings } from '../lib/recognition'
 import type { Encounter, VocabEntry, WordAnalysis } from '../lib/types'
 import { savedKey, savedKeysOf } from '../lib/words'
 import { ensureForms } from '../lib/word-forms'
@@ -62,6 +62,8 @@ export default function Reader() {
   // sentence bar), and a word or phrase selected in it (drawer). Closing the drawer goes back
   // to the sentence; closing the sentence bar goes back to reading.
   const [active, setActive] = useState<number | null>(null)
+  // Quick meanings for the words of each selected sentence (by segment), see quickMeanings.
+  const [quick, setQuick] = useState<Record<number, string[]>>({})
   const [showNiqqud, setShowNiqqud] = useVowels()
   const v = (text: string) => withVowels(text, showNiqqud)
   // The Vowels button only appears for a page that is actually vowelled.
@@ -110,6 +112,16 @@ export default function Reader() {
     words.forEach((word, i) => { ends[word.segment] = i })
     return ends
   }, [words])
+  // Selecting a sentence asks for its words' quick meanings straight away.
+  useEffect(() => {
+    if (active === null || !session || indexOfFirstWord[active] === undefined) return
+    let current = true
+    const sentenceWords = words.slice(indexOfFirstWord[active], indexOfLastWord[active] + 1).map(item => item.bare)
+    void quickMeanings(segments[active].he, sentenceWords, session.token).then(meanings => {
+      if (current && meanings.length) setQuick(known => ({ ...known, [active]: meanings }))
+    })
+    return () => { current = false }
+  }, [active, session, segments, words, indexOfFirstWord, indexOfLastWord])
   // Sentences flow together within a paragraph, like a page in a book.
   const paragraphs = useMemo(() => paragraphsOf(segments, paged), [segments, paged])
 
@@ -162,10 +174,15 @@ export default function Reader() {
     close(); setActive(next)
   }
   const leaveSentence = () => { close(); setActive(null) }
+  // The first tap on a sentence only selects the sentence (its English, the sentence bar and
+  // quick meanings); words are tapped or dragged once their sentence is selected.
+  const chooseSentence = (segment: number) => { close(); setActive(segment) }
   const last = selected === null ? null : (selectedTo ?? selected)
   const word = selected === null || last === null ? null
     : { bare: words.slice(selected, last + 1).map(item => item.bare).join(' '), segment: words[selected].segment }
   const isPhrase = selected !== null && last !== null && last > selected
+  // The sentence's quick meaning for a single tapped word, shown until the full explanation arrives.
+  const quickMeaning = word && !isPhrase && selected !== null ? quick[word.segment]?.[selected - indexOfFirstWord[word.segment]] || '' : ''
   const highlighted = dragRange ?? (selected === null ? null : { from: selected, to: last! })
   // A selected phrase is saved as written; a single word by its dictionary form.
   const lemma = isPhrase ? word!.bare : analysis?.lemma || word?.bare || ''
@@ -231,7 +248,7 @@ export default function Reader() {
       const dy = Math.abs(event.nativeEvent.pageY - current.y0)
       if (dx < 10 || dx < dy * 1.5) return false
       const start = wordAt(boxesOf(current.words), current.x0 - current.origin.x, current.y0 - current.origin.y)
-      if (start === undefined) return false
+      if (start === undefined || words[start].segment !== active) return false
       current.start = start
       return true
     },
@@ -258,6 +275,15 @@ export default function Reader() {
     },
     onResponderTerminate: () => { drag.current = null; setDragRange(null) },
   })
+  // A tap beside the words (between lines, at a line's end, on the English) selects the sentence
+  // of the nearest word.
+  const tapRun = (line: string, indices: number[], event: GestureResponderEvent) => {
+    const { pageX, pageY } = event.nativeEvent
+    lines.current.get(line)?.measureInWindow((x, y) => {
+      const nearest = wordAt(boxesOf(indices), pageX - x, pageY - y)
+      if (nearest !== undefined && words[nearest].segment !== active) chooseSentence(words[nearest].segment)
+    })
+  }
   // Shows a "More below" hint until the explanation is scrolled to its end.
   const measureMore = ({ layoutMeasurement, contentOffset, contentSize }: NativeScrollEvent) => setMoreBelow(contentOffset.y + layoutMeasurement.height < contentSize.height - 8)
   const speak = (text: string) => { void Speech.stop(); Speech.speak(text, { language: 'he-IL', rate: 0.8 }) }
@@ -276,7 +302,7 @@ export default function Reader() {
         <Pill icon="volume-medium-outline" label="Listen" onPress={() => speak(recognition.text)} accessibilityLabel="Listen in Hebrew" />
         <FeedbackButton screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, active, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss, analysis })} />
       </View>
-      {active === null && <Text style={[styles.copy, { fontSize: 13, lineHeight: 18 }]}>Tap a word for its meaning; drag across words for a phrase.</Text>}
+      {active === null && <Text style={[styles.copy, { fontSize: 13, lineHeight: 18 }]}>Tap a sentence to select it, then tap a word for its meaning or drag across words for a phrase.</Text>}
       {!!recognition.readError && <Text style={reader.edge}>Read with basic text recognition, so some letters may be wrong.</Text>}
       <View style={[styles.card, { gap: 0, paddingVertical: 6, paddingHorizontal: 14 }]}>
         {paragraphs.map((members, p) => {
@@ -289,14 +315,14 @@ export default function Reader() {
               const key = `${p}-${run.segments[0]}`
               const runWords = run.segments.flatMap(wordsOf)
               const translation = english === 'all' || (english === 'tap' && run.active) ? run.segments.map(englishOf).filter(Boolean).join(' ') : ''
-              return <View key={key} ref={view => { if (run.active) activeRun.current = view }} style={[reader.run, run.active && reader.activeRun]}>
+              return <Pressable key={key} accessible={false} ref={view => { if (run.active) activeRun.current = view }} onPress={event => tapRun(key, runWords.map(item => item.i), event)} style={[reader.run, run.active && reader.activeRun]}>
                 <View style={reader.line} ref={view => { if (view) lines.current.set(key, view); else lines.current.delete(key) }} {...dragHandlers(key, runWords.map(item => item.i))}>
                   {run.segments.map(s => [
                     segments[s].marker ? <Text key={`m${s}`} style={[reader.word, reader.marker]}>{segments[s].marker}.</Text> : null,
                     indexOfFirstWord[s] === undefined ? <Text key={`t${s}`} style={reader.word}>{segments[s].he}</Text> : null,
                     ...wordsOf(s).map(item => {
                       const inSelection = highlighted && item.i >= highlighted.from && item.i <= highlighted.to
-                      return <Pressable key={item.i} accessibilityRole="button" accessibilityLabel={`Explain ${item.bare}`} onPress={() => void select(item.i)}
+                      return <Pressable key={item.i} accessibilityRole="button" accessibilityLabel={`Explain ${item.bare}`} onPress={() => (s === active ? void select(item.i) : chooseSentence(s))}
                         onLayout={event => { wordBoxes.current.set(item.i, event.nativeEvent.layout) }}
                         style={[reader.wordBox, inSelection && reader.selectedWord]}>
                         <Text style={[reader.word, segments[s].heading && reader.heading]}>{v(item.surface)}</Text>
@@ -305,7 +331,7 @@ export default function Reader() {
                   ])}
                 </View>
                 {!!translation && <Text selectable style={[reader.english, first.heading && { fontWeight: '600' }]}>{translation}</Text>}
-              </View>
+              </Pressable>
             })}
             {last.cutEnd && <Text style={reader.edge}>Continues on the next page</Text>}
           </View>
@@ -338,8 +364,11 @@ export default function Reader() {
           <Text style={reader.sheetWord}>{v(analysis?.vocalized || word.bare)}</Text>
         </View>
       </View>
-      {wordBusy ? <View style={[styles.row, { gap: 8 }]}><ActivityIndicator color={colors.green} /><Text style={styles.copy}>Reading it in context…</Text></View>
-        : !!gloss && <Text style={reader.meaning}>{isolateHebrew(v(gloss))}</Text>}
+      {wordBusy && !quickMeaning ? <View style={[styles.row, { gap: 8 }]}><ActivityIndicator color={colors.green} /><Text style={styles.copy}>Reading it in context…</Text></View>
+        : <View style={[styles.row, { gap: 8, flexWrap: 'nowrap' }]}>
+          {!!(gloss || quickMeaning) && <Text style={[reader.meaning, { flexShrink: 1 }]}>{isolateHebrew(v(gloss || quickMeaning))}</Text>}
+          {wordBusy && <ActivityIndicator color={colors.green} />}
+        </View>}
       {!wordBusy && !analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation.</Text>}
       {details && !wordBusy && analysis && <View>
         <ScrollView style={{ maxHeight: detailsHeight }} contentContainerStyle={{ gap: 12, paddingBottom: 4 }} scrollEventThrottle={64}

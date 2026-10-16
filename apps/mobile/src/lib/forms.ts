@@ -4,32 +4,36 @@ import type { FormCard, VocabEntry } from './types'
 
 const DAY = 24 * 60 * 60 * 1000
 
-// A saved word is learned form by form, in stages: a verb's infinitive first, then present,
-// past, future, imperative and verbal noun. Each form is its own practice card. A stage
-// unlocks when every form of the one before it is solid (answered right on two different
-// days), or when the learner marks that stage as known. Stages and slots mirror
+// A saved word is learned in stages. Every word starts with its meanings (one card per
+// distinct meaning, using the dictionary form); then come its forms: a verb's present, past,
+// future, imperative and verbal noun, an adjective's other forms, a noun's plural. Each card
+// has its own sentence. A stage marked `withPrevious` opens together with the one before it
+// (a verb's present with its meanings) but its cards come after; any other stage opens when
+// every card of the group before it is solid (Got it on two different days), or when the
+// learner marks those stages as known. Stages and slots mirror
 // apps/web/netlify/functions/word-forms.ts, which writes the cards.
 export type Kind = 'verb' | 'adjective' | 'noun' | 'other'
-export type Stage = { key: string; label: string; slots: Record<string, string> }
+export type Stage = { key: string; label: string; slots: Record<string, string>; withPrevious?: boolean }
 const PERSONS = { '1sg': 'I', '2sg.m': 'you (m.)', '2sg.f': 'you (f.)', '3sg.m': 'he', '3sg.f': 'she', '1pl': 'we' }
+const MEANINGS: Stage = { key: 'meanings', label: 'Meanings', slots: { sense1: 'meaning 1', sense2: 'meaning 2', sense3: 'meaning 3' } }
 const STAGES: Record<Kind, Stage[]> = {
   verb: [
-    { key: 'infinitive', label: 'Infinitive', slots: { inf: 'infinitive' } },
-    { key: 'present', label: 'Present', slots: { 'm.sg': 'm. singular', 'f.sg': 'f. singular', 'm.pl': 'm. plural', 'f.pl': 'f. plural' } },
+    MEANINGS,
+    { key: 'present', label: 'Present', withPrevious: true, slots: { 'm.sg': 'm. singular', 'f.sg': 'f. singular', 'm.pl': 'm. plural', 'f.pl': 'f. plural' } },
     { key: 'past', label: 'Past', slots: { ...PERSONS, '2pl.m': 'you (pl. m.)', '2pl.f': 'you (pl. f.)', '3pl': 'they' } },
     { key: 'future', label: 'Future', slots: { ...PERSONS, '2pl': 'you (pl.)', '3pl': 'they' } },
     { key: 'imperative', label: 'Imperative', slots: { 'm.sg': 'to a man', 'f.sg': 'to a woman', pl: 'to several' } },
     { key: 'noun', label: 'Verbal noun', slots: { noun: 'verbal noun' } },
   ],
   adjective: [
-    { key: 'base', label: 'Masculine singular', slots: { 'm.sg': 'm. singular' } },
-    { key: 'inflected', label: 'Other forms', slots: { 'f.sg': 'f. singular', 'm.pl': 'm. plural', 'f.pl': 'f. plural' } },
+    MEANINGS,
+    { key: 'inflected', label: 'Other forms', withPrevious: true, slots: { 'f.sg': 'f. singular', 'm.pl': 'm. plural', 'f.pl': 'f. plural' } },
   ],
   noun: [
-    { key: 'singular', label: 'Singular', slots: { sg: 'singular' } },
-    { key: 'plural', label: 'Plural', slots: { pl: 'plural' } },
+    MEANINGS,
+    { key: 'plural', label: 'Plural', withPrevious: true, slots: { pl: 'plural' } },
   ],
-  other: [{ key: 'base', label: 'Word', slots: { base: 'word' } }],
+  other: [MEANINGS],
 }
 export const kindOf = (partOfSpeech?: string): Kind =>
   partOfSpeech === 'verb' || partOfSpeech === 'adjective' || partOfSpeech === 'noun' ? partOfSpeech : 'other'
@@ -46,11 +50,15 @@ const isDone = (entry: VocabEntry, stage: string) => {
   return isKnown(entry, stage) || (forms.length > 0 && forms.every(isSolid))
 }
 
-// The first stage is always open; each later one opens when the one before is done.
+// The first stage is always open. A `withPrevious` stage opens with the one before it; any
+// other opens when every stage opened so far is done.
 export function unlockedStages(entry: VocabEntry): Stage[] {
   const stages = stagesOf(entry)
   const open = [stages[0]]
-  for (let i = 1; i < stages.length && isDone(entry, stages[i - 1].key); i++) open.push(stages[i])
+  for (let i = 1; i < stages.length; i++) {
+    if (!stages[i].withPrevious && !open.every(stage => isDone(entry, stage.key))) break
+    open.push(stages[i])
+  }
   return open
 }
 // Open stages whose cards haven't been written yet (word-forms writes them on request).
@@ -75,7 +83,17 @@ export function statusOf(entry: VocabEntry): Status {
   return stagesOf(entry).every(stage => isDone(entry, stage.key)) ? 'mastered' : 'learning'
 }
 export const dueCards = (entry: VocabEntry, now = Date.now()) => activeForms(entry).filter(form => !!form.review && form.review.due <= endOfDay(now))
-export const newCards = (entry: VocabEntry) => activeForms(entry).filter(form => !form.review)
+// New cards in stage order. A `withPrevious` stage's cards wait until the stage before it has
+// cards, so a verb's meanings always come before its present tense.
+export function newCards(entry: VocabEntry) {
+  const stages = stagesOf(entry)
+  const ready = (stage: string) => {
+    const i = stages.findIndex(item => item.key === stage)
+    return i <= 0 || !stages[i].withPrevious || formsIn(entry, stages[i - 1].key).length > 0
+  }
+  const order = (form: FormCard) => stages.findIndex(stage => stage.key === form.stage)
+  return activeForms(entry).filter(form => !form.review && ready(form.stage)).sort((a, b) => order(a) - order(b))
+}
 
 export type Card = { entry: VocabEntry; form: FormCard }
 // Today's practice: cards due for review (most overdue first), then new cards, oldest saved
@@ -125,10 +143,11 @@ export function countsOf(entries: VocabEntry[], now = Date.now()) {
 }
 export const isDue = (entry: VocabEntry, now = Date.now()) => dueCards(entry, now).length > 0 || newCards(entry).length > 0
 
-// A new form is read first (what does the marked word mean?). Once it has been answered
-// right, it is asked the other way: fill the blank by choosing among the word's own forms.
-export type Drill = 'read' | 'choose'
-export const drillOf = (form: FormCard): Drill => ((form.correct ?? 0) > 0 ? 'choose' : 'read')
+// A new card is read first (what does the marked word mean?). Once it has been answered right
+// it is asked the other way: a meaning card from English (recall the Hebrew word, then grade
+// yourself), a form card by filling the blank with one of the word's own forms.
+export type Drill = 'read' | 'recall' | 'choose'
+export const drillOf = (form: FormCard): Drill => ((form.correct ?? 0) === 0 ? 'read' : form.stage === 'meanings' ? 'recall' : 'choose')
 
 // Up to four options: this form and other forms of the same word, same stage first. Fewer
 // than three options would make the choice trivial, so then the card is read instead.

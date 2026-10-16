@@ -43,11 +43,13 @@ export type Encounter = {
   surface: string; vocalized?: string; form?: string; meaning: string; context: string; contextTranslation?: string
   excerpt?: string; excerptTranslation?: string; sourceRef?: { textId: string; chunkId: string }; at: number
 }
-// One form of a saved word as a practice card: the form (vocalized), its English, an example
+// One card of a saved word: a meaning or a form (vocalized), its English, an example
 // sentence (`mark` is the form as written there) and the learner's record on it. `goodDays`
 // are the days it was answered right; two of them make the form solid (see lib/forms.ts).
 export type FormCard = {
   key: string; stage: string; slot: string; he: string; en: string; sentence: string; mark: string; translation: string
+  // The words of `translation` that render the card's word, marked on English → Hebrew cards.
+  enMark?: string
   review?: Review; correct?: number; goodDays?: string[]
 }
 // Spaced-repetition state (see lib/review.ts). `first` is when the card was first practiced.

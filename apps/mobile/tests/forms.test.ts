@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { answer, choicesFor, drillOf, extraQueue, missingStages, practiceQueue, spread, stageState, statusOf, unlockedStages } from '../src/lib/forms.ts'
+import { answer, choicesFor, drillOf, extraQueue, missingStages, newCards, practiceQueue, spread, stageState, statusOf, unlockedStages } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -12,22 +12,27 @@ const form = (key: string, extra: Partial<FormCard> = {}): FormCard => {
 const solid = { goodDays: ['2026-10-14', '2026-10-15'], correct: 2, review: { due: now + 3 * DAY, interval: 3, reps: 2, lapses: 0, first: now - 2 * DAY } }
 const verb = (forms: FormCard[], extra: Partial<VocabEntry> = {}): VocabEntry => ({ id: 'open', lemma: 'לִפְתֹּחַ', gloss: 'to open', createdAt: 1, partOfSpeech: 'verb', forms, ...extra })
 
-test('a stage opens when every form before it is solid, or when the learner marks it known', () => {
-  const start = verb([form('infinitive:inf')])
-  assert.deepEqual(unlockedStages(start).map(stage => stage.key), ['infinitive'])
-  assert.deepEqual(missingStages(verb([])), ['infinitive'])
-  const infinitiveDone = verb([form('infinitive:inf', solid)])
-  assert.deepEqual(unlockedStages(infinitiveDone).map(stage => stage.key), ['infinitive', 'present'])
-  assert.deepEqual(missingStages(infinitiveDone), ['present'])
-  // One solid present form isn't enough; all of them must be.
-  const halfPresent = verb([form('infinitive:inf', solid), form('present:m.sg', solid), form('present:f.sg', { goodDays: ['2026-10-16'] })])
-  assert.equal(stageState(halfPresent, 'present'), 'learning')
-  assert.equal(stageState(halfPresent, 'past'), 'locked')
-  const skipped = verb(halfPresent.forms!, { known: ['present'] })
+test('a verb opens with its meanings and present together; past waits until both are done', () => {
+  assert.deepEqual(unlockedStages(verb([form('meanings:sense1')])).map(stage => stage.key), ['meanings', 'present'])
+  assert.deepEqual(missingStages(verb([])), ['meanings', 'present'])
+  const present = [form('present:m.sg', solid), form('present:f.sg', { goodDays: ['2026-10-16'] })]
+  const halfway = verb([form('meanings:sense1', solid), ...present])
+  assert.equal(stageState(halfway, 'present'), 'learning')
+  assert.equal(stageState(halfway, 'past'), 'locked')
+  // Marking present known opens past only once the meanings are done too.
+  assert.equal(stageState(verb([form('meanings:sense1'), ...present], { known: ['present'] }), 'past'), 'locked')
+  const skipped = verb(halfway.forms!, { known: ['present'] })
   assert.equal(stageState(skipped, 'present'), 'known')
   assert.equal(stageState(skipped, 'past'), 'learning')
-  assert.equal(statusOf(verb([form('infinitive:inf')])), 'new')
-  assert.equal(statusOf(halfPresent), 'learning')
+  assert.deepEqual(missingStages(skipped), ['past'])
+  assert.equal(statusOf(verb([form('meanings:sense1')])), 'new')
+  assert.equal(statusOf(halfway), 'learning')
+})
+
+test('meanings come before the present tense, and present waits until the meanings exist', () => {
+  const entry = verb([form('present:m.sg'), form('meanings:sense2'), form('meanings:sense1')])
+  assert.deepEqual(newCards(entry).map(card => card.key), ['meanings:sense2', 'meanings:sense1', 'present:m.sg'])
+  assert.deepEqual(newCards(verb([form('present:m.sg')])), [])
 })
 
 test('a form is solid after Got it on two different days; Hard counts as right but not toward that', () => {
@@ -41,17 +46,18 @@ test('a form is solid after Got it on two different days; Hard counts as right b
   assert.equal(card.goodDays!.length, 2)
   assert.equal(drillOf(form('past:1sg')), 'read')
   assert.equal(drillOf(card), 'choose')
+  assert.equal(drillOf(form('meanings:sense1', { correct: 1 })), 'recall')
 })
 
 test('the queue takes reviews first, then new cards in turns between words, capped per day', () => {
   const due = { review: { due: now - DAY, interval: 1, reps: 1, lapses: 0, first: now - 2 * DAY } }
-  const a = verb([form('infinitive:inf', solid), form('present:m.sg', due), form('present:f.sg'), form('present:m.pl')], { id: 'a', createdAt: 1 })
-  const b = verb([form('infinitive:inf')], { id: 'b', createdAt: 2 })
+  const a = verb([form('meanings:sense1', solid), form('present:m.sg', due), form('present:f.sg'), form('present:m.pl')], { id: 'a', createdAt: 1 })
+  const b = verb([form('meanings:sense1')], { id: 'b', createdAt: 2 })
   const queue = practiceQueue([b, a], now)
-  assert.deepEqual(queue.map(card => `${card.entry.id} ${card.form.key}`), ['a present:m.sg', 'b infinitive:inf', 'a present:f.sg', 'a present:m.pl'])
+  assert.deepEqual(queue.map(card => `${card.entry.id} ${card.form.key}`), ['a present:m.sg', 'b meanings:sense1', 'a present:f.sg', 'a present:m.pl'])
   // Two new cards already started today leave room for one more with a cap of three.
   const started = { review: { due: now + DAY, interval: 1, reps: 1, lapses: 0, first: now - 60_000 } }
-  const c = verb([form('infinitive:inf', started), form('noun:x', started)], { id: 'c', partOfSpeech: 'noun', forms: [form('singular:sg', started), form('plural:pl', started)] })
+  const c = verb([form('meanings:sense1', started), form('noun:x', started)], { id: 'c', partOfSpeech: 'noun', forms: [form('meanings:sense1', started), form('plural:pl', started)] })
   assert.equal(practiceQueue([a, b, c], now, 3).filter(card => !card.form.review).length, 1)
 })
 
@@ -69,15 +75,15 @@ test('choices are the word\'s own forms, same stage first, in a stable order', (
   assert.ok(options.includes('פָּתְחוּ'))
   assert.ok(!options.includes('פּוֹתֵחַ'))
   assert.deepEqual(choicesFor(entry, target, 'seed'), options)
-  assert.equal(choicesFor(verb([form('infinitive:inf'), form('present:m.sg')]), form('infinitive:inf'), 's'), null)
+  assert.equal(choicesFor(verb([form('meanings:sense1'), form('present:m.sg')]), form('meanings:sense1'), 's'), null)
 })
 
 test('extra practice: not-yet-due cards first, then new, then today\'s; drilling ahead keeps the schedule', () => {
   const later = { review: { due: now + 5 * DAY, interval: 3, reps: 2, lapses: 0, last: now - 3 * DAY } }
   const soon = { review: { due: now + 2 * DAY, interval: 3, reps: 2, lapses: 0, last: now - DAY } }
   const today = { review: { due: now + DAY, interval: 1, reps: 1, lapses: 0, last: now - 60_000 } }
-  const entry = verb([form('infinitive:inf', solid), form('present:m.sg', later), form('present:f.sg', today), form('present:m.pl', soon), form('present:f.pl')])
-  assert.deepEqual(extraQueue([entry], now).map(card => card.form.key), ['present:m.pl', 'infinitive:inf', 'present:m.sg', 'present:f.pl', 'present:f.sg'])
+  const entry = verb([form('meanings:sense1', solid), form('present:m.sg', later), form('present:f.sg', today), form('present:m.pl', soon), form('present:f.pl')])
+  assert.deepEqual(extraQueue([entry], now).map(card => card.form.key), ['present:m.pl', 'meanings:sense1', 'present:m.sg', 'present:f.pl', 'present:f.sg'])
   const ahead = answer(form('present:m.sg', later), 'good', now)
   assert.equal(ahead.review!.due, now + 5 * DAY); assert.equal(ahead.review!.interval, 3); assert.equal(ahead.review!.last, now)
   assert.equal(answer(form('present:m.sg', later), 'hard', now).review!.due, now + DAY)

@@ -74,7 +74,10 @@ export default function Practice() {
   const entry = words[card.entry.id] || card.entry
   const form = entry.forms?.find(item => item.key === card.form.key) || card.form
   const stage = stagesOf(entry).find(item => item.key === form.stage)
-  const choices = drillOf(form) === 'choose' ? choicesFor(entry, form, `${form.key}-${form.review?.reps ?? 0}`) : null
+  const drill = drillOf(form)
+  // English → Hebrew: the English sentence with the meaning marked; the Hebrew is the answer.
+  const recall = drill === 'recall' && !!form.translation
+  const choices = drill === 'choose' ? choicesFor(entry, form, `${form.key}-${form.review?.reps ?? 0}`) : null
   const answered = choices ? picked !== null : revealed
   const right = !!choices && picked !== null && bare(picked) === bare(form.he)
   const speak = () => { void Speech.stop(); Speech.speak(form.sentence, { language: 'he-IL', rate: 0.8 }) }
@@ -115,13 +118,14 @@ export default function Practice() {
       <ErrorNotice message={error} />
       <View style={[styles.card, practice.card]}>
         <View style={[styles.row, { justifyContent: 'space-between', alignSelf: 'stretch', flexWrap: 'nowrap' }]}>
-          <Text style={practice.stage}>{stage?.label} · <Text style={practice.lemma}>{v(entry.lemma)}</Text></Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="Hear the sentence" onPress={speak} hitSlop={10}>
+          <Text style={practice.stage}>{stage?.label}{recall && !answered ? '' : <> · <Text style={practice.lemma}>{v(entry.lemma)}</Text></>}</Text>
+          {(!recall || answered) && <Pressable accessibilityRole="button" accessibilityLabel="Hear the sentence" onPress={speak} hitSlop={10}>
             <Ionicons name="volume-medium-outline" size={24} color={colors.green} />
-          </Pressable>
+          </Pressable>}
         </View>
-        <Text style={practice.sentence}>{sentence}</Text>
-        {!answered && <Text style={practice.hint}>{choices ? `Fill in: ${form.en}` : 'What does the marked word mean?'}</Text>}
+        {recall && <Text style={practice.english}><Marked text={form.translation} mark={form.enMark} /></Text>}
+        {(!recall || answered) && <Text style={practice.sentence}>{sentence}</Text>}
+        {!answered && <Text style={practice.hint}>{choices ? `Fill in: ${form.en}` : recall ? 'How do you say the marked word in Hebrew?' : 'What does the marked word mean?'}</Text>}
         {choices && <View style={{ gap: 8, alignSelf: 'stretch' }}>
           {choices.map(option => {
             const isAnswer = bare(option) === formBare
@@ -136,7 +140,7 @@ export default function Practice() {
           {choices && <Text style={[practice.verdict, { color: right ? colors.green : colors.red }]}>{right ? 'Right' : 'Not quite'}</Text>}
           <Text style={practice.meaning}>{form.en}</Text>
           <Text style={[practice.detail, { textAlign: 'center' }]}>{v(form.he)}</Text>
-          {!!form.translation && <Text style={practice.detail}>{form.translation}</Text>}
+          {!!form.translation && !recall && <Text style={practice.detail}>{form.translation}</Text>}
         </View>}
       </View>
     </ScrollView>
@@ -149,6 +153,13 @@ export default function Practice() {
             onPress={() => finish(rating)} style={{ flex: 1, paddingHorizontal: 8 }} />)}
     </View>
   </View>
+}
+
+// English text with one phrase marked (case-insensitive); unmarked if the phrase isn't found.
+function Marked({ text, mark }: { text: string; mark?: string }) {
+  const at = mark ? text.toLowerCase().indexOf(mark.toLowerCase()) : -1
+  if (at < 0) return <>{text}</>
+  return <>{text.slice(0, at)}<Text style={practice.mark}>{text.slice(at, at + mark!.length)}</Text>{text.slice(at + mark!.length)}</>
 }
 
 // Cards written in the background join the latest copy of a word without undoing results
@@ -193,6 +204,7 @@ const practice = StyleSheet.create({
   lemma: { fontSize: 15, color: colors.ink },
   sentence: { fontSize: 22, lineHeight: 36, color: colors.ink, writingDirection: 'rtl', textAlign: 'center' },
   mark: { backgroundColor: colors.lime, fontWeight: '600' },
+  english: { fontSize: 20, lineHeight: 30, color: colors.ink, textAlign: 'center' },
   blank: { textDecorationLine: 'underline', textDecorationColor: colors.green, color: colors.green },
   hint: { fontSize: 15, color: colors.muted },
   option: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
