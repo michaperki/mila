@@ -1,7 +1,10 @@
+import { useEffect } from 'react'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { ActivityIndicator, View } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { startFeedback } from '../lib/feedback'
 import { SessionProvider, useSession } from '../state/session'
 import { colors } from '../components/ui'
 function Navigator() {
@@ -17,4 +20,7 @@ function Navigator() {
     <Stack.Screen name="word" options={{ title: 'Word' }} />
   </Stack></>
 }
-export default function RootLayout() { return <SafeAreaProvider><SessionProvider><Navigator /></SessionProvider></SafeAreaProvider> }
+export default function RootLayout() {
+  useEffect(() => { void startFeedback() }, [])
+  return <GestureHandlerRootView style={{ flex: 1 }}><SafeAreaProvider><SessionProvider><Navigator /></SessionProvider></SafeAreaProvider></GestureHandlerRootView>
+}

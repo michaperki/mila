@@ -1,5 +1,8 @@
-import type { ReactNode } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle, type RefreshControlProps } from 'react-native'
+import type { ComponentProps, ReactNode } from 'react'
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, type GestureResponderEvent, type StyleProp, type ViewStyle, type RefreshControlProps } from 'react-native'
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated'
+import { feel } from '../lib/feedback'
+import { spring } from '../lib/motion'
 import { router } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
 export const colors = { paper: '#F6F5F1', ink: '#172B29', muted: '#65736E', green: '#145C4B', lime: '#DCECBA', line: '#DBE2DA', white: '#FFFFFF', red: '#A52D35' }
@@ -18,15 +21,26 @@ export const styles = StyleSheet.create({
 export function Page({ children, refreshControl }: { children: ReactNode; refreshControl?: React.ReactElement<RefreshControlProps> }) {
   return <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" refreshControl={refreshControl}>{children}</ScrollView>
 }
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
+// A Pressable that presses down a little under the finger and springs back, with a light tap
+// (`moment`, or none). Every button in the app is one of these.
+export function Pressy({ moment = 'press', onPressIn, onPressOut, style, depth = 0.97, ...props }: Omit<ComponentProps<typeof Pressable>, 'style'> & { moment?: 'press' | 'tick' | 'select' | null; style?: StyleProp<ViewStyle>; depth?: number }) {
+  const scale = useSharedValue(1)
+  const pressed = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }))
+  return <AnimatedPressable {...props}
+    onPressIn={(event: GestureResponderEvent) => { scale.set(spring(depth)); if (moment) feel(moment); onPressIn?.(event) }}
+    onPressOut={(event: GestureResponderEvent) => { scale.set(spring(1)); onPressOut?.(event) }}
+    style={[style, pressed]} />
+}
 // `detail` is an optional second line under the title (e.g. "3 days" on a grading button).
-export function Button({ title, detail, onPress, disabled, secondary, busy, style }: { title: string; detail?: string; onPress: () => void; disabled?: boolean; secondary?: boolean; busy?: boolean; style?: StyleProp<ViewStyle> }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={detail ? `${title}, ${detail}` : undefined} accessibilityState={{ disabled: !!disabled || !!busy }} onPress={onPress} disabled={disabled || busy}
-    style={({ pressed }) => [{ minHeight: 50, paddingHorizontal: 20, paddingVertical: detail ? 8 : 13, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: secondary ? colors.lime : colors.green, opacity: disabled || busy ? 0.5 : pressed ? 0.75 : 1 }, style]}>
+export function Button({ title, detail, onPress, disabled, secondary, busy, style, moment }: { title: string; detail?: string; onPress: () => void; disabled?: boolean; secondary?: boolean; busy?: boolean; style?: StyleProp<ViewStyle>; moment?: 'press' | 'tick' | 'select' | null }) {
+  return <Pressy accessibilityRole="button" accessibilityLabel={detail ? `${title}, ${detail}` : undefined} accessibilityState={{ disabled: !!disabled || !!busy }} onPress={onPress} disabled={disabled || busy} moment={moment}
+    style={[{ minHeight: 50, paddingHorizontal: 20, paddingVertical: detail ? 8 : 13, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: secondary ? colors.lime : colors.green, opacity: disabled || busy ? 0.5 : 1 }, style]}>
     {busy ? <ActivityIndicator color={secondary ? colors.green : colors.white} /> : <>
       <Text style={{ fontSize: 16, fontWeight: '600', color: secondary ? colors.green : colors.white }}>{title}</Text>
       {!!detail && <Text style={{ fontSize: 12, color: secondary ? colors.green : colors.white, opacity: 0.8 }}>{detail}</Text>}
     </>}
-  </Pressable>
+  </Pressy>
 }
 export function ErrorNotice({ message }: { message?: string | null }) {
   return message ? <Text accessibilityRole="alert" style={{ padding: 14, borderRadius: 12, backgroundColor: '#FBE7E6', color: colors.red, lineHeight: 23 }}>{message}</Text> : null
@@ -36,12 +50,12 @@ export function AccountGate() {
 }
 // Small toolbar toggle, e.g. "Vowels" / "English" in the reader.
 export function Pill({ label, icon, leading, active, onPress, accessibilityLabel }: { label?: string; icon?: React.ComponentProps<typeof Ionicons>['name']; leading?: ReactNode; active?: boolean; onPress: () => void; accessibilityLabel?: string }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel || label} accessibilityState={{ selected: !!active }} onPress={onPress} hitSlop={6}
-    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: 12, borderRadius: 18, borderWidth: 1, borderColor: active ? colors.green : colors.line, backgroundColor: active ? colors.lime : colors.white, opacity: pressed ? 0.7 : 1 })}>
+  return <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={accessibilityLabel || label} accessibilityState={{ selected: !!active }} onPress={onPress} hitSlop={6}
+    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: 12, borderRadius: 18, borderWidth: 1, borderColor: active ? colors.green : colors.line, backgroundColor: active ? colors.lime : colors.white }}>
     {leading}{icon && <Ionicons name={icon} size={16} color={colors.green} />}{label && <Text style={{ fontSize: 14, fontWeight: '600', color: colors.green }}>{label}</Text>}
-  </Pressable>
+  </Pressy>
 }
 // Quiet, low-emphasis action (e.g. Sign out).
 export function TextButton({ title, onPress, color = colors.muted }: { title: string; onPress: () => void; color?: string }) {
-  return <Pressable accessibilityRole="button" onPress={onPress} hitSlop={8} style={({ pressed }) => ({ alignSelf: 'center', padding: 10, opacity: pressed ? 0.6 : 1 })}><Text style={{ fontSize: 15, fontWeight: '600', color }}>{title}</Text></Pressable>
+  return <Pressy moment={null} depth={0.95} accessibilityRole="button" onPress={onPress} hitSlop={8} style={{ alignSelf: 'center', padding: 10 }}><Text style={{ fontSize: 15, fontWeight: '600', color }}>{title}</Text></Pressy>
 }

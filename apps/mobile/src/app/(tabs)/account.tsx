@@ -6,6 +6,7 @@ import { request } from '../../lib/api'
 import { applyLatestUpdate, describeVersion } from '../../lib/app-info'
 import { useSession } from '../../state/session'
 import { useVowels } from '../../state/vowels'
+import { feedbackSettings, setFeedback } from '../../lib/feedback'
 // Account → AI usage: the `ai-usage` function's summary of this month's paid calls.
 type Usage = { since: string; cost: number; requests: number; features: { feature: string; requests: number; cost: number }[] }
 const FEATURES: Record<string, string> = { page: 'Page reads', word: 'Word explanations', forms: 'Practice cards', ocr: 'Text recognition', translate: 'Translation' }
@@ -23,6 +24,8 @@ export default function Account() {
     catch { setUpdateStatus('Could not check for updates. Try again with a connection.') } finally { setChecking(false) }
   }
   const [showVowels, setShowVowels] = useVowels()
+  const [feelings, setFeelings] = useState(feedbackSettings)
+  const toggle = (name: 'sounds' | 'haptics', value: boolean) => { setFeedback(name, value); setFeelings(feedbackSettings()) }
   const [usage, setUsage] = useState<Usage | null>(null)
   useFocusEffect(useCallback(() => {
     if (!session) return
@@ -59,6 +62,10 @@ export default function Account() {
         </View>
         <Switch value={showVowels} onValueChange={setShowVowels} trackColor={{ true: colors.green }} accessibilityLabel="Vowel marks" />
       </View>
+    <View style={styles.card}>
+      <SwitchRow title="Sounds" detail="Short sounds in practice and when you save a word. They follow the silent switch." value={feelings.sounds} onChange={value => toggle('sounds', value)} />
+      <SwitchRow title="Haptics" detail="Taps you feel when you press, select and answer." value={feelings.haptics} onChange={value => toggle('haptics', value)} />
+    </View>
     </View>
     <Button secondary title="Open Mila on the web" onPress={() => { void Linking.openURL('https://mila-hebrew.netlify.app/') }} />
     <View style={styles.card}>
@@ -83,4 +90,14 @@ export default function Account() {
     </View>}
     {session && <TextButton title="Sign out" onPress={() => { void signOut().catch(e => setError(e.message)) }} />}
   </Page>
+}
+
+function SwitchRow({ title, detail, value, onChange }: { title: string; detail: string; value: boolean; onChange: (value: boolean) => void }) {
+  return <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
+    <View style={{ flex: 1, gap: 2 }}>
+      <Text style={styles.heading}>{title}</Text>
+      <Text style={styles.copy}>{detail}</Text>
+    </View>
+    <Switch value={value} onValueChange={onChange} trackColor={{ true: colors.green }} accessibilityLabel={title} />
+  </View>
 }

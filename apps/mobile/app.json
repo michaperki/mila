@@ -46,6 +46,14 @@
           "photosPermission": "Choose a photo containing Hebrew text to read with Mila.",
           "microphonePermission": false
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false
+        }
       ]
     ],
     "extra": {
