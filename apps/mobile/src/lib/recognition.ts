@@ -78,21 +78,32 @@ export async function recognizeImage(image: CapturedImage, token: string, option
 }
 
 const analyses = new Map<string, WordAnalysis>()
+const explaining = new Map<string, Promise<{ analysis?: WordAnalysis; gloss: string }>>()
 // Explains a word in its sentence. When the explainer is unavailable (not configured,
 // offline, refused) this degrades to a plain word translation rather than failing the tap.
-export async function explainWord(word: string, sentence: string, token: string | undefined, signal?: AbortSignal): Promise<{ analysis?: WordAnalysis; gloss: string }> {
+// A second call while the first is on its way (Save pressed before the explanation arrived)
+// shares that request rather than asking again.
+export function explainWord(word: string, sentence: string, token: string | undefined): Promise<{ analysis?: WordAnalysis; gloss: string }> {
   const key = `${word}\u0000${sentence}`
   const cached = analyses.get(key)
-  if (cached) return { analysis: cached, gloss: cached.meaning }
-  if (!token) return { gloss: await translate(word, signal) }
+  if (cached) return Promise.resolve({ analysis: cached, gloss: cached.meaning })
+  let pending = explaining.get(key)
+  if (!pending) {
+    pending = explain(word, sentence, token, key).finally(() => explaining.delete(key))
+    explaining.set(key, pending)
+  }
+  return pending
+}
+async function explain(word: string, sentence: string, token: string | undefined, key: string) {
+  if (!token) return { gloss: await translate(word) }
   try {
-    const analysis = await request<WordAnalysis>('word-analysis', { token, body: { word, sentence }, signal })
+    const analysis = await request<WordAnalysis>('word-analysis', { token, body: { word, sentence } })
     if (analyses.size >= 200) analyses.delete(analyses.keys().next().value!)
     analyses.set(key, analysis)
     return { analysis, gloss: analysis.meaning }
   } catch (failure) {
-    if (signal?.aborted || (failure instanceof ApiError && failure.status === 401)) throw failure
-    return { gloss: await translate(word, signal, token) }
+    if (failure instanceof ApiError && failure.status === 401) throw failure
+    return { gloss: await translate(word, undefined, token) }
   }
 }
 

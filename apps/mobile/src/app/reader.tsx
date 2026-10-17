@@ -62,7 +62,8 @@ export default function Reader() {
   const [gloss, setGloss] = useState('')
   const [wordBusy, setWordBusy] = useState(false)
   const [wordError, setWordError] = useState<string | null>(null)
-  const [savingWord, setSavingWord] = useState(false)
+  // Saves pressed and still being written (by tapKey), shown as saved meanwhile.
+  const [saving, setSaving] = useState<Set<string>>(new Set())
   const [savedWords, setSavedWords] = useState<Set<string>>(new Set())
   const [savedTaps, setSavedTaps] = useState<Map<string, SavedTap>>(new Map())
   const [english, setEnglish] = useState<EnglishMode>('tap')
@@ -203,44 +204,61 @@ export default function Reader() {
   const lemma = isPhrase ? word!.bare : analysis?.lemma || word?.bare || ''
   const sentence = word ? segments[word.segment].he : ''
   // Saved is known from the tap itself, so it shows at once rather than after the explanation.
-  const wordSaved = !!word && (savedTaps.has(tapKey(word.bare, sentence)) || savedWords.has(savedKey(vocabId(lemma), sentence)))
+  const wordSaved = !!word && (saving.has(tapKey(word.bare, sentence)) || savedTaps.has(tapKey(word.bare, sentence)) || savedWords.has(savedKey(vocabId(lemma), sentence)))
   const phrase = !isPhrase && analysis?.phrase?.text ? analysis.phrase : null
-  const phraseSaved = !!phrase && savedWords.has(savedKey(vocabId(phrase.text), sentence))
+  const phraseSaved = !!phrase && (saving.has(tapKey(phrase.text, sentence)) || savedWords.has(savedKey(vocabId(phrase.text), sentence)))
   // Saves the tapped word, or the multi-word phrase it belongs to, with its source sentence.
+  // Saving doesn't wait for the explanation: Saved ✓ shows at once and the entry is written when
+  // the explanation arrives (the dictionary form it is saved under comes from it), even if the
+  // drawer is closed meanwhile. Without an explanation the word is saved as written.
   const saveWord = async (asPhrase = false) => {
     if (!session) { router.push('/login'); return }
-    if (!word || !gloss || savingWord || (asPhrase ? !phrase || phraseSaved : wordSaved)) return
-    const segment = segments[word.segment]
-    const id = vocabId(asPhrase ? phrase!.text : lemma)
-    // The entry is the dictionary form; this sentence is added to it as one encounter.
-    const encounter: Encounter = {
-      surface: asPhrase ? phrase!.text : word.bare, meaning: asPhrase ? phrase!.meaning : gloss, context: segment.he, at: Date.now(),
-      ...(segment.en ? { contextTranslation: segment.en } : {}),
-      ...(!asPhrase && analysis?.vocalized ? { vocalized: analysis.vocalized } : {}),
-      ...(!asPhrase && !isPhrase && analysis?.form ? { form: analysis.form } : {}),
-      ...(analysis?.excerpt?.text ? { excerpt: analysis.excerpt.text, excerptTranslation: analysis.excerpt.meaning } : {}),
-      ...(saved ? { sourceRef: { textId: docId.current, chunkId: `${docId.current}-${word.segment}` } } : {}),
-      ...(!asPhrase && analysis ? { analysis } : {}),
-    }
-    const entry: VocabEntry & { encounter: Encounter } = {
-      id, createdAt: Date.now(), frequency: 1, encounter,
-      ...(asPhrase ? { lemma: phrase!.text, gloss: phrase!.meaning, partOfSpeech: 'phrase' }
-        : isPhrase ? { lemma, gloss: analysis?.lemmaMeaning || gloss, partOfSpeech: 'phrase' } : {
-          lemma, gloss: analysis?.lemmaMeaning || gloss,
-          ...(analysis?.partOfSpeech ? { partOfSpeech: analysis.partOfSpeech } : {}),
-          ...(analysis?.root ? { root: analysis.root } : {}),
-          ...(analysis?.binyan ? { binyan: analysis.binyan } : {}),
-        }),
-    }
-    setSavingWord(true); setWordError(null)
+    if (!word || (asPhrase ? !phrase || phraseSaved : wordSaved)) return
+    // What was selected when Save was pressed; the selection may change before the entry is written.
+    const tapped = word, unit = phrase, dragged = isPhrase, quickNow = quickMeaning, version = selection.current
+    const segment = segments[tapped.segment]
+    const key = tapKey(asPhrase ? unit!.text : tapped.bare, segment.he)
+    setSaving(current => new Set(current).add(key)); setWordError(null); feel('saved')
     try {
+      const explained: { analysis?: WordAnalysis; gloss: string } = wordBusy
+        ? await explainWord(tapped.bare, segment.he, session.token).catch(() => ({ gloss: '' })) : { analysis, gloss }
+      const found = explained.analysis
+      const meaning = explained.gloss || quickNow
+      if (!meaning) throw new Error('Its meaning could not be looked up.')
+      const lemmaNow = dragged ? tapped.bare : found?.lemma || tapped.bare
+      const id = vocabId(asPhrase ? unit!.text : lemmaNow)
+      // The entry is the dictionary form; this sentence is added to it as one encounter.
+      const encounter: Encounter = {
+        surface: asPhrase ? unit!.text : tapped.bare, meaning: asPhrase ? unit!.meaning : meaning, context: segment.he, at: Date.now(),
+        ...(segment.en ? { contextTranslation: segment.en } : {}),
+        ...(!asPhrase && found?.vocalized ? { vocalized: found.vocalized } : {}),
+        ...(!asPhrase && !dragged && found?.form ? { form: found.form } : {}),
+        ...(found?.excerpt?.text ? { excerpt: found.excerpt.text, excerptTranslation: found.excerpt.meaning } : {}),
+        ...(saved ? { sourceRef: { textId: docId.current, chunkId: `${docId.current}-${tapped.segment}` } } : {}),
+        ...(!asPhrase && found ? { analysis: found } : {}),
+      }
+      const entry: VocabEntry & { encounter: Encounter } = {
+        id, createdAt: Date.now(), frequency: 1, encounter,
+        ...(asPhrase ? { lemma: unit!.text, gloss: unit!.meaning, partOfSpeech: 'phrase' }
+          : dragged ? { lemma: lemmaNow, gloss: found?.lemmaMeaning || meaning, partOfSpeech: 'phrase' } : {
+            lemma: lemmaNow, gloss: found?.lemmaMeaning || meaning,
+            ...(found?.partOfSpeech ? { partOfSpeech: found.partOfSpeech } : {}),
+            ...(found?.root ? { root: found.root } : {}),
+            ...(found?.binyan ? { binyan: found.binyan } : {}),
+          }),
+      }
       await request('vocab', { token: session.token, body: entry }); setSavedWords(current => new Set(current).add(savedKey(id, segment.he)))
-      setSavedTaps(current => new Map(current).set(tapKey(encounter.surface, segment.he), { id, encounter }))
-      feel('saved')
+      setSavedTaps(current => new Map(current).set(key, { id, encounter }))
       // Write the word's first practice cards now, so they are ready by the next practice.
       void ensureForms({ ...entry, forms: [] }, session.token).catch(() => {})
+    } catch (failure) {
+      // Shown in the drawer if it is still open on this word, otherwise on the page.
+      const message = (failure as Error).message
+      if (selection.current === version) setWordError(message)
+      else setError(`${isolateHebrew(asPhrase ? unit!.text : tapped.bare)} wasn't saved. ${message}`)
+    } finally {
+      setSaving(current => { const next = new Set(current); next.delete(key); return next })
     }
-    catch (failure) { setWordError((failure as Error).message) } finally { setSavingWord(false) }
   }
   const nextEnglish: Record<EnglishMode, EnglishMode> = { tap: 'all', all: 'off', off: 'tap' }
   const englishLabel: Record<EnglishMode, string> = { tap: 'English: tapped', all: 'English: all', off: 'English: off' }
@@ -412,7 +430,7 @@ export default function Reader() {
         {hasDetails && !wordBusy && <Pressable accessibilityRole="button" onPress={() => setDetails(value => !value)} style={reader.detailsToggle} hitSlop={6}>
           <Text style={reader.barLabel}>{details ? 'Less' : 'Details'}</Text><Ionicons name={details ? 'chevron-down' : 'chevron-up'} size={16} color={colors.green} />
         </Pressable>}
-        <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : isPhrase ? 'Save phrase' : 'Save word'} disabled={wordBusy || !gloss || wordSaved} busy={savingWord} onPress={() => void saveWord()} style={{ flex: 1 }} />
+        <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : isPhrase ? 'Save phrase' : 'Save word'} disabled={wordSaved} onPress={() => void saveWord()} style={{ flex: 1 }} />
       </View>
     </DraggableSheet>}
   </View>
