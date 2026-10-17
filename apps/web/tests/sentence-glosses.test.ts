@@ -6,7 +6,9 @@ vi.mock('@anthropic-ai/sdk', () => {
   return { default: Anthropic }
 })
 vi.mock('../netlify/functions/lib/auth', () => ({ verifyAuth: () => ({ userId: 'user' }) }))
-vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn() }))
+vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn(), recordCacheHit: vi.fn() }))
+vi.mock('../netlify/functions/lib/ai-cache', () => ({ cachedAnswer: vi.fn(), rememberAnswer: vi.fn() }))
+import { cachedAnswer } from '../netlify/functions/lib/ai-cache'
 import { handler } from '../netlify/functions/sentence-glosses'
 
 const invoke = async (body: unknown) => {
@@ -24,6 +26,11 @@ describe('sentence glosses', () => {
     expect(create.mock.calls[0][0].messages[0].content).toContain('2. את')
     await invoke({ ...body, words: ['פתח', 'את', 'הדלת'] })
     expect(create).toHaveBeenCalledTimes(1)
+  })
+  it('answers a sentence asked before from the shared cache', async () => {
+    vi.mocked(cachedAnswer).mockResolvedValueOnce(['she', 'wrote'])
+    expect((await invoke({ sentence: 'היא כתבה', words: ['היא', 'כתבה'] })).meanings).toEqual(['she', 'wrote'])
+    expect(create).not.toHaveBeenCalled()
   })
   it('rejects requests without words', async () => {
     expect((await invoke({ sentence: 'שלום', words: [] })).status).toBe(400)

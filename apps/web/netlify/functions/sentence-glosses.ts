@@ -2,7 +2,8 @@ import type { Handler } from '@netlify/functions'
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
-import { recordClaude } from './lib/ai-usage'
+import { recordCacheHit, recordClaude } from './lib/ai-usage'
+import { cachedAnswer, rememberAnswer } from './lib/ai-cache'
 
 // Quick meanings for every word of one sentence, asked for as soon as the learner selects the
 // sentence, so a tapped word shows its meaning at once while the full explanation
@@ -24,6 +25,8 @@ const schema = {
 } as const
 
 const SYSTEM = 'You help an English-speaking learner read modern Hebrew. Given a sentence and its numbered words, give each word\'s meaning as used in this sentence, briefly and in plain English. The text may come from OCR; read a misrecognized word as the word that is most likely printed.'
+// The cache name for this prompt and schema: bump the version when either changes.
+const CACHE_KIND = 'sentence-glosses-v1'
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, string[]>()
 let client: Anthropic | null = null
@@ -40,11 +43,14 @@ export const handler: Handler = async (event) => {
     if (!sentence || sentence.length > 600 || !words?.length || words.length > 60) return reply(400, { message: 'Choose a sentence.' })
     if (!process.env.ANTHROPIC_API_KEY) return reply(503, { message: 'Word meanings are not configured yet.', requestId })
     const key = `${sentence}\u0000${words.join(' ')}`
-    const cached = cache.get(key)
-    if (cached) return reply(200, { meanings: cached })
+    const started = Date.now()
+    const cached = cache.get(key) ?? await cachedAnswer<string[]>(CACHE_KIND, key)
+    if (cached) {
+      await recordCacheHit(auth.userId, 'glosses', Date.now() - started)
+      return reply(200, { meanings: cached })
+    }
 
     client ??= new Anthropic()
-    const started = Date.now()
     const response = await client.beta.messages.create({
       model: 'claude-opus-5-5',
       max_tokens: 3000,
@@ -62,6 +68,7 @@ export const handler: Handler = async (event) => {
     const meanings = words.map((_, i) => answer.find(item => item.n === i + 1)?.meaning.trim() || '')
     if (cache.size >= 300) cache.delete(cache.keys().next().value!)
     cache.set(key, meanings)
+    await rememberAnswer(CACHE_KIND, key, meanings)
     return reply(200, { meanings })
   } catch (error) {
     const status = (error as { statusCode?: number }).statusCode

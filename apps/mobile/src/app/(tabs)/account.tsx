@@ -10,8 +10,9 @@ import { useVowels } from '../../state/vowels'
 import { feedbackSettings, setFeedback } from '../../lib/feedback'
 import { setVoice, speak, useSpeech, VOICES, type Voice } from '../../lib/speech'
 import { ListenButton } from '../../components/Listen'
-// Account → AI usage: the `ai-usage` function's summary of this month's paid calls.
-type Usage = { since: string; cost: number; requests: number; features: { feature: string; requests: number; cost: number }[] }
+// Account → AI usage: the `ai-usage` function's summary of this month's paid calls, and how
+// many answers came from the cache instead (free).
+type Usage = { since: string; cost: number; requests: number; features: { feature: string; requests: number; cacheHits?: number; cost: number }[] }
 const FEATURES: Record<string, string> = { page: 'Page reads', word: 'Word explanations', forms: 'Practice cards', ocr: 'Text recognition', translate: 'Translation', speech: 'Listening' }
 // Played when a voice is picked, so the choice is heard straight away.
 const SAMPLE = 'מָחָר יֵשׁ לִי מִבְחָן בְּחֶשְׁבּוֹן.'
@@ -101,7 +102,7 @@ export default function Account() {
       <Text style={styles.heading}>AI usage this month</Text>
       <Text style={{ fontSize: 30, fontWeight: '700', color: colors.ink }}>{dollars(usage.cost)}</Text>
       {usage.features.map(row => <View key={row.feature} style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
-        <Text style={styles.copy}>{FEATURES[row.feature] || row.feature} · {row.requests}</Text>
+        <Text style={styles.copy}>{FEATURES[row.feature] || row.feature} · {row.requests}{row.cacheHits ? ` · ${row.cacheHits} cached` : ''}</Text>
         <Text style={[styles.copy, { color: colors.ink }]}>{dollars(row.cost)}</Text>
       </View>)}
       <Text style={[styles.copy, { fontSize: 13 }]}>Estimated at list prices, before free tiers.</Text>

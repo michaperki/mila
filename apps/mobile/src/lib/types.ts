@@ -38,10 +38,12 @@ export type VocabEntry = StarredItem & {
   senses?: string; form?: string; excerpt?: string; excerptTranslation?: string
 }
 // Where a word was met: the form on the page, its grammatical form and meaning there, the
-// sentence, and a short excerpt of it for cards.
+// sentence, and a short excerpt of it for cards. `analysis` is the full explanation it was saved
+// with, so tapping it again in that sentence shows it without asking the model again.
 export type Encounter = {
   surface: string; vocalized?: string; form?: string; meaning: string; context: string; contextTranslation?: string
   excerpt?: string; excerptTranslation?: string; sourceRef?: { textId: string; chunkId: string }; at: number
+  analysis?: WordAnalysis
 }
 // One card of a saved word: a meaning or a form (vocalized), its English, an example
 // sentence (`mark` is the form as written there) and the learner's record on it. `goodDays`

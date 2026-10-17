@@ -2,7 +2,8 @@ import type { Handler } from '@netlify/functions'
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
-import { recordClaude } from './lib/ai-usage'
+import { recordCacheHit, recordClaude } from './lib/ai-usage'
+import { cachedAnswer, rememberAnswer } from './lib/ai-cache'
 
 // Explains one tapped Hebrew word *in its sentence*: contextual meaning, prefix/suffix
 // breakdown, lemma, root, binyan. Word-by-word machine translation can't do this
@@ -68,6 +69,8 @@ const SYSTEM = `You are a Hebrew tutor inside a reading app for English-speaking
 
 The learner may select several words instead of one. Then explain them as one unit: "meaning" is what the words mean together here; "parts" lists each word (with its prefixes) and its meaning here; "lemma" and "lemmaMeaning" are the expression's dictionary form and senses only if it is a fixed expression, otherwise empty; root, binyan and form apply only if one word carries the meaning, otherwise empty; "partOfSpeech" is "phrase"; "phrase" and "readAs" are empty; "excerpt" is as for one word. If the words don't form a unit, still give their combined meaning and say so in "note".`
 
+// The cache name for this prompt and schema: bump the version when either changes.
+const CACHE_KIND = 'word-analysis-v1'
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, WordAnalysis>()
 let client: Anthropic | null = null
@@ -86,12 +89,17 @@ export const handler: Handler = async (event) => {
     if (!word || word.length > 120 || words > 8 || sentence.length > 600) return reply(400, { message: 'Choose a word or a short phrase to explain.' })
     if (!process.env.ANTHROPIC_API_KEY) return reply(503, { message: 'Word explanations are not configured yet.', code: 'ANALYSIS_CONFIG', requestId })
 
+    // The same word in the same sentence is only ever asked once: this instance's memory,
+    // then the shared cache, then the model.
     const key = `${word}\u0000${sentence}`
-    const cached = cache.get(key)
-    if (cached) return reply(200, cached)
+    const started = Date.now()
+    const cached = cache.get(key) ?? await cachedAnswer<WordAnalysis>(CACHE_KIND, key)
+    if (cached) {
+      await recordCacheHit(auth.userId, 'word', Date.now() - started)
+      return reply(200, cached)
+    }
 
     client ??= new Anthropic()
-    const started = Date.now()
     const response = await client.beta.messages.create({
       model: 'claude-opus-5-5',
       max_tokens: 4000,
@@ -111,6 +119,7 @@ export const handler: Handler = async (event) => {
     const analysis = JSON.parse(text) as WordAnalysis
     if (cache.size >= 500) cache.delete(cache.keys().next().value!)
     cache.set(key, analysis)
+    await rememberAnswer(CACHE_KIND, key, analysis)
     return reply(200, analysis)
   } catch (error) {
     const status = (error as { statusCode?: number }).statusCode

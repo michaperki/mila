@@ -21,7 +21,7 @@ import { paragraphsOf, runsOf } from '../lib/page'
 import { type EnglishMode, getPref, setPref } from '../lib/prefs'
 import { explainWord, quickMeanings } from '../lib/recognition'
 import type { Encounter, VocabEntry, WordAnalysis } from '../lib/types'
-import { savedKey, savedKeysOf } from '../lib/words'
+import { type SavedTap, savedKey, savedKeysOf, savedTapsOf, tapKey } from '../lib/words'
 import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
 import { useVowels } from '../state/vowels'
@@ -64,6 +64,7 @@ export default function Reader() {
   const [wordError, setWordError] = useState<string | null>(null)
   const [savingWord, setSavingWord] = useState(false)
   const [savedWords, setSavedWords] = useState<Set<string>>(new Set())
+  const [savedTaps, setSavedTaps] = useState<Map<string, SavedTap>>(new Map())
   const [english, setEnglish] = useState<EnglishMode>('tap')
   // Three states: reading (nothing active), a sentence active (highlighted, English under it,
   // sentence bar), and a word or phrase selected in it (drawer). Closing the drawer goes back
@@ -95,12 +96,13 @@ export default function Reader() {
     })
     return () => cancelAnimationFrame(id)
   }, [active, overlayHeight, english])
-  // Know which words are already saved so the card can say so instead of offering a duplicate.
+  // Know which words are already saved so the card can say so instead of offering a duplicate,
+  // and show a word saved from this sentence with what it was saved with.
   useEffect(() => {
     if (!session) return
     const controller = new AbortController()
     void request<{ vocab?: VocabEntry[] }>('vocab', { token: session.token, signal: controller.signal })
-      .then(data => setSavedWords(savedKeysOf(data.vocab || []))).catch(() => {})
+      .then(data => { setSavedWords(savedKeysOf(data.vocab || [])); setSavedTaps(savedTapsOf(data.vocab || [])) }).catch(() => {})
     return () => controller.abort()
   }, [session])
 
@@ -166,6 +168,11 @@ export default function Reader() {
     const version = ++selection.current
     feel('select')
     setSelected(index); setSelectedTo(to); setActive(first.segment); setDetails(false); setAnalysis(undefined); setGloss(''); setWordError(null); setWordBusy(true)
+    // Saved from this sentence: show what it was saved with instead of asking the model again.
+    // Words saved before explanations were kept show their saved meaning while it loads.
+    const known = savedTaps.get(tapKey(text, segments[first.segment].he))?.encounter
+    if (known?.analysis) { setAnalysis(known.analysis); setGloss(known.analysis.meaning); setWordBusy(false); return }
+    if (known) setGloss(known.meaning)
     try {
       const result = await explainWord(text, segments[first.segment].he, session?.token)
       if (selection.current !== version) return
@@ -195,7 +202,8 @@ export default function Reader() {
   // A selected phrase is saved as written; a single word by its dictionary form.
   const lemma = isPhrase ? word!.bare : analysis?.lemma || word?.bare || ''
   const sentence = word ? segments[word.segment].he : ''
-  const wordSaved = !!word && savedWords.has(savedKey(vocabId(lemma), sentence))
+  // Saved is known from the tap itself, so it shows at once rather than after the explanation.
+  const wordSaved = !!word && (savedTaps.has(tapKey(word.bare, sentence)) || savedWords.has(savedKey(vocabId(lemma), sentence)))
   const phrase = !isPhrase && analysis?.phrase?.text ? analysis.phrase : null
   const phraseSaved = !!phrase && savedWords.has(savedKey(vocabId(phrase.text), sentence))
   // Saves the tapped word, or the multi-word phrase it belongs to, with its source sentence.
@@ -212,6 +220,7 @@ export default function Reader() {
       ...(!asPhrase && !isPhrase && analysis?.form ? { form: analysis.form } : {}),
       ...(analysis?.excerpt?.text ? { excerpt: analysis.excerpt.text, excerptTranslation: analysis.excerpt.meaning } : {}),
       ...(saved ? { sourceRef: { textId: docId.current, chunkId: `${docId.current}-${word.segment}` } } : {}),
+      ...(!asPhrase && analysis ? { analysis } : {}),
     }
     const entry: VocabEntry & { encounter: Encounter } = {
       id, createdAt: Date.now(), frequency: 1, encounter,
@@ -226,6 +235,7 @@ export default function Reader() {
     setSavingWord(true); setWordError(null)
     try {
       await request('vocab', { token: session.token, body: entry }); setSavedWords(current => new Set(current).add(savedKey(id, segment.he)))
+      setSavedTaps(current => new Map(current).set(tapKey(encounter.surface, segment.he), { id, encounter }))
       feel('saved')
       // Write the word's first practice cards now, so they are ready by the next practice.
       void ensureForms({ ...entry, forms: [] }, session.token).catch(() => {})

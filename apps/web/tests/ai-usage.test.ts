@@ -19,12 +19,14 @@ describe('AI usage', () => {
     expect(geminiSpeechCost(1_000_000, 1_000_000, new Date('2027-01-01T00:00:00Z'))).toBeCloseTo(19)
   })
   it('sums this calendar month by feature', async () => {
-    aggregate.mockReturnValue({ toArray: async () => [{ _id: 'page', requests: 3, cost: 0.3, inputTokens: 9000, outputTokens: 3000 }, { _id: 'ocr', requests: 10, cost: 0.015, inputTokens: 0, outputTokens: 0 }] })
+    aggregate.mockReturnValue({ toArray: async () => [{ _id: 'page', requests: 3, cacheHits: 0, cost: 0.3, inputTokens: 9000, outputTokens: 3000 }, { _id: 'ocr', requests: 10, cacheHits: 0, cost: 0.015, inputTokens: 0, outputTokens: 0 }] })
     const summary = await monthSummary('user', new Date('2026-10-16T12:00:00Z'))
     expect(summary.since).toBe('2026-10-01T00:00:00.000Z')
     expect(summary.cost).toBeCloseTo(0.315)
     expect(summary.requests).toBe(13)
-    expect(summary.features[0]).toEqual({ feature: 'page', requests: 3, cost: 0.3, inputTokens: 9000, outputTokens: 3000 })
+    expect(summary.features[0]).toEqual({ feature: 'page', requests: 3, cacheHits: 0, cost: 0.3, inputTokens: 9000, outputTokens: 3000 })
+    // Cache hits are counted apart from paid requests.
+    expect(aggregate.mock.calls[0][0][1].$group.requests).toEqual({ $sum: { $cond: ['$cached', 0, 1] } })
     expect(aggregate.mock.calls[0][0][0].$match).toEqual({ userId: 'user', at: { $gte: new Date('2026-10-01T00:00:00Z') } })
   })
 })

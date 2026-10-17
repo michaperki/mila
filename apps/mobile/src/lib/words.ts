@@ -17,3 +17,11 @@ export function encountersOf(entry: VocabEntry): Encounter[] {
 export const savedKey = (id: string, sentence: string) => `${id}\u0000${sentence}`
 export const savedKeysOf = (entries: VocabEntry[]) =>
   new Set(entries.flatMap(entry => encountersOf(entry).map(encounter => savedKey(entry.id, encounter.context))))
+
+// Saved words by what was tapped: the text as written in the reader and its sentence. The
+// reader knows a word is saved from the tap alone, before (or without) any explanation, which
+// is needed for the dictionary form the entry is saved under.
+export type SavedTap = { id: string; encounter: Encounter }
+export const tapKey = (surface: string, sentence: string) => `${surface}\u0000${sentence}`
+export const savedTapsOf = (entries: VocabEntry[]) =>
+  new Map<string, SavedTap>(entries.flatMap(entry => encountersOf(entry).map(encounter => [tapKey(encounter.surface, encounter.context), { id: entry.id, encounter }] as const)))

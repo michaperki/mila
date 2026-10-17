@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { encountersOf, savedKey, savedKeysOf } from '../src/lib/words.ts'
+import { encountersOf, savedKey, savedKeysOf, savedTapsOf, tapKey } from '../src/lib/words.ts'
 
 const encounter = (surface: string, context: string, at: number) => ({ surface, meaning: 'm', context, at })
 
@@ -17,4 +17,11 @@ test('a word counts as saved per sentence', () => {
   const keys = savedKeysOf([{ id: 'a', lemma: 'x', gloss: 'y', createdAt: 1, encounters: [encounter('x', 'one', 1)] }])
   assert.equal(keys.has(savedKey('a', 'one')), true)
   assert.equal(keys.has(savedKey('a', 'two')), false)
+})
+
+test('a saved word is found from the tap alone: what was tapped and its sentence', () => {
+  const taps = savedTapsOf([{ id: 'a', lemma: 'לְהַדְבִּיק', gloss: 'to stick', createdAt: 1, encounters: [encounter('הדביק', 'one', 1)] }])
+  assert.equal(taps.get(tapKey('הדביק', 'one'))?.id, 'a')
+  assert.equal(taps.get(tapKey('הדביק', 'two')), undefined)
+  assert.equal(taps.get(tapKey('לְהַדְבִּיק', 'one')), undefined)
 })

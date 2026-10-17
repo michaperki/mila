@@ -6,8 +6,10 @@ vi.mock('@anthropic-ai/sdk', () => {
   return { default: Anthropic }
 })
 vi.mock('../netlify/functions/lib/auth', () => ({ verifyAuth: vi.fn() }))
-vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn() }))
-import { recordClaude } from '../netlify/functions/lib/ai-usage'
+vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn(), recordCacheHit: vi.fn() }))
+vi.mock('../netlify/functions/lib/ai-cache', () => ({ cachedAnswer: vi.fn(), rememberAnswer: vi.fn() }))
+import { cachedAnswer, rememberAnswer } from '../netlify/functions/lib/ai-cache'
+import { recordCacheHit, recordClaude } from '../netlify/functions/lib/ai-usage'
 import { verifyAuth } from '../netlify/functions/lib/auth'
 import { handler } from '../netlify/functions/word-analysis'
 
@@ -43,6 +45,16 @@ describe('word analysis endpoint', () => {
   it('caches repeated taps on the same word in the same sentence', async () => {
     await invoke({ word: 'מבחן', sentence: 'מבחן בחשבון' }); await invoke({ word: 'מבחן', sentence: 'מבחן בחשבון' })
     expect(create).toHaveBeenCalledTimes(1)
+  })
+  it('answers from the shared cache without calling the model, and stores new answers there', async () => {
+    vi.mocked(cachedAnswer).mockResolvedValueOnce(analysis)
+    const result = await invoke({ word: 'בחשבון', sentence: 'כבר נשאל בעבר בחשבון' })
+    expect(result.status).toBe(200); expect(result.meaning).toBe('in math')
+    expect(create).not.toHaveBeenCalled()
+    expect(recordCacheHit).toHaveBeenCalledWith('user', 'word', expect.any(Number))
+    await invoke({ word: 'בחשבון', sentence: 'משפט חדש בחשבון' })
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(rememberAnswer).toHaveBeenCalledWith('word-analysis-v1', 'בחשבון\u0000משפט חדש בחשבון', analysis)
   })
   it('reports missing configuration so the app can fall back to plain translation', async () => {
     delete process.env.ANTHROPIC_API_KEY

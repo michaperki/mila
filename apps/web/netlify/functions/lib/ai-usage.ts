@@ -38,8 +38,9 @@ export function claudeCost(model: string, usage: ClaudeUsage) {
     + (usage.cache_read_input_tokens ?? 0) * price.cacheRead + usage.output_tokens * price.output) / 1_000_000
 }
 
-type Entry = { userId: string; feature: Feature; provider: 'anthropic' | 'google' | 'elevenlabs'; model: string; cost: number; ms: number
-  inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; characters?: number; images?: number }
+// `cached`: answered from the AI cache (lib/ai-cache.ts) at no cost; counted apart from paid calls.
+type Entry = { userId: string; feature: Feature; provider: 'anthropic' | 'google' | 'elevenlabs' | 'cache'; model: string; cost: number; ms: number
+  cached?: boolean; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; characters?: number; images?: number }
 
 // Recording must never fail the request it describes.
 async function record(entry: Entry) {
@@ -63,6 +64,8 @@ export async function recordClaude(userId: string, feature: Feature, response: {
     cacheReadTokens: usage.cache_read_input_tokens ?? 0, cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
   })
 }
+export const recordCacheHit = (userId: string, feature: Feature, ms: number) =>
+  record({ userId, feature, provider: 'cache', model: 'cache', cost: 0, ms, cached: true })
 export const recordVision = (userId: string, ms: number) =>
   record({ userId, feature: 'ocr', provider: 'google', model: 'vision-document-text', images: 1, cost: VISION_PER_IMAGE, ms })
 export const recordTranslation = (userId: string, characters: number, ms: number) =>
@@ -75,9 +78,9 @@ export const recordGeminiSpeech = (userId: string, model: string, inputTokens: n
 // This calendar month (UTC) for one user, by feature.
 export async function monthSummary(userId: string, now = new Date()) {
   const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
-  const rows = await (await getDb()).collection('aiUsage').aggregate<{ _id: Feature; requests: number; cost: number; inputTokens: number; outputTokens: number }>([
+  const rows = await (await getDb()).collection('aiUsage').aggregate<{ _id: Feature; requests: number; cacheHits: number; cost: number; inputTokens: number; outputTokens: number }>([
     { $match: { userId, at: { $gte: since } } },
-    { $group: { _id: '$feature', requests: { $sum: 1 }, cost: { $sum: '$cost' }, inputTokens: { $sum: { $ifNull: ['$inputTokens', 0] } }, outputTokens: { $sum: { $ifNull: ['$outputTokens', 0] } } } },
+    { $group: { _id: '$feature', requests: { $sum: { $cond: ['$cached', 0, 1] } }, cacheHits: { $sum: { $cond: ['$cached', 1, 0] } }, cost: { $sum: '$cost' }, inputTokens: { $sum: { $ifNull: ['$inputTokens', 0] } }, outputTokens: { $sum: { $ifNull: ['$outputTokens', 0] } } } },
     { $sort: { cost: -1 } },
   ]).toArray()
   const features = rows.map(({ _id, ...row }) => ({ feature: _id, ...row }))
