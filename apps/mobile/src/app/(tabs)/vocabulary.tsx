@@ -1,13 +1,13 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
-import { router, useFocusEffect } from 'expo-router'
+import { router } from 'expo-router'
 import { AccountGate, Button, colors, ErrorNotice, Page, Pill, Pressy, styles } from '../../components/ui'
-import { request } from '../../lib/api'
 import { countsOf, formsIn, isDue, isSolid, statusOf, type Status, unlockedStages } from '../../lib/forms'
 import { matches } from '../../lib/review'
 import type { VocabEntry } from '../../lib/types'
 import { withVowels } from '../../lib/vowels'
 import { useSession } from '../../state/session'
+import { useVocab } from '../../state/vocab'
 import { useVowels } from '../../state/vowels'
 
 type Filter = 'all' | 'due' | Status
@@ -20,36 +20,18 @@ const FILTERS: { key: Filter; label: string }[] = [
 // saved words. A row opens the word's own screen (its forms, progress and where it was met).
 export default function Vocabulary() {
   const { session } = useSession()
-  const [entries, setEntries] = useState<VocabEntry[]>([])
-  const [loading, setLoading] = useState(false)
-  const [loaded, setLoaded] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [revision, setRevision] = useState(0)
+  // What is already loaded shows at once; every visit refreshes it in the background. Due dates
+  // are judged against when the list was loaded.
+  const { entries, at: now, loaded, loading, error, refresh } = useVocab(session)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [showVowels] = useVowels()
-  // Due dates are judged against when the list was loaded (refreshed on every visit).
-  const [now, setNow] = useState(() => Date.now())
-  useFocusEffect(useCallback(() => {
-    const controller = new AbortController()
-    setError(null)
-    if (!session) { setEntries([]); return }
-    setLoading(true)
-    void request<{ vocab?: VocabEntry[] }>('vocab', { token: session.token, signal: controller.signal })
-      .then(data => { if (!controller.signal.aborted) { setEntries(data.vocab || []); setNow(Date.now()) } })
-      .catch(failure => { if (!controller.signal.aborted) setError(failure.message) })
-      .finally(() => { if (!controller.signal.aborted) { setLoading(false); setLoaded(true) } })
-    return () => controller.abort()
-    // revision only forces a refetch on pull-to-refresh; it is not read above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, revision]))
-
   const counts = useMemo(() => countsOf(entries, now), [entries, now])
   const visible = useMemo(() => entries.filter(entry => matches(entry, query)
     && (filter === 'all' || (filter === 'due' ? isDue(entry, now) : statusOf(entry) === filter))), [entries, query, filter, now])
 
   const empty = !session || (loaded && !error && entries.length === 0)
-  return <Page refreshControl={<RefreshControl refreshing={loading} tintColor={colors.green} onRefresh={() => setRevision(value => value + 1)} />}>
+  return <Page refreshControl={<RefreshControl refreshing={loading} tintColor={colors.green} onRefresh={refresh} />}>
     {empty && <><Text style={styles.eyebrow}>MAKE WORDS YOUR OWN</Text><Text style={styles.title}>Words worth keeping.</Text></>}
     {!session ? <AccountGate /> : <>
       <ErrorNotice message={error} />

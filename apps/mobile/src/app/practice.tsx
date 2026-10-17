@@ -14,10 +14,11 @@ import { request } from '../lib/api'
 import { answer, type Card, choicesFor, drillOf, extraQueue, missingStages, practiceQueue, stagesOf, unlockedStages } from '../lib/forms'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { waitOf, type Rating } from '../lib/review'
-import type { FormCard, VocabEntry } from '../lib/types'
+import type { FormCard, Session, VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
 import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
+import { cachedVocab, putEntry, vocabFor } from '../state/vocab'
 import { useVowels } from '../state/vowels'
 
 const RATINGS: { rating: Rating; label: string }[] = [{ rating: 'again', label: 'Again' }, { rating: 'hard', label: 'Hard' }, { rating: 'good', label: 'Got it' }]
@@ -43,6 +44,7 @@ export default function Practice() {
   const [practiced, setPracticed] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   // The latest copy of each word, so results and unlocks build on each other within a session.
+  // Changes also go to the shared saved words, so other screens show them without reloading.
   const [words, setWords] = useState<Record<string, VocabEntry>>({})
   const keep = (ready: VocabEntry) => setWords(current => ({ ...current, [ready.id]: withNewForms(current[ready.id], ready) }))
 
@@ -51,14 +53,17 @@ export default function Practice() {
     const controller = new AbortController()
     void (async () => {
       try {
-        const data = await request<{ vocab?: VocabEntry[] }>('vocab', { token: session.token, signal: controller.signal })
-        const entries = data.vocab || []
+        // The saved words already loaded if there are any, so practice opens at once.
+        const entries = await vocabFor(session)
         if (controller.signal.aborted) return
         setWords(Object.fromEntries(entries.map(entry => [entry.id, entry])))
         // Words whose open stage has no cards yet get them written now. Practice starts with
         // what is ready; only if nothing is does it wait for them.
         const preparing = Promise.all(entries.map(entry => (missingStages(entry).length ? ensureForms(entry, session.token) : entry)))
-        void preparing.then(ready => { if (!controller.signal.aborted) ready.forEach(keep) })
+        void preparing.then(ready => {
+          ready.forEach(item => share(session, item))
+          if (!controller.signal.aborted) ready.forEach(keep)
+        })
         const build = extra ? extraQueue : practiceQueue
         let cards = build(entries)
         if (!cards.length) cards = build(await preparing)
@@ -94,13 +99,13 @@ export default function Practice() {
       .catch((failure: Error) => setError(`A result wasn't saved. ${failure.message}`))
     const before = unlockedStages(entry).map(item => item.key)
     const updated = { ...entry, forms: (entry.forms || []).map(item => (item.key === form.key ? { ...item, ...result } : item)) }
-    setWords(current => ({ ...current, [entry.id]: updated }))
+    setWords(current => ({ ...current, [entry.id]: updated })); putEntry(session, updated)
     // A newly opened stage: note it for the summary and have its cards written for next time.
     const opened = unlockedStages(updated).filter(item => !before.includes(item.key))
     if (opened.length) {
       setUnlocked(current => [...current, ...opened.map(item => `${v(entry.lemma)}: ${item.label}`)])
       setTimeout(() => feel('unlock'), 250)
-      void ensureForms(updated, session.token).then(keep)
+      void ensureForms(updated, session.token).then(ready => { share(session, ready); keep(ready) })
     }
     if (rating === 'again') setQueue(current => [...current!, { entry: updated, form: { ...form, ...result } }])
     setTally(current => ({ ...current, [rating]: current[rating] + 1 })); setPracticed(current => [...current, entry.id])
@@ -173,6 +178,9 @@ function Marked({ text, mark }: { text: string; mark?: string }) {
   if (at < 0) return <>{text}</>
   return <>{text.slice(0, at)}<Text style={practice.mark}>{text.slice(at, at + mark!.length)}</Text>{text.slice(at + mark!.length)}</>
 }
+
+// Cards written in the background also join the shared saved words.
+const share = (session: Session, ready: VocabEntry) => putEntry(session, withNewForms(cachedVocab(session)?.find(item => item.id === ready.id), ready))
 
 // Cards written in the background join the latest copy of a word without undoing results
 // recorded since the request started.

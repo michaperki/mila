@@ -6,6 +6,7 @@ import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles, TextBut
 import { request } from '../../lib/api'
 import { applyLatestUpdate, describeVersion } from '../../lib/app-info'
 import { useSession } from '../../state/session'
+import { clearVocab } from '../../state/vocab'
 import { useVowels } from '../../state/vowels'
 import { feedbackSettings, setFeedback } from '../../lib/feedback'
 import { setVoice, speak, useSpeech, VOICES, type Voice } from '../../lib/speech'
@@ -47,7 +48,7 @@ export default function Account() {
     { text: 'Delete all', style: 'destructive', onPress: () => {
       setVocabStatus(null)
       void request<{ deleted?: number }>('vocab?all=1', { token: session!.token, method: 'DELETE' })
-        .then(data => setVocabStatus(`Deleted ${data.deleted ?? 0} ${data.deleted === 1 ? 'word' : 'words'}.`), (failure: Error) => setError(failure.message))
+        .then(data => { clearVocab(session!); setVocabStatus(`Deleted ${data.deleted ?? 0} ${data.deleted === 1 ? 'word' : 'words'}.`) }, (failure: Error) => setError(failure.message))
     } },
   ])
   return <Page>

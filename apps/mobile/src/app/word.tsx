@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native'
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { stop as stopSpeaking } from '../lib/speech'
@@ -12,11 +12,12 @@ import { request } from '../lib/api'
 import { isolateHebrew } from '../lib/bidi'
 import { textFromDocument } from '../lib/documents'
 import { formsIn, isSolid, missingStages, slotLabel, stagesOf, stageState, type StageState } from '../lib/forms'
-import type { FormCard, TextDoc, VocabEntry } from '../lib/types'
+import type { FormCard, TextDoc } from '../lib/types'
 import { withVowels } from '../lib/vowels'
 import { ensureForms } from '../lib/word-forms'
 import { encountersOf } from '../lib/words'
 import { useSession } from '../state/session'
+import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
 
 // Saved word ids hold a percent-encoded lemma (native-%D7%9C…), and the router decodes the
@@ -33,40 +34,34 @@ export default function Word() {
   const { session, setRecognition } = useSession()
   const [showVowels] = useVowels()
   const v = (text: string) => withVowels(text, showVowels)
-  const [entry, setEntry] = useState<VocabEntry | null>(null)
-  const [preparing, setPreparing] = useState(false)
+  // The word from the saved words already loaded, so it shows at once; the visit refreshes them.
+  const { entries, loaded, error: loadError } = useVocab(session)
+  const entry = entries.find(item => sameId(item.id, id)) ?? null
   const [error, setError] = useState<string | null>(null)
 
-  // Writes cards for open stages that have none, then shows them.
-  const prepare = useCallback((word: VocabEntry, signal?: AbortSignal) => {
-    if (!session || !missingStages(word).length) return
-    setPreparing(true)
-    void ensureForms(word, session.token)
-      .then(ready => { if (!signal?.aborted) setEntry(current => (current ? { ...current, forms: ready.forms } : ready)) })
-      .finally(() => { if (!signal?.aborted) setPreparing(false) })
-  }, [session])
-
-  useFocusEffect(useCallback(() => {
-    if (!session) return
-    const controller = new AbortController()
-    void request<{ vocab?: VocabEntry[] }>('vocab', { token: session.token, signal: controller.signal })
-      .then(data => {
-        const word = data.vocab?.find(item => sameId(item.id, id))
-        if (controller.signal.aborted) return
-        if (!word) { setError('This word is no longer saved.'); return }
-        setEntry(word); prepare(word, controller.signal)
-      }, (failure: Error) => { if (!controller.signal.aborted) setError(failure.message) })
-    return () => { controller.abort(); stopSpeaking() }
-  }, [session, id, prepare]))
+  // Writes cards for open stages that have none, then shows them: when the word opens, when a
+  // stage is marked known, and again on "Prepare these forms" after a failure. `tried` is the
+  // word and stages last attempted, so a failure isn't retried on every refresh.
+  const [tried, setTried] = useState<string | null>(null)
+  const attempt = entry ? `${entry.id}:${missingStages(entry).join()}` : ''
+  const preparing = !!entry && missingStages(entry).length > 0 && tried !== attempt
+  useEffect(() => {
+    if (!session || !entry || !preparing) return
+    void ensureForms(entry, session.token)
+      .then(ready => { const latest = cachedVocab(session)?.find(item => item.id === ready.id); if (latest) putEntry(session, { ...latest, forms: ready.forms }) })
+      .finally(() => setTried(attempt))
+    // Runs for each new attempt, not on every refresh of the word.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, attempt, preparing])
+  useFocusEffect(useCallback(() => () => stopSpeaking(), []))
 
   if (!session) return <Page><Text style={styles.copy}>Sign in to see your saved words.</Text></Page>
-  if (!entry) return <Page>{error ? <ErrorNotice message={error} /> : <ActivityIndicator color={colors.green} />}</Page>
+  if (!entry) return <Page>{loaded ? <ErrorNotice message={loadError || error || 'This word is no longer saved.'} /> : <ActivityIndicator color={colors.green} />}</Page>
 
   const setKnown = (known: string[]) => {
-    const updated = { ...entry, known }
-    setEntry(updated)
+    putEntry(session, { ...entry, known })
     void request('vocab', { token: session.token, method: 'PATCH', body: { id: entry.id, known } })
-      .then(() => prepare(updated), (failure: Error) => { setError(failure.message); setEntry(entry) })
+      .catch((failure: Error) => { setError(failure.message); putEntry(session, entry) })
   }
   const openPassage = async (textId: string) => {
     try {
@@ -80,7 +75,7 @@ export default function Word() {
     { text: 'Cancel', style: 'cancel' },
     { text: 'Delete', style: 'destructive', onPress: () => {
       void request(`vocab?id=${encodeURIComponent(entry.id)}`, { token: session.token, method: 'DELETE' })
-        .then(() => router.back(), (failure: Error) => setError(failure.message))
+        .then(() => { router.back(); dropEntry(session, entry.id) }, (failure: Error) => setError(failure.message))
     } },
   ])
   const grammar = [entry.partOfSpeech, entry.binyan, entry.root && `root ${entry.root}`].filter(Boolean).join(' · ')
@@ -111,7 +106,7 @@ export default function Word() {
         </View>
         {state !== 'locked' && forms.map(form => <FormRow key={form.key} label={slotLabel(entry, form)} form={form} v={v} />)}
         {state !== 'locked' && !forms.length && (preparing ? <ActivityIndicator color={colors.green} style={{ alignSelf: 'flex-start' }} />
-          : <TextButton title="Prepare these forms" color={colors.green} onPress={() => prepare(entry)} />)}
+          : <TextButton title="Prepare these forms" color={colors.green} onPress={() => setTried(null)} />)}
         {state === 'learning' && <TextButton title="I know this already" color={colors.green} onPress={() => { feel('unlock'); setKnown([...known, stage.key]) }} />}
         {state === 'known' && <TextButton title="Undo" onPress={() => { feel('tick'); setKnown(known.filter(key => key !== stage.key)) }} />}
       </Animated.View>

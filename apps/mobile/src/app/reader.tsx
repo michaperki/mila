@@ -21,9 +21,10 @@ import { paragraphsOf, runsOf } from '../lib/page'
 import { type EnglishMode, getPref, setPref } from '../lib/prefs'
 import { explainWord, quickMeanings } from '../lib/recognition'
 import type { Encounter, VocabEntry, WordAnalysis } from '../lib/types'
-import { type SavedTap, savedKey, savedKeysOf, savedTapsOf, tapKey } from '../lib/words'
+import { encountersOf, savedKey, savedKeysOf, savedTapsOf, tapKey } from '../lib/words'
 import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
+import { cachedVocab, putEntry, useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
 import { isVowelled, withVowels } from '../lib/vowels'
 
@@ -64,8 +65,11 @@ export default function Reader() {
   const [wordError, setWordError] = useState<string | null>(null)
   // Saves pressed and still being written (by tapKey), shown as saved meanwhile.
   const [saving, setSaving] = useState<Set<string>>(new Set())
-  const [savedWords, setSavedWords] = useState<Set<string>>(new Set())
-  const [savedTaps, setSavedTaps] = useState<Map<string, SavedTap>>(new Map())
+  // Know which words are already saved so the card can say so instead of offering a duplicate,
+  // and show a word saved from this sentence with what it was saved with.
+  const { entries: vocab } = useVocab(session)
+  const savedWords = useMemo(() => savedKeysOf(vocab), [vocab])
+  const savedTaps = useMemo(() => savedTapsOf(vocab), [vocab])
   const [english, setEnglish] = useState<EnglishMode>('tap')
   // Three states: reading (nothing active), a sentence active (highlighted, English under it,
   // sentence bar), and a word or phrase selected in it (drawer). Closing the drawer goes back
@@ -97,16 +101,6 @@ export default function Reader() {
     })
     return () => cancelAnimationFrame(id)
   }, [active, overlayHeight, english])
-  // Know which words are already saved so the card can say so instead of offering a duplicate,
-  // and show a word saved from this sentence with what it was saved with.
-  useEffect(() => {
-    if (!session) return
-    const controller = new AbortController()
-    void request<{ vocab?: VocabEntry[] }>('vocab', { token: session.token, signal: controller.signal })
-      .then(data => { setSavedWords(savedKeysOf(data.vocab || [])); setSavedTaps(savedTapsOf(data.vocab || [])) }).catch(() => {})
-    return () => controller.abort()
-  }, [session])
-
   const segments = useMemo(() => (recognition ? segmentsOf(recognition) : []), [recognition])
   // A page read keeps the page's paragraphs: dividers go between paragraphs, not sentences.
   const paged = recognition?.source === 'page'
@@ -247,10 +241,20 @@ export default function Reader() {
             ...(found?.binyan ? { binyan: found.binyan } : {}),
           }),
       }
-      await request('vocab', { token: session.token, body: entry }); setSavedWords(current => new Set(current).add(savedKey(id, segment.he)))
-      setSavedTaps(current => new Map(current).set(key, { id, encounter }))
+      await request('vocab', { token: session.token, body: entry })
+      // The saved words as the server now has them: this entry, with this sentence's encounter
+      // in place of any earlier one from the same sentence.
+      const { encounter: _added, createdAt: _created, ...fields } = entry
+      const existing = cachedVocab(session)?.find(item => item.id === id)
+      const stored: VocabEntry = existing
+        ? { ...existing, ...fields, encounters: [...encountersOf(existing).filter(item => item.context !== encounter.context).reverse(), encounter].slice(-20) }
+        : { ...fields, createdAt: entry.createdAt, encounters: [encounter] }
+      putEntry(session, stored)
       // Write the word's first practice cards now, so they are ready by the next practice.
-      void ensureForms({ ...entry, forms: [] }, session.token).catch(() => {})
+      void ensureForms(stored, session.token).then(ready => {
+        const latest = cachedVocab(session)?.find(item => item.id === id)
+        if (latest && ready.forms?.length) putEntry(session, { ...latest, forms: ready.forms })
+      }).catch(() => {})
     } catch (failure) {
       // Shown in the drawer if it is still open on this word, otherwise on the page.
       const message = (failure as Error).message
