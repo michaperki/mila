@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react'
 import Animated from 'react-native-reanimated'
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { router, useLocalSearchParams } from 'expo-router'
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { stop as stopSpeaking } from '../lib/speech'
 import { ListenButton } from '../components/Listen'
-import { Button, colors, ErrorNotice, Page, Pressy, styles } from '../components/ui'
-import { ProgressBar, Shake, SwipeCard } from '../components/Motion'
-import { APPEAR, CARD_IN, CARD_OUT } from '../lib/motion'
+import { Button, colors, ErrorNotice, Page, Pill, Pressy, styles } from '../components/ui'
+import { FlipCard, Shake, SwipeCard } from '../components/Motion'
+import { APPEAR, CARD_BACK_IN, CARD_IN, DISAPPEAR } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
-import { answer, type Card, choicesFor, drillOf, extraQueue, missingStages, practiceQueue, stagesOf, unlockedStages } from '../lib/forms'
+import { answer, type Card, cardKey, choicesFor, deckOf, type Include, missingStages, type Order, type Result, stagesOf, unlockedStages } from '../lib/forms'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
+import { type Front, getPref, setPref } from '../lib/prefs'
 import { waitOf, type Rating } from '../lib/review'
 import type { FormCard, Session, VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
@@ -23,153 +24,279 @@ import { useVowels } from '../state/vowels'
 
 const RATINGS: { rating: Rating; label: string }[] = [{ rating: 'again', label: 'Again' }, { rating: 'hard', label: 'Hard' }, { rating: 'good', label: 'Got it' }]
 const bare = (text: string) => stripNiqqud(bareWord(text))
+type Settings = { front: Front; order: Order; include: Include; quiz: boolean }
+const FRONTS: Record<Front, string> = { he: 'Hebrew first', en: 'English first', mixed: 'Mixed' }
+const INCLUDES: Record<Include, string> = { both: 'Words & sentences', words: 'Words', sentences: 'Sentences' }
+const next = <T extends string>(options: Record<T, string>, value: T) => { const keys = Object.keys(options) as T[]; return keys[(keys.indexOf(value) + 1) % keys.length] }
 
-// The one place to study. Each card is one form of a saved word (to open, I opened, they will
-// open …) in its own sentence. A new form is read first: what does the marked word mean? Once
-// it has been answered right, the blank is filled by choosing among the word's own forms.
-// Stages unlock as forms become solid (lib/forms.ts); their cards are written in the background.
+// The one place to study. A deck of every saved word (its dictionary form and meanings) and the
+// forms of its open stages, each in its own sentence. Study for as long as you like: tap a card
+// to turn it over, swipe or use the arrows to move on or back, grade it if you want (a card left
+// ungraded keeps its schedule), and stop with Done. Hebrew or English first, smart or shuffled
+// order, which cards and quiz mode are chosen on the screen and remembered. Stages unlock as
+// forms become solid (lib/forms.ts); their cards are written in the background.
 export default function Practice() {
   const { session } = useSession()
-  // ?extra=1: practice beyond what's due (Vocabulary → Practice anyway).
-  const { extra } = useLocalSearchParams<{ extra?: string }>()
   const insets = useSafeAreaInsets()
   const [showVowels] = useVowels()
   const v = (text: string) => withVowels(text, showVowels)
-  const [queue, setQueue] = useState<Card[] | null>(null)
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const [deck, setDeck] = useState<Card[] | null>(null)
   const [position, setPosition] = useState(0)
-  const [revealed, setRevealed] = useState(false)
-  const [picked, setPicked] = useState<string | null>(null)
-  const [tally, setTally] = useState<Record<Rating, number>>({ again: 0, hard: 0, good: 0 })
+  const [way, setWay] = useState<'next' | 'previous'>('next')
+  const [flipped, setFlipped] = useState(false)
+  // By position in the deck: the grade given, the card's record before it (so a grade can be
+  // changed on going back) and a quiz choice.
+  const [grades, setGrades] = useState<Record<number, Rating>>({})
+  const [before, setBefore] = useState<Record<number, Result>>({})
+  const [picks, setPicks] = useState<Record<number, string>>({})
   const [unlocked, setUnlocked] = useState<string[]>([])
-  const [practiced, setPracticed] = useState<string[]>([])
+  const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // The latest copy of each word, so results and unlocks build on each other within a session.
-  // Changes also go to the shared saved words, so other screens show them without reloading.
   const [words, setWords] = useState<Record<string, VocabEntry>>({})
   const keep = (ready: VocabEntry) => setWords(current => ({ ...current, [ready.id]: withNewForms(current[ready.id], ready) }))
 
   useEffect(() => {
     if (!session) return
-    const controller = new AbortController()
+    let current = true
     void (async () => {
       try {
-        // The saved words already loaded if there are any, so practice opens at once.
+        const [front, order, include, quiz] = await Promise.all([getPref('studyFront'), getPref('studyOrder'), getPref('studyCards'), getPref('studyQuiz')])
+        const chosen = { front, order, include, quiz }
+        // The saved words already loaded if there are any, so studying opens at once.
         const entries = await vocabFor(session)
-        if (controller.signal.aborted) return
+        if (!current) return
+        setSettings(chosen)
         setWords(Object.fromEntries(entries.map(entry => [entry.id, entry])))
-        // Words whose open stage has no cards yet get them written now. Practice starts with
+        // Words whose open stage has no cards yet get them written now. Studying starts with
         // what is ready; only if nothing is does it wait for them.
         const preparing = Promise.all(entries.map(entry => (missingStages(entry).length ? ensureForms(entry, session.token) : entry)))
         void preparing.then(ready => {
           ready.forEach(item => share(session, item))
-          if (!controller.signal.aborted) ready.forEach(keep)
+          if (current) ready.forEach(keep)
         })
-        const build = extra ? extraQueue : practiceQueue
-        let cards = build(entries)
-        if (!cards.length) cards = build(await preparing)
-        if (!controller.signal.aborted) setQueue(cards)
-      } catch (failure) { if (!controller.signal.aborted) setError((failure as Error).message) }
+        let cards = deckOf(entries, chosen)
+        if (!cards.length && entries.length) cards = deckOf(await preparing, chosen)
+        if (current) setDeck(cards)
+      } catch (failure) { if (current) setError((failure as Error).message) }
     })()
-    return () => { controller.abort(); stopSpeaking() }
-  }, [session, extra])
+    return () => { current = false; stopSpeaking() }
+  }, [session])
 
-  if (!session) return <Page><Text style={styles.copy}>Sign in to practice your saved words.</Text></Page>
-  if (!queue) return <Page>{error ? <ErrorNotice message={error} /> : <ActivityIndicator color={colors.green} />}</Page>
-  const card = queue[position]
-  // More cards on request: the next batch of extra practice from the latest copy of each word.
-  const more = extraQueue(Object.values(words))
-  const keepGoing = () => { setQueue(more); setPosition(0) }
-  if (!card) return <Summary tally={tally} words={new Set(practiced).size} unlocked={unlocked} error={error} onMore={more.length ? keepGoing : undefined} />
+  if (!session) return <Page><Text style={styles.copy}>Sign in to study your saved words.</Text></Page>
+  if (!deck || !settings) return <Page>{error ? <ErrorNotice message={error} /> : <ActivityIndicator color={colors.green} />}</Page>
+  if (!Object.keys(words).length) return <Page>
+    <Text style={styles.title}>Nothing to study yet.</Text>
+    <Text style={styles.copy}>Save words as you read and they will show up here.</Text>
+    <Button title="Back to vocabulary" onPress={() => router.back()} />
+  </Page>
+  const graded = Object.values(grades)
+  if (done) return <Summary grades={graded} words={new Set(Object.keys(grades).map(i => deck[Number(i)].entry.id)).size} unlocked={unlocked} error={error}
+    onMore={() => setDone(false)} />
+
+  // Moving through the deck. Past the end, the deck goes round again from the latest copy of
+  // each word (its order reflects what was just studied); a graded card shows its answer.
+  // `cards`: the deck as just changed by a grade, if it was.
+  const go = (step: 1 | -1, cards = deck) => {
+    const to = position + step
+    if (to < 0) return
+    if (to >= cards.length) {
+      const again = deckOf(Object.values(words), settings, Date.now(), `${Date.now()}`)
+      if (!again.length) return
+      // Don't show the card just studied twice in a row.
+      if (again.length > 1 && cardKey(again[0]) === cardKey(cards[position])) again.push(again.shift()!)
+      setDeck([...cards, ...again])
+    }
+    feel('tick'); setWay(step === 1 ? 'next' : 'previous'); setPosition(to); setFlipped(grades[to] !== undefined)
+  }
+  const stopStudying = () => { stopSpeaking(); if (graded.length) setDone(true); else router.back() }
+
+  // Settings apply from the next card on; which side shows first applies at once.
+  const change = (patch: Partial<Settings>) => {
+    const updated = { ...settings, ...patch }
+    setSettings(updated)
+    if (patch.front) setPref('studyFront', patch.front)
+    if (patch.order) setPref('studyOrder', patch.order)
+    if (patch.include) setPref('studyCards', patch.include)
+    if (patch.quiz !== undefined) setPref('studyQuiz', patch.quiz)
+    if (patch.order || patch.include) {
+      const here = deck[position]
+      const rest = deckOf(Object.values(words), updated, Date.now(), `${Date.now()}`).filter(card => !here || cardKey(card) !== cardKey(here))
+      setDeck([...deck.slice(0, position + 1), ...rest])
+    }
+  }
+
+  const card = deck[position]
+  if (!card) return <View style={{ flex: 1, backgroundColor: colors.paper }}>
+    <TopBar settings={settings} change={change} position={position} canGoBack={false} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} />
+    <View style={[styles.content, { gap: 12 }]}>
+      <Text style={styles.copy}>{settings.include === 'sentences' ? 'No sentence cards yet. They are written for each word as you save it.' : 'Nothing to study with these settings.'}</Text>
+      <Button title="Study words and sentences" onPress={() => change({ include: 'both' })} />
+    </View>
+  </View>
 
   const entry = words[card.entry.id] || card.entry
-  const form = entry.forms?.find(item => item.key === card.form.key) || card.form
-  const stage = stagesOf(entry).find(item => item.key === form.stage)
-  const drill = drillOf(form)
-  // English → Hebrew: the English sentence with the meaning marked; the Hebrew is the answer.
-  const recall = drill === 'recall' && !!form.translation
-  const choices = drill === 'choose' ? choicesFor(entry, form, `${form.key}-${form.review?.reps ?? 0}`) : null
-  const answered = choices ? picked !== null : revealed
-  const right = !!choices && picked !== null && bare(picked) === bare(form.he)
+  const form = card.form ? entry.forms?.find(item => item.key === card.form!.key) || card.form : null
+  const record: Result = form || { review: entry.review }
+  const stage = form ? stagesOf(entry).find(item => item.key === form.stage) : null
+  // Mixed: each card shows one side or the other first, settled per card and position.
+  const front: 'he' | 'en' = settings.front === 'mixed' ? ([...`${cardKey(card)}${position}`].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 ? 'en' : 'he') : settings.front
+  const englishFirst = front === 'en' && (!form || !!form.translation)
+  const choices = settings.quiz && form && form.stage !== 'meanings' ? choicesFor(entry, form, `${form.key}-${form.review?.reps ?? 0}`) : null
+  const picked = picks[position] ?? null
+  const right = !!choices && picked !== null && bare(picked) === bare(form!.he)
 
-  // `felt`: the moment was already felt (a choice is felt when picked, not on Continue).
-  const finish = (rating: Rating, felt = false) => {
+  // A grade records the card's result (from its record before this session's grade, so changing
+  // a grade replaces it) and moves on; a quiz choice grades without moving on.
+  const grade = (rating: Rating, { felt = false, advance = true } = {}) => {
     if (!felt) feel(rating === 'good' ? 'gotIt' : 'graded')
-    const result = answer(form, rating)
-    void request('vocab', { token: session.token, method: 'PATCH', body: { id: entry.id, form: { key: form.key, ...result } } })
+    const start = before[position] ?? record
+    const result = answer(start, rating)
+    void request('vocab', { token: session.token, method: 'PATCH', body: form ? { id: entry.id, form: { key: form.key, ...result } } : { id: entry.id, review: result.review } })
       .catch((failure: Error) => setError(`A result wasn't saved. ${failure.message}`))
-    const before = unlockedStages(entry).map(item => item.key)
-    const updated = { ...entry, forms: (entry.forms || []).map(item => (item.key === form.key ? { ...item, ...result } : item)) }
+    const opened = unlockedStages(entry).map(item => item.key)
+    const updated: VocabEntry = form ? { ...entry, forms: (entry.forms || []).map(item => (item.key === form.key ? { ...item, ...result } : item)) } : { ...entry, review: result.review }
     setWords(current => ({ ...current, [entry.id]: updated })); putEntry(session, updated)
     // A newly opened stage: note it for the summary and have its cards written for next time.
-    const opened = unlockedStages(updated).filter(item => !before.includes(item.key))
-    if (opened.length) {
-      setUnlocked(current => [...current, ...opened.map(item => `${v(entry.lemma)}: ${item.label}`)])
+    const fresh = unlockedStages(updated).filter(item => !opened.includes(item.key))
+    if (fresh.length) {
+      setUnlocked(current => [...current, ...fresh.map(item => `${v(entry.lemma)}: ${item.label}`)])
       setTimeout(() => feel('unlock'), 250)
       void ensureForms(updated, session.token).then(ready => { share(session, ready); keep(ready) })
     }
-    if (rating === 'again') setQueue(current => [...current!, { entry: updated, form: { ...form, ...result } }])
-    setTally(current => ({ ...current, [rating]: current[rating] + 1 })); setPracticed(current => [...current, entry.id])
-    setRevealed(false); setPicked(null); setPosition(value => value + 1)
+    // Missed for the first time, at the furthest card reached: it comes back a few cards later.
+    let cards = deck
+    if (rating === 'again' && grades[position] === undefined && !Object.keys(grades).some(i => Number(i) > position)) {
+      cards = deck.slice(); cards.splice(Math.min(position + 4, cards.length), 0, { entry: updated, form: form && { ...form, ...result } })
+      setDeck(cards)
+    }
+    setBefore(current => ({ ...current, [position]: start })); setGrades(current => ({ ...current, [position]: rating }))
+    if (advance) go(1, cards)
   }
 
-  // The sentence with the form marked, or blanked for a choice (an attached prefix such as ו or ש stays).
-  const markBare = bare(form.mark)
-  const formBare = bare(form.he)
-  const sentence = v(form.sentence).split(/(\s+)/).map((token, i) => {
-    if (bare(token) !== markBare) return <Text key={i}>{token}</Text>
-    if (choices && !answered) {
-      const prefix = markBare.endsWith(formBare) ? markBare.slice(0, markBare.length - formBare.length) : ''
-      return <Text key={i}>{prefix}<Text style={practice.blank}>{' '.repeat(6)}</Text></Text>
-    }
-    return <Text key={i} style={practice.mark}>{token}</Text>
-  })
+  const listen = form ? form.sentence : entry.lemma
+  const side = (english: boolean, answerSide: boolean) => form
+    ? <SentenceSide form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={v} />
+    : <WordSide entry={entry} english={english} answer={answerSide} v={v} />
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <View style={practice.top}>
-      <ProgressBar value={position / queue.length} />
-      <Text style={practice.progress}>{position + 1} / {queue.length}</Text>
-    </View>
-    <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: answered ? 'flex-start' : 'center' }]}>
+    <TopBar settings={settings} change={change} position={position} canGoBack={position > 0} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} />
+    <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: 'center' }]}>
       <ErrorNotice message={error} />
-      <Animated.View key={position} entering={position ? CARD_IN : undefined} exiting={CARD_OUT}>
-      <SwipeCard enabled={revealed && !choices} onSwipe={rating => finish(rating)} style={[styles.card, practice.card]}>
-        <View style={[styles.row, { justifyContent: 'space-between', alignSelf: 'stretch', flexWrap: 'nowrap' }]}>
-          <Text style={practice.stage}>{stage?.label}{recall && !answered ? '' : <> · <Text style={practice.lemma}>{v(entry.lemma)}</Text></>}</Text>
-          {(!recall || answered) && <View style={[styles.row, { gap: 8, flexWrap: 'nowrap' }]}><ListenButton text={form.sentence} accessibilityLabel="Hear the sentence" size={24} /></View>}
-        </View>
-        {recall && <Text style={practice.english}><Marked text={form.translation} mark={form.enMark} /></Text>}
-        {(!recall || answered) && <Text style={practice.sentence}>{sentence}</Text>}
-        {!answered && <Text style={practice.hint}>{choices ? `Fill in: ${form.en}` : recall ? 'How do you say the marked word in Hebrew?' : 'What does the marked word mean?'}</Text>}
-        {choices && <View style={{ gap: 8, alignSelf: 'stretch' }}>
-          {choices.map(option => {
-            const isAnswer = bare(option) === formBare
-            const chosen = picked !== null && bare(option) === bare(picked)
-            return <Shake key={option} on={chosen && !isAnswer}>
-              <Pressy moment={null} accessibilityRole="button" disabled={answered} onPress={() => { setPicked(option); feel(isAnswer ? 'right' : 'wrong') }}
-                style={[practice.option, answered && isAnswer && practice.optionRight, answered && chosen && !isAnswer && practice.optionWrong]}>
-                <Text style={practice.optionText}>{v(option)}</Text>
-              </Pressy>
-            </Shake>
-          })}
-        </View>}
-        {answered && <Animated.View entering={APPEAR} style={{ gap: 6, alignSelf: 'stretch' }}>
-          {choices && <Text style={[practice.verdict, { color: right ? colors.green : colors.red }]}>{right ? 'Right' : 'Not quite'}</Text>}
-          <Text style={practice.meaning}>{form.en}</Text>
-          <Text style={[practice.detail, { textAlign: 'center' }]}>{v(form.he)}</Text>
-          {!!form.translation && !recall && <Text style={practice.detail}>{form.translation}</Text>}
-        </Animated.View>}
-      </SwipeCard>
+      <Animated.View key={position} entering={way === 'next' ? CARD_IN : CARD_BACK_IN} exiting={DISAPPEAR}>
+        <SwipeCard canGoBack={position > 0} onSwipe={direction => go(direction === 'next' ? 1 : -1)}>
+          {choices
+            ? <View style={[styles.card, practice.card]}>
+              <CardHead label={stage?.label} lemma={v(entry.lemma)} listen={picked !== null ? listen : undefined} />
+              {side(false, picked !== null)}
+              <Choices choices={choices} answer={form!.he} picked={picked} v={v} onPick={option => {
+                const isRight = bare(option) === bare(form!.he)
+                setPicks(current => ({ ...current, [position]: option })); feel(isRight ? 'right' : 'wrong')
+                grade(isRight ? 'good' : 'again', { felt: true, advance: false })
+              }} />
+              {picked !== null && <Text style={[practice.verdict, { color: right ? colors.green : colors.red }]}>{right ? 'Right' : 'Not quite'}</Text>}
+            </View>
+            : <FlipCard flipped={flipped} onPress={() => { feel('reveal'); setFlipped(value => !value) }} style={[styles.card, practice.card]}
+              accessibilityLabel={flipped ? 'Answer side' : 'Question side'}
+              front={<>
+                <CardHead label={form ? stage?.label : 'Word'} />
+                {side(englishFirst, false)}
+              </>}
+              back={<>
+                <CardHead label={form ? stage?.label : 'Word'} lemma={form ? v(entry.lemma) : undefined} listen={listen} />
+                {side(englishFirst, true)}
+              </>} />}
+        </SwipeCard>
       </Animated.View>
     </ScrollView>
     <View style={[practice.actions, { paddingBottom: 12 + insets.bottom }]}>
       {choices
-        ? (answered ? <Button title="Continue" onPress={() => finish(right ? 'good' : 'again', true)} style={{ flex: 1 }} />
-          : <Text style={[practice.hint, { flex: 1, textAlign: 'center', paddingVertical: 14 }]}>Choose the form</Text>)
-        : !revealed ? <Button title="Show answer" moment={null} onPress={() => { feel('reveal'); setRevealed(true) }} style={{ flex: 1 }} />
-          : RATINGS.map(({ rating, label }) => <Button key={rating} moment={null} secondary={rating !== 'good'} title={label} detail={waitOf(form.review, rating)}
-            onPress={() => finish(rating)} style={{ flex: 1, paddingHorizontal: 8 }} />)}
+        ? (picked !== null ? <Button title="Next" onPress={() => go(1)} style={{ flex: 1 }} />
+          : <Text style={[practice.hint, practice.waiting]}>Choose the form</Text>)
+        : !flipped ? <Text style={[practice.hint, practice.waiting]}>Tap the card to turn it over</Text>
+          : RATINGS.map(({ rating, label }) => <Button key={rating} moment={null} secondary={grades[position] !== undefined ? grades[position] !== rating : rating !== 'good'}
+            title={label} detail={waitOf(before[position]?.review ?? record.review, rating)} onPress={() => grade(rating)} style={{ flex: 1, paddingHorizontal: 8 }} />)}
     </View>
   </View>
+}
+
+// Done, the cards studied and the arrows; below, the settings as chips.
+function TopBar({ settings, change, position, canGoBack, onBack, onNext, onDone }: {
+  settings: Settings; change: (patch: Partial<Settings>) => void; position: number; canGoBack: boolean; onBack: () => void; onNext: () => void; onDone: () => void
+}) {
+  return <View style={practice.top}>
+    <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
+      <Pressable accessibilityRole="button" onPress={onDone} hitSlop={10}><Text style={practice.done}>Done</Text></Pressable>
+      <View style={[styles.row, { gap: 4, flexWrap: 'nowrap' }]}>
+        <Arrow icon="chevron-back" label="Previous card" disabled={!canGoBack} onPress={onBack} />
+        <Text style={practice.progress}>{position + 1}</Text>
+        <Arrow icon="chevron-forward" label="Next card" onPress={onNext} />
+      </View>
+    </View>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -22, flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 22 }}>
+      <Pill label={FRONTS[settings.front]} icon="swap-horizontal" onPress={() => change({ front: next(FRONTS, settings.front) })} accessibilityLabel={`${FRONTS[settings.front]}. Change which side shows first`} />
+      <Pill label={settings.order === 'shuffle' ? 'Shuffled' : 'Smart order'} icon="shuffle" active={settings.order === 'shuffle'} onPress={() => change({ order: settings.order === 'shuffle' ? 'smart' : 'shuffle' })} />
+      <Pill label={INCLUDES[settings.include]} onPress={() => change({ include: next(INCLUDES, settings.include) })} accessibilityLabel={`${INCLUDES[settings.include]}. Change which cards`} />
+      <Pill label="Quiz forms" active={settings.quiz} onPress={() => change({ quiz: !settings.quiz })} />
+    </ScrollView>
+  </View>
+}
+
+function Arrow({ icon, label, disabled, onPress }: { icon: 'chevron-back' | 'chevron-forward'; label: string; disabled?: boolean; onPress: () => void }) {
+  return <Pressy moment={null} accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress} style={[practice.arrow, disabled && { opacity: 0.3 }]}>
+    <Ionicons name={icon} size={22} color={colors.ink} />
+  </Pressy>
+}
+
+function CardHead({ label, lemma, listen }: { label?: string; lemma?: string; listen?: string }) {
+  return <View style={[styles.row, { justifyContent: 'space-between', alignSelf: 'stretch', flexWrap: 'nowrap', minHeight: 28 }]}>
+    <Text style={practice.stage}>{label}{lemma ? <> · <Text style={practice.lemma}>{lemma}</Text></> : null}</Text>
+    {!!listen && <ListenButton text={listen} accessibilityLabel="Listen" size={24} />}
+  </View>
+}
+
+// A word on its own: its dictionary form one side, its meanings the other; the answer side
+// shows both, with its part of speech, root and binyan.
+function WordSide({ entry, english, answer: answerSide, v }: { entry: VocabEntry; english: boolean; answer: boolean; v: (text: string) => string }) {
+  const hebrew = <Text style={practice.word}>{v(entry.lemma)}</Text>
+  const meaning = <Text style={practice.meaning}>{entry.gloss}</Text>
+  if (!answerSide) return <>{english ? meaning : hebrew}<Text style={practice.hint}>{english ? 'How do you say it in Hebrew?' : 'What does it mean?'}</Text></>
+  const grammar = [entry.partOfSpeech, entry.binyan, entry.root && `root ${entry.root}`].filter(Boolean).join(' · ')
+  return <Animated.View entering={APPEAR} style={{ gap: 8, alignItems: 'center', alignSelf: 'stretch' }}>
+    {english ? <>{meaning}{hebrew}</> : <>{hebrew}{meaning}</>}
+    {!!grammar && <Text style={practice.detail}>{grammar}</Text>}
+  </Animated.View>
+}
+
+// One form in its sentence: the Hebrew sentence with the form marked, or its English with the
+// meaning marked. The answer side shows the Hebrew sentence, the form and what it means.
+function SentenceSide({ form, english, answer: answerSide, hideMark, v }: { form: FormCard; english: boolean; answer: boolean; hideMark: boolean; v: (text: string) => string }) {
+  const hebrew = <Text style={practice.sentence}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} /></Text>
+  if (!answerSide) return <>
+    {english ? <Text style={practice.english}><Marked text={form.translation} mark={form.enMark} /></Text> : hebrew}
+    <Text style={practice.hint}>{hideMark ? `Fill in: ${form.en}` : english ? 'How do you say the marked words in Hebrew?' : 'What does the marked word mean?'}</Text>
+  </>
+  return <Animated.View entering={APPEAR} style={{ gap: 8, alignSelf: 'stretch' }}>
+    {hebrew}
+    <Text style={practice.meaning}>{form.en}</Text>
+    <Text style={[practice.detail, { textAlign: 'center' }]}>{v(form.he)}</Text>
+    {!!form.translation && <Text style={practice.detail}>{form.translation}</Text>}
+  </Animated.View>
+}
+
+// The sentence with the form marked, or blanked for a quiz (an attached prefix such as ו or ש stays).
+function MarkedHebrew({ sentence, mark, form, blank }: { sentence: string; mark: string; form: string; blank: boolean }) {
+  const markBare = bare(mark)
+  const formBare = bare(form)
+  return <>{sentence.split(/(\s+)/).map((token, i) => {
+    if (bare(token) !== markBare) return <Text key={i}>{token}</Text>
+    if (blank) {
+      const prefix = markBare.endsWith(formBare) ? markBare.slice(0, markBare.length - formBare.length) : ''
+      return <Text key={i}>{prefix}<Text style={practice.blank}>{' '.repeat(6)}</Text></Text>
+    }
+    return <Text key={i} style={practice.mark}>{token}</Text>
+  })}</>
 }
 
 // English text with one phrase marked (case-insensitive); unmarked if the phrase isn't found.
@@ -177,6 +304,22 @@ function Marked({ text, mark }: { text: string; mark?: string }) {
   const at = mark ? text.toLowerCase().indexOf(mark.toLowerCase()) : -1
   if (at < 0) return <>{text}</>
   return <>{text.slice(0, at)}<Text style={practice.mark}>{text.slice(at, at + mark!.length)}</Text>{text.slice(at + mark!.length)}</>
+}
+
+// Quiz mode: the blank is filled by choosing among the word's own forms.
+function Choices({ choices, answer: correct, picked, v, onPick }: { choices: string[]; answer: string; picked: string | null; v: (text: string) => string; onPick: (option: string) => void }) {
+  return <View style={{ gap: 8, alignSelf: 'stretch' }}>
+    {choices.map(option => {
+      const isAnswer = bare(option) === bare(correct)
+      const chosen = picked !== null && bare(option) === bare(picked)
+      return <Shake key={option} on={chosen && !isAnswer}>
+        <Pressy moment={null} accessibilityRole="button" disabled={picked !== null} onPress={() => onPick(option)}
+          style={[practice.option, picked !== null && isAnswer && practice.optionRight, chosen && !isAnswer && practice.optionWrong]}>
+          <Text style={practice.optionText}>{v(option)}</Text>
+        </Pressy>
+      </Shake>
+    })}
+  </View>
 }
 
 // Cards written in the background also join the shared saved words.
@@ -191,47 +334,44 @@ function withNewForms(current: VocabEntry | undefined, ready: VocabEntry): Vocab
   return added.length ? { ...current, forms: [...(current.forms || []), ...added] } : current
 }
 
-// End of a session: how it went, and which stages opened. Missed cards come back within the
-// session, so cards can outnumber words.
-function Summary({ tally, words, unlocked, error, onMore }: { tally: Record<Rating, number>; words: number; unlocked: string[]; error: string | null; onMore?: () => void }) {
-  const attempts = tally.again + tally.hard + tally.good
-  useEffect(() => { if (attempts) feel('complete') }, [attempts])
-  if (!attempts) return <Page>
-    <Text style={styles.title}>Nothing due.</Text>
-    <Text style={styles.copy}>{onMore ? 'You can still practice ahead.' : 'Save words as you read and they will show up here.'}</Text>
-    <ErrorNotice message={error} />
-    {onMore && <Button title="Keep practicing" onPress={onMore} />}
-    <Button title="Back to vocabulary" onPress={() => router.back()} />
-  </Page>
+// After Done: how it went, and which stages opened. A card graded twice (missed, then seen again)
+// counts twice, so cards can outnumber words.
+function Summary({ grades, words, unlocked, error, onMore }: { grades: Rating[]; words: number; unlocked: string[]; error: string | null; onMore: () => void }) {
+  useEffect(() => { feel('complete') }, [])
+  const count = (rating: Rating) => grades.filter(item => item === rating).length
   return <Page>
-    <Text style={styles.title}>Practice complete</Text>
-    <Text style={styles.copy}>{attempts} {attempts === 1 ? 'card' : 'cards'} from {words} {words === 1 ? 'word' : 'words'}</Text>
+    <Text style={styles.title}>Nice work</Text>
+    <Text style={styles.copy}>{grades.length} {grades.length === 1 ? 'card' : 'cards'} from {words} {words === 1 ? 'word' : 'words'}</Text>
     <View style={practice.tally}>
       {RATINGS.slice().reverse().map(({ rating, label }) => <View key={rating} style={practice.count}>
-        <Text style={practice.countValue}>{tally[rating]}</Text><Text style={practice.countLabel}>{label}</Text>
+        <Text style={practice.countValue}>{count(rating)}</Text><Text style={practice.countLabel}>{label}</Text>
       </View>)}
     </View>
     {unlocked.map(line => <View key={line} style={practice.unlocked}>
       <Ionicons name="lock-open-outline" size={18} color={colors.green} /><Text style={[styles.copy, { color: colors.ink, flexShrink: 1 }]}>Unlocked {line}</Text>
     </View>)}
     <ErrorNotice message={error} />
-    {onMore && <Button title="Keep practicing" onPress={onMore} />}
-    <Button secondary={!!onMore} title="Back to vocabulary" onPress={() => router.back()} />
+    <Button title="Keep studying" onPress={onMore} />
+    <Button secondary title="Back to vocabulary" onPress={() => router.back()} />
   </Page>
 }
 
 const practice = StyleSheet.create({
-  top: { gap: 6, paddingHorizontal: 22, paddingTop: 12 },
-  progress: { fontSize: 12, color: colors.muted, textAlign: 'center' },
+  top: { gap: 10, paddingHorizontal: 22, paddingTop: 12 },
+  done: { fontSize: 16, fontWeight: '600', color: colors.green },
+  progress: { fontSize: 14, color: colors.muted, minWidth: 28, textAlign: 'center' },
+  arrow: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   unlocked: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 14, backgroundColor: colors.lime },
-  card: { alignItems: 'center', gap: 14, paddingVertical: 18 },
+  card: { alignItems: 'center', gap: 14, paddingVertical: 18, minHeight: 240, justifyContent: 'center' },
   stage: { fontSize: 13, color: colors.muted, flexShrink: 1 },
   lemma: { fontSize: 15, color: colors.ink },
+  word: { fontSize: 34, lineHeight: 48, color: colors.ink, writingDirection: 'rtl', textAlign: 'center' },
   sentence: { fontSize: 22, lineHeight: 36, color: colors.ink, writingDirection: 'rtl', textAlign: 'center' },
   mark: { backgroundColor: colors.lime, fontWeight: '600' },
   english: { fontSize: 20, lineHeight: 30, color: colors.ink, textAlign: 'center' },
   blank: { textDecorationLine: 'underline', textDecorationColor: colors.green, color: colors.green },
-  hint: { fontSize: 15, color: colors.muted },
+  hint: { fontSize: 15, color: colors.muted, textAlign: 'center' },
+  waiting: { flex: 1, paddingVertical: 14 },
   option: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   optionRight: { borderColor: colors.green, backgroundColor: colors.lime },
   optionWrong: { borderColor: colors.red, backgroundColor: '#FBE7E6' },
@@ -239,7 +379,7 @@ const practice = StyleSheet.create({
   verdict: { fontSize: 15, fontWeight: '700', textAlign: 'center' },
   meaning: { fontSize: 22, fontWeight: '700', color: colors.ink, textAlign: 'center' },
   detail: { fontSize: 15, lineHeight: 22, color: colors.muted, writingDirection: 'ltr', textAlign: 'left' },
-  actions: { flexDirection: 'row', gap: 10, paddingHorizontal: 22, paddingTop: 12, backgroundColor: colors.paper, borderTopWidth: 1, borderTopColor: colors.line },
+  actions: { flexDirection: 'row', gap: 10, paddingHorizontal: 22, paddingTop: 12, minHeight: 64, backgroundColor: colors.paper, borderTopWidth: 1, borderTopColor: colors.line },
   tally: { flexDirection: 'row', gap: 10 },
   countValue: { fontSize: 30, fontWeight: '700', color: colors.ink },
   count: { flex: 1, paddingVertical: 16, borderRadius: 14, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, alignItems: 'center' },

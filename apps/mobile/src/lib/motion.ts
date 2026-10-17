@@ -1,4 +1,4 @@
-import { Easing, FadeIn, FadeInRight, FadeOut, FadeOutLeft, LinearTransition, ReduceMotion, SlideInDown, SlideOutDown, withTiming } from 'react-native-reanimated'
+import { Easing, FadeIn, FadeInLeft, FadeInRight, FadeOut, FadeOutLeft, LinearTransition, ReduceMotion, SlideInDown, SlideOutDown, withTiming } from 'react-native-reanimated'
 
 // Motion is only for changes the learner just caused, and it is quick and settles without
 // overshoot: ease-out timing, never springs. Everything follows the system's Reduce Motion.
@@ -20,4 +20,6 @@ export const SHEET_IN = SlideInDown.duration(DURATION.base).reduceMotion(system)
 export const SHEET_OUT = SlideOutDown.duration(DURATION.quick).reduceMotion(system)
 // The next practice card: a short slide and fade, so it reads as "next", not a show.
 export const CARD_IN = FadeInRight.duration(DURATION.base).reduceMotion(system)
+// The card before, when going back: the same slide from the other side.
+export const CARD_BACK_IN = FadeInLeft.duration(DURATION.base).reduceMotion(system)
 export const CARD_OUT = FadeOutLeft.duration(120).reduceMotion(system)

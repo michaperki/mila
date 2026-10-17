@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { answer, choicesFor, drillOf, extraQueue, missingStages, newCards, practiceQueue, spread, stageState, statusOf, unlockedStages } from '../src/lib/forms.ts'
+import { answer, cardKey, choicesFor, countsOf, deckOf, missingStages, newCards, spread, stageState, statusOf, unlockedStages } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -44,21 +44,25 @@ test('a form is solid after Got it on two different days; Hard counts as right b
   assert.equal(card.correct, 3); assert.equal(card.goodDays!.length, 1)
   card = { ...card, ...answer(card, 'good', now + 2 * DAY) }
   assert.equal(card.goodDays!.length, 2)
-  assert.equal(drillOf(form('past:1sg')), 'read')
-  assert.equal(drillOf(card), 'choose')
-  assert.equal(drillOf(form('meanings:sense1', { correct: 1 })), 'recall')
 })
 
-test('the queue takes reviews first, then new cards in turns between words, capped per day', () => {
+test('the deck: word cards and open forms, due first, then new (oldest word first), then the rest', () => {
   const due = { review: { due: now - DAY, interval: 1, reps: 1, lapses: 0, first: now - 2 * DAY } }
-  const a = verb([form('meanings:sense1', solid), form('present:m.sg', due), form('present:f.sg'), form('present:m.pl')], { id: 'a', createdAt: 1 })
+  const a = verb([form('meanings:sense1', solid), form('present:m.sg', due), form('present:f.sg')], { id: 'a', createdAt: 1, review: { due: now + 2 * DAY, interval: 3, reps: 2, lapses: 0 } })
   const b = verb([form('meanings:sense1')], { id: 'b', createdAt: 2 })
-  const queue = practiceQueue([b, a], now)
-  assert.deepEqual(queue.map(card => `${card.entry.id} ${card.form.key}`), ['a present:m.sg', 'b meanings:sense1', 'a present:f.sg', 'a present:m.pl'])
-  // Two new cards already started today leave room for one more with a cap of three.
-  const started = { review: { due: now + DAY, interval: 1, reps: 1, lapses: 0, first: now - 60_000 } }
-  const c = verb([form('meanings:sense1', started), form('noun:x', started)], { id: 'c', partOfSpeech: 'noun', forms: [form('meanings:sense1', started), form('plural:pl', started)] })
-  assert.equal(practiceQueue([a, b, c], now, 3).filter(card => !card.form.review).length, 1)
+  const keys = (cards: ReturnType<typeof deckOf>) => cards.map(cardKey)
+  // a's due present card; new cards, oldest word first (b's word card goes between a's two);
+  // then the rest by due date: a's word card (in two days) before its meaning (in three).
+  const smart = keys(deckOf([b, a], { include: 'both', order: 'smart' }, now))
+  assert.deepEqual(smart, ['a:present:m.sg', 'b:word', 'a:present:f.sg', 'b:meanings:sense1', 'a:word', 'a:meanings:sense1'])
+  assert.deepEqual(keys(deckOf([a, b], { include: 'words', order: 'smart' }, now)), ['b:word', 'a:word'])
+  assert.ok(keys(deckOf([a, b], { include: 'sentences', order: 'smart' }, now)).every(key => !key.endsWith(':word')))
+  // Shuffled: the same cards, and the same order for the same seed.
+  const shuffled = keys(deckOf([a, b], { include: 'both', order: 'shuffle' }, now, 'seed'))
+  assert.deepEqual([...shuffled].sort(), [...smart].sort())
+  assert.deepEqual(keys(deckOf([a, b], { include: 'both', order: 'shuffle' }, now, 'seed')), shuffled)
+  // Due today counts word cards and form cards.
+  assert.equal(countsOf([a, b, verb([], { id: 'c', review: { due: now, interval: 1, reps: 1, lapses: 0 } })], now).due, 2)
 })
 
 test('cards of one word are kept apart when something else can go between', () => {
@@ -78,14 +82,12 @@ test('choices are the word\'s own forms, same stage first, in a stable order', (
   assert.equal(choicesFor(verb([form('meanings:sense1'), form('present:m.sg')]), form('meanings:sense1'), 's'), null)
 })
 
-test('extra practice: not-yet-due cards first, then new, then today\'s; drilling ahead keeps the schedule', () => {
+test('studying ahead keeps the schedule on Got it; Hard brings it to tomorrow, Again resets it', () => {
   const later = { review: { due: now + 5 * DAY, interval: 3, reps: 2, lapses: 0, last: now - 3 * DAY } }
-  const soon = { review: { due: now + 2 * DAY, interval: 3, reps: 2, lapses: 0, last: now - DAY } }
-  const today = { review: { due: now + DAY, interval: 1, reps: 1, lapses: 0, last: now - 60_000 } }
-  const entry = verb([form('meanings:sense1', solid), form('present:m.sg', later), form('present:f.sg', today), form('present:m.pl', soon), form('present:f.pl')])
-  assert.deepEqual(extraQueue([entry], now).map(card => card.form.key), ['present:m.pl', 'meanings:sense1', 'present:m.sg', 'present:f.pl', 'present:f.sg'])
   const ahead = answer(form('present:m.sg', later), 'good', now)
   assert.equal(ahead.review!.due, now + 5 * DAY); assert.equal(ahead.review!.interval, 3); assert.equal(ahead.review!.last, now)
   assert.equal(answer(form('present:m.sg', later), 'hard', now).review!.due, now + DAY)
   assert.equal(answer(form('present:m.sg', later), 'again', now).review!.due, now)
+  // A word card is answered with the entry's own review.
+  assert.equal(answer({ review: undefined }, 'good', now).review!.interval, 1)
 })

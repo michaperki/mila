@@ -16,7 +16,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'learning', label: 'Learning' }, { key: 'mastered', label: 'Mastered' },
 ]
 
-// Vocabulary home: what's due, a way to practice it, and a compact, searchable list of
+// Vocabulary home: a way into studying (with what's due), and a compact, searchable list of
 // saved words. A row opens the word's own screen (its forms, progress and where it was met).
 export default function Vocabulary() {
   const { session } = useSession()
@@ -36,14 +36,11 @@ export default function Vocabulary() {
     {!session ? <AccountGate /> : <>
       <ErrorNotice message={error} />
       {loading && !loaded && <ActivityIndicator color={colors.green} />}
-      {empty && <View style={styles.card}><Text style={styles.heading}>A fresh start.</Text><Text style={styles.copy}>Tap a word in the reader, then save it. Saved words come back here for practice.</Text></View>}
+      {empty && <View style={styles.card}><Text style={styles.heading}>A fresh start.</Text><Text style={styles.copy}>Tap a word in the reader, then save it. Saved words come back here to study.</Text></View>}
       {!empty && loaded && <>
         <Text style={vocab.summary}>{counts.saved} {counts.saved === 1 ? 'word' : 'words'} · {counts.learning} learning · {counts.mastered} mastered</Text>
-        {counts.due > 0
-          ? <Button title={`Practice ${counts.due} ${counts.due === 1 ? 'card' : 'cards'}`} onPress={() => router.push('/practice')} />
-          : entries.some(entry => entry.forms?.length)
-            ? <Button secondary title="Nothing due · practice anyway" onPress={() => router.push({ pathname: '/practice', params: { extra: '1' } })} />
-            : <Text style={[styles.copy, { textAlign: 'center' }]}>Save words as you read and they will show up here.</Text>}
+        {/* One way in: study as much as you like; what's due is information, not a gate. */}
+        <Button title="Study" detail={counts.due ? `${counts.due} due` : undefined} onPress={() => router.push('/practice')} />
         <TextInput value={query} onChangeText={setQuery} placeholder="Search Hebrew or English" placeholderTextColor={colors.muted} style={[styles.input, { minHeight: 44, paddingVertical: 10 }]}
           autoCorrect={false} autoCapitalize="none" clearButtonMode="while-editing" returnKeyType="search" />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -22, flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 22 }}>

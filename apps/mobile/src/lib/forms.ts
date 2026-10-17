@@ -79,7 +79,7 @@ const activeForms = (entry: VocabEntry) => {
 
 export type Status = 'new' | 'learning' | 'mastered'
 export function statusOf(entry: VocabEntry): Status {
-  if (!(entry.forms || []).some(form => form.review)) return 'new'
+  if (!entry.review && !(entry.forms || []).some(form => form.review)) return 'new'
   return stagesOf(entry).every(stage => isDone(entry, stage.key)) ? 'mastered' : 'learning'
 }
 export const dueCards = (entry: VocabEntry, now = Date.now()) => activeForms(entry).filter(form => !!form.review && form.review.due <= endOfDay(now))
@@ -95,26 +95,36 @@ export function newCards(entry: VocabEntry) {
   return activeForms(entry).filter(form => !form.review && ready(form.stage)).sort((a, b) => order(a) - order(b))
 }
 
-export type Card = { entry: VocabEntry; form: FormCard }
-// Today's practice: cards due for review (most overdue first), then new cards, oldest saved
-// word first and taking turns between words, up to `newPerDay` new cards a day. Forms of the
-// same word are kept apart so one doesn't give the next away.
-export function practiceQueue(entries: VocabEntry[], now = Date.now(), newPerDay = 10): Card[] {
-  const today = dayOf(now)
-  const reviews = entries.flatMap(entry => dueCards(entry, now).map(form => ({ entry, form })))
-    .sort((a, b) => a.form.review!.due - b.form.review!.due)
-  const startedToday = entries.flatMap(entry => entry.forms || []).filter(form => form.review?.first && dayOf(form.review.first) === today).length
-  const waiting = [...entries].sort((a, b) => a.createdAt - b.createdAt).map(entry => newCards(entry).map(form => ({ entry, form })))
-  const fresh: Card[] = []
-  for (let round = 0; fresh.length < newPerDay - startedToday && waiting.some(list => list.length > round); round++) {
-    for (const list of waiting) if (list[round] && fresh.length < newPerDay - startedToday) fresh.push(list[round])
-  }
-  return spread([...reviews, ...fresh])
+// A study card: a saved word on its own (its dictionary form and meanings; `form` is null) or
+// one of its form cards in a sentence. A word card's schedule is the entry's own `review`.
+export type Card = { entry: VocabEntry; form: FormCard | null }
+export const cardKey = ({ entry, form }: Card) => `${entry.id}:${form ? form.key : 'word'}`
+export const reviewOf = ({ entry, form }: Card) => (form ? form.review : entry.review)
+const wordDue = (entry: VocabEntry, now: number) => !!entry.review && entry.review.due <= endOfDay(now)
+
+// What to study: word cards, sentence cards or both, in smart or shuffled order.
+export type Include = 'words' | 'sentences' | 'both'
+export type Order = 'smart' | 'shuffle'
+// Everything there is to study, as one deck the learner goes through for as long as they like:
+// a card for each saved word and the form cards of its open stages (new ones in stage order).
+// Smart order: what is due (most overdue first), then new cards (oldest saved word first), then
+// the rest (soonest due first). Either way, two cards of one word aren't back to back where
+// another card can go between.
+export function deckOf(entries: VocabEntry[], { include, order }: { include: Include; order: Order }, now = Date.now(), seed = String(now)): Card[] {
+  const cards: Card[] = entries.flatMap(entry => [
+    ...(include === 'sentences' ? [] : [{ entry, form: null }]),
+    ...(include === 'words' ? [] : [...activeForms(entry).filter(form => !!form.review), ...newCards(entry)].map(form => ({ entry, form }))),
+  ])
+  if (order === 'shuffle') return spread(shuffle(cards, seed))
+  const rank = (card: Card) => { const review = reviewOf(card); return !review ? 1 : review.due <= endOfDay(now) ? 0 : 2 }
+  // Sorting is stable, so a new word's cards keep their stage order.
+  return spread([...cards].sort((a, b) => rank(a) - rank(b)
+    || (rank(a) === 1 ? a.entry.createdAt - b.entry.createdAt : reviewOf(a)!.due - reviewOf(b)!.due)))
 }
 // Reorders so two cards of the same word are not back to back, where another card can go between.
-export function spread(cards: Card[]): Card[] {
+export function spread<T extends { entry: VocabEntry }>(cards: T[]): T[] {
   const left = [...cards]
-  const out: Card[] = []
+  const out: T[] = []
   while (left.length) {
     const previous = out[out.length - 1]?.entry.id
     const i = left.findIndex(card => card.entry.id !== previous)
@@ -123,34 +133,20 @@ export function spread(cards: Card[]): Card[] {
   return out
 }
 
-// Extra practice, after the day's cards are done: cards not yet due (soonest first), then new
-// cards past the daily limit, then cards already practiced today.
-export function extraQueue(entries: VocabEntry[], now = Date.now(), size = 20): Card[] {
-  const today = dayOf(now)
-  const rank = ({ form }: Card) => (!form.review ? 1 : form.review.last && dayOf(form.review.last) === today ? 2 : 0)
-  const cards = entries.flatMap(entry => activeForms(entry).map(form => ({ entry, form })))
-    .sort((a, b) => rank(a) - rank(b) || (a.form.review?.due ?? a.entry.createdAt) - (b.form.review?.due ?? b.entry.createdAt))
-  return spread(cards.slice(0, size))
-}
-
+// For the Vocabulary screen: cards due today (word cards and form cards) and word counts.
 export function countsOf(entries: VocabEntry[], now = Date.now()) {
   return {
     saved: entries.length,
-    due: practiceQueue(entries, now).length,
+    due: entries.reduce((sum, entry) => sum + dueCards(entry, now).length + Number(wordDue(entry, now)), 0),
     learning: entries.filter(entry => statusOf(entry) === 'learning').length,
     mastered: entries.filter(entry => statusOf(entry) === 'mastered').length,
   }
 }
-export const isDue = (entry: VocabEntry, now = Date.now()) => dueCards(entry, now).length > 0 || newCards(entry).length > 0
+export const isDue = (entry: VocabEntry, now = Date.now()) => wordDue(entry, now) || dueCards(entry, now).length > 0 || newCards(entry).length > 0
 
-// A new card is read first (what does the marked word mean?). Once it has been answered right
-// it is asked the other way: a meaning card from English (recall the Hebrew word, then grade
-// yourself), a form card by filling the blank with one of the word's own forms.
-export type Drill = 'read' | 'recall' | 'choose'
-export const drillOf = (form: FormCard): Drill => ((form.correct ?? 0) === 0 ? 'read' : form.stage === 'meanings' ? 'recall' : 'choose')
-
-// Up to four options: this form and other forms of the same word, same stage first. Fewer
-// than three options would make the choice trivial, so then the card is read instead.
+// Quiz mode: a form card is answered by filling its blank with one of up to four options, this
+// form and other forms of the same word, same stage first. Fewer than three options would make
+// the choice trivial, so then the card is flipped as usual.
 export function choicesFor(entry: VocabEntry, form: FormCard, seed: string): string[] | null {
   const bare = (text: string) => stripNiqqud(text)
   const others = (entry.forms || []).filter(other => bare(other.he) !== bare(form.he))
@@ -170,9 +166,11 @@ function shuffle<T>(items: T[], seed: string): T[] {
 
 // A card's result: its next review, how often it was right (Hard counts), and the days it was
 // answered with Got it, which is what makes a form solid.
-// A card practiced before it is due (extra practice) keeps its schedule on Got it, so drilling
-// ahead can't push it weeks away; Hard brings it back by tomorrow and Again resets it as usual.
-export function answer(form: FormCard, rating: Rating, now = Date.now()): Pick<FormCard, 'review' | 'correct' | 'goodDays'> {
+// A card studied before it is due keeps its schedule on Got it, so studying ahead can't push
+// it weeks away; Hard brings it back by tomorrow and Again resets it as usual.
+// A word card is answered the same way, with the entry's own review.
+export type Result = Pick<FormCard, 'review' | 'correct' | 'goodDays'>
+export function answer(form: Result, rating: Rating, now = Date.now()): Result {
   const day = dayOf(now)
   const goodDays = rating === 'good' && !form.goodDays?.includes(day) ? [...(form.goodDays || []), day].slice(-5) : form.goodDays || []
   const early = !!form.review && form.review.due > endOfDay(now) && rating !== 'again'
