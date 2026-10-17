@@ -18,7 +18,7 @@ import { rangeOf, type Rect, wordAt } from '../lib/selection'
 import { documentFromRecognition, segmentsOf } from '../lib/documents'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { paragraphsOf, runsOf } from '../lib/page'
-import { type EnglishMode, getPref, setPref } from '../lib/prefs'
+import { type EnglishMode, getPref, setPref, TEXT_SIZES } from '../lib/prefs'
 import { explainWord, quickMeanings } from '../lib/recognition'
 import type { Encounter, VocabEntry, WordAnalysis } from '../lib/types'
 import { encountersOf, savedKey, savedKeysOf, savedTapsOf, tapKey } from '../lib/words'
@@ -85,6 +85,15 @@ export default function Reader() {
   const docId = useRef(recognition?.id ?? Crypto.randomUUID())
   useFocusEffect(useCallback(() => () => { selection.current++; stopSpeaking() }, []))
   useEffect(() => { void getPref('english').then(setEnglish) }, [])
+  // Text size (A− / A+), remembered on this device; the passage's Hebrew and English scale together.
+  const [size, setSize] = useState(1)
+  useEffect(() => { void getPref('textSize').then(value => setSize(TEXT_SIZES.includes(Number(value)) ? Number(value) : 1)) }, [])
+  const resize = (step: 1 | -1) => {
+    const next = TEXT_SIZES[TEXT_SIZES.indexOf(size) + step]
+    if (next === undefined) return
+    feel('tick'); setSize(next); setPref('textSize', String(next))
+  }
+  const sized = useMemo(() => ({ word: { fontSize: 21 * size, lineHeight: 32 * size }, english: { fontSize: 15 * size, lineHeight: 21 * size } }), [size])
   // Keep the active sentence in view above whatever covers the bottom of the screen.
   useEffect(() => {
     if (active === null) return
@@ -342,6 +351,8 @@ export default function Reader() {
       <View style={[styles.row, { gap: 8 }]}>
         <Pill icon={english === 'off' ? 'eye-off-outline' : 'eye-outline'} label={englishLabel[english]} active={english !== 'off'} onPress={cycleEnglish} accessibilityLabel={`${englishLabel[english]}. Change`} />
         {vowelled && <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />}
+        <Pill label="A−" onPress={() => resize(-1)} accessibilityLabel={`Smaller text, now ${Math.round(size * 100)}%`} />
+        <Pill label="A+" onPress={() => resize(1)} accessibilityLabel={`Larger text, now ${Math.round(size * 100)}%`} />
         <View style={[styles.row, { gap: 6, flexWrap: 'nowrap' }]}><ListenButton pill text={segments.map(segment => segment.he)} accessibilityLabel="Listen to the whole page in Hebrew" /></View>
         <FeedbackButton screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, active, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss, analysis })} />
       </View>
@@ -361,19 +372,19 @@ export default function Reader() {
               return <AnimatedPressable key={key} accessible={false} layout={REFLOW} ref={(view: View | null) => { if (run.active) activeRun.current = view }} onPress={event => tapRun(key, runWords.map(item => item.i), event)} style={[reader.run, run.active && reader.activeRun]}>
                 <View style={reader.line} ref={view => { if (view) lines.current.set(key, view); else lines.current.delete(key) }} {...dragHandlers(key, runWords.map(item => item.i))}>
                   {run.segments.map(s => [
-                    segments[s].marker ? <Text key={`m${s}`} style={[reader.word, reader.marker]}>{segments[s].marker}.</Text> : null,
-                    indexOfFirstWord[s] === undefined ? <Text key={`t${s}`} style={reader.word}>{segments[s].he}</Text> : null,
+                    segments[s].marker ? <Text key={`m${s}`} style={[reader.word, sized.word, reader.marker]}>{segments[s].marker}.</Text> : null,
+                    indexOfFirstWord[s] === undefined ? <Text key={`t${s}`} style={[reader.word, sized.word]}>{segments[s].he}</Text> : null,
                     ...wordsOf(s).map(item => {
                       const inSelection = highlighted && item.i >= highlighted.from && item.i <= highlighted.to
                       return <Pressable key={item.i} accessibilityRole="button" accessibilityLabel={`Explain ${item.bare}`} onPress={() => (s === active ? void select(item.i) : chooseSentence(s))}
                         onLayout={event => { wordBoxes.current.set(item.i, event.nativeEvent.layout) }}
                         style={[reader.wordBox, inSelection && reader.selectedWord]}>
-                        <Text style={[reader.word, segments[s].heading && reader.heading]}>{v(item.surface)}</Text>
+                        <Text style={[reader.word, sized.word, segments[s].heading && reader.heading]}>{v(item.surface)}</Text>
                       </Pressable>
                     }),
                   ])}
                 </View>
-                {!!translation && <Animated.Text entering={APPEAR} selectable style={[reader.english, first.heading && { fontWeight: '600' }]}>{translation}</Animated.Text>}
+                {!!translation && <Animated.Text entering={APPEAR} selectable style={[reader.english, sized.english, first.heading && { fontWeight: '600' }]}>{translation}</Animated.Text>}
               </AnimatedPressable>
             })}
             {last.cutEnd && <Text style={reader.edge}>Continues on the next page</Text>}
