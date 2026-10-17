@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import Animated from 'react-native-reanimated'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import * as Speech from 'expo-speech'
+import { stop as stopSpeaking } from '../lib/speech'
+import { ListenButton } from '../components/Listen'
 import { Button, colors, ErrorNotice, Page, Pressy, styles } from '../components/ui'
 import { ProgressBar, Shake, SwipeCard } from '../components/Motion'
 import { APPEAR, CARD_IN, CARD_OUT } from '../lib/motion'
@@ -64,7 +65,7 @@ export default function Practice() {
         if (!controller.signal.aborted) setQueue(cards)
       } catch (failure) { if (!controller.signal.aborted) setError((failure as Error).message) }
     })()
-    return () => { controller.abort(); void Speech.stop() }
+    return () => { controller.abort(); stopSpeaking() }
   }, [session, extra])
 
   if (!session) return <Page><Text style={styles.copy}>Sign in to practice your saved words.</Text></Page>
@@ -84,7 +85,6 @@ export default function Practice() {
   const choices = drill === 'choose' ? choicesFor(entry, form, `${form.key}-${form.review?.reps ?? 0}`) : null
   const answered = choices ? picked !== null : revealed
   const right = !!choices && picked !== null && bare(picked) === bare(form.he)
-  const speak = () => { void Speech.stop(); Speech.speak(form.sentence, { language: 'he-IL', rate: 0.8 }) }
 
   // `felt`: the moment was already felt (a choice is felt when picked, not on Continue).
   const finish = (rating: Rating, felt = false) => {
@@ -130,9 +130,7 @@ export default function Practice() {
       <SwipeCard enabled={revealed && !choices} onSwipe={rating => finish(rating)} style={[styles.card, practice.card]}>
         <View style={[styles.row, { justifyContent: 'space-between', alignSelf: 'stretch', flexWrap: 'nowrap' }]}>
           <Text style={practice.stage}>{stage?.label}{recall && !answered ? '' : <> · <Text style={practice.lemma}>{v(entry.lemma)}</Text></>}</Text>
-          {(!recall || answered) && <Pressable accessibilityRole="button" accessibilityLabel="Hear the sentence" onPress={speak} hitSlop={10}>
-            <Ionicons name="volume-medium-outline" size={24} color={colors.green} />
-          </Pressable>}
+          {(!recall || answered) && <View style={[styles.row, { gap: 8, flexWrap: 'nowrap' }]}><ListenButton text={form.sentence} accessibilityLabel="Hear the sentence" size={24} /></View>}
         </View>
         {recall && <Text style={practice.english}><Marked text={form.translation} mark={form.enMark} /></Text>}
         {(!recall || answered) && <Text style={practice.sentence}>{sentence}</Text>}

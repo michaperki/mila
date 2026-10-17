@@ -1,15 +1,20 @@
 import { useCallback, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 import { Alert, Linking, Switch, Text, View } from 'react-native'
-import { AccountGate, Button, colors, ErrorNotice, Page, styles, TextButton } from '../../components/ui'
+import Ionicons from '@expo/vector-icons/Ionicons'
+import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles, TextButton } from '../../components/ui'
 import { request } from '../../lib/api'
 import { applyLatestUpdate, describeVersion } from '../../lib/app-info'
 import { useSession } from '../../state/session'
 import { useVowels } from '../../state/vowels'
 import { feedbackSettings, setFeedback } from '../../lib/feedback'
+import { setVoice, speak, useSpeech, VOICES, type Voice } from '../../lib/speech'
+import { ListenButton } from '../../components/Listen'
 // Account → AI usage: the `ai-usage` function's summary of this month's paid calls.
 type Usage = { since: string; cost: number; requests: number; features: { feature: string; requests: number; cost: number }[] }
-const FEATURES: Record<string, string> = { page: 'Page reads', word: 'Word explanations', forms: 'Practice cards', ocr: 'Text recognition', translate: 'Translation' }
+const FEATURES: Record<string, string> = { page: 'Page reads', word: 'Word explanations', forms: 'Practice cards', ocr: 'Text recognition', translate: 'Translation', speech: 'Listening' }
+// Played when a voice is picked, so the choice is heard straight away.
+const SAMPLE = 'מָחָר יֵשׁ לִי מִבְחָן בְּחֶשְׁבּוֹן.'
 const dollars = (value: number) => (value > 0 && value < 0.01 ? '< $0.01' : `$${value.toFixed(2)}`)
 
 export default function Account() {
@@ -26,6 +31,8 @@ export default function Account() {
   const [showVowels, setShowVowels] = useVowels()
   const [feelings, setFeelings] = useState(feedbackSettings)
   const toggle = (name: 'sounds' | 'haptics', value: boolean) => { setFeedback(name, value); setFeelings(feedbackSettings()) }
+  const { voice } = useSpeech()
+  const chooseVoice = (id: Voice) => { setVoice(id); void speak(SAMPLE, session?.token, `sample-${id}`) }
   const [usage, setUsage] = useState<Usage | null>(null)
   useFocusEffect(useCallback(() => {
     if (!session) return
@@ -62,10 +69,26 @@ export default function Account() {
         </View>
         <Switch value={showVowels} onValueChange={setShowVowels} trackColor={{ true: colors.green }} accessibilityLabel="Vowel marks" />
       </View>
+    </View>
+    <View style={styles.card}>
+      <Text style={styles.heading}>Voice</Text>
+      <Text style={styles.copy}>Reads Hebrew aloud in the reader, practice and word pages.{session ? '' : ' Sign in to use these voices; until then your phone\'s own voice reads.'}</Text>
+      {VOICES.map(option => <Pressy key={option.id} moment="select" accessibilityRole="radio" accessibilityState={{ checked: voice === option.id }} accessibilityLabel={`${option.name}, ${option.detail}`} onPress={() => chooseVoice(option.id)}
+        style={[styles.row, { flexWrap: 'nowrap', gap: 12, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: voice === option.id ? colors.green : colors.line, backgroundColor: voice === option.id ? colors.lime : colors.white }]}>
+        <Ionicons name={voice === option.id ? 'radio-button-on' : 'radio-button-off'} size={20} color={colors.green} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={[styles.heading, { fontSize: 16 }]}>{option.name}</Text>
+          <Text style={[styles.copy, { fontSize: 13 }]}>{option.detail}</Text>
+        </View>
+      </Pressy>)}
+      <View style={[styles.row, { gap: 8, flexWrap: 'nowrap' }]}>
+        <ListenButton text={SAMPLE} accessibilityLabel="Hear the selected voice" />
+        <Text style={[styles.copy, { flex: 1, fontSize: 13 }]}>Tap the speed to switch between normal, half and quarter speed. It applies everywhere.</Text>
+      </View>
+    </View>
     <View style={styles.card}>
       <SwitchRow title="Sounds" detail="Short sounds in practice and when you save a word. They follow the silent switch." value={feelings.sounds} onChange={value => toggle('sounds', value)} />
       <SwitchRow title="Haptics" detail="Taps you feel when you press, select and answer." value={feelings.haptics} onChange={value => toggle('haptics', value)} />
-    </View>
     </View>
     <Button secondary title="Open Mila on the web" onPress={() => { void Linking.openURL('https://mila-hebrew.netlify.app/') }} />
     <View style={styles.card}>

@@ -5,6 +5,7 @@ import { ActivityIndicator, View } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { startFeedback } from '../lib/feedback'
+import { startSpeech } from '../lib/speech'
 import { SessionProvider, useSession } from '../state/session'
 import { colors } from '../components/ui'
 function Navigator() {
@@ -21,6 +22,6 @@ function Navigator() {
   </Stack></>
 }
 export default function RootLayout() {
-  useEffect(() => { void startFeedback() }, [])
+  useEffect(() => { void startFeedback(); void startSpeech() }, [])
   return <GestureHandlerRootView style={{ flex: 1 }}><SafeAreaProvider><SessionProvider><Navigator /></SessionProvider></SafeAreaProvider></GestureHandlerRootView>
 }

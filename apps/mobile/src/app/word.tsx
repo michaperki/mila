@@ -1,8 +1,8 @@
 import { useCallback, useState } from 'react'
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native'
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
-import Ionicons from '@expo/vector-icons/Ionicons'
-import * as Speech from 'expo-speech'
+import { stop as stopSpeaking } from '../lib/speech'
+import { ListenButton } from '../components/Listen'
 import Animated from 'react-native-reanimated'
 import { REFLOW } from '../lib/motion'
 import { colors, ErrorNotice, Page, styles, TextButton } from '../components/ui'
@@ -56,7 +56,7 @@ export default function Word() {
         if (!word) { setError('This word is no longer saved.'); return }
         setEntry(word); prepare(word, controller.signal)
       }, (failure: Error) => { if (!controller.signal.aborted) setError(failure.message) })
-    return () => { controller.abort(); void Speech.stop() }
+    return () => { controller.abort(); stopSpeaking() }
   }, [session, id, prepare]))
 
   if (!session) return <Page><Text style={styles.copy}>Sign in to see your saved words.</Text></Page>
@@ -90,10 +90,7 @@ export default function Word() {
     <ErrorNotice message={error} />
     <View style={{ gap: 4 }}>
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Hear this word" hitSlop={10}
-          onPress={() => { void Speech.stop(); Speech.speak(entry.lemma, { language: 'he-IL', rate: 0.8 }) }}>
-          <Ionicons name="volume-medium-outline" size={26} color={colors.green} />
-        </Pressable>
+        <View style={[styles.row, { gap: 8, flexWrap: 'nowrap' }]}><ListenButton text={entry.lemma} accessibilityLabel="Hear this word" size={26} /></View>
         <Text style={word.lemma}>{v(entry.lemma)}</Text>
       </View>
       <Text style={word.gloss}>{isolateHebrew(v(entry.gloss))}</Text>

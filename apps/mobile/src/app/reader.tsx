@@ -4,7 +4,8 @@ import { router, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import * as Crypto from 'expo-crypto'
-import * as Speech from 'expo-speech'
+import { stop as stopSpeaking } from '../lib/speech'
+import { ListenButton } from '../components/Listen'
 import Animated from 'react-native-reanimated'
 import { Button, colors, ErrorNotice, Page, Pill, styles, TextButton } from '../components/ui'
 import { DraggableSheet } from '../components/Motion'
@@ -76,7 +77,7 @@ export default function Reader() {
   const vowelled = useMemo(() => isVowelled(recognition?.text || ''), [recognition?.text])
   const selection = useRef(0)
   const docId = useRef(recognition?.id ?? Crypto.randomUUID())
-  useFocusEffect(useCallback(() => () => { selection.current++; void Speech.stop() }, []))
+  useFocusEffect(useCallback(() => () => { selection.current++; stopSpeaking() }, []))
   useEffect(() => { void getPref('english').then(setEnglish) }, [])
   // Keep the active sentence in view above whatever covers the bottom of the screen.
   useEffect(() => {
@@ -172,7 +173,7 @@ export default function Reader() {
     } catch (failure) { if (selection.current === version) setWordError((failure as Error).message) }
     finally { if (selection.current === version) setWordBusy(false) }
   }
-  const close = () => { selection.current++; setSelected(null); void Speech.stop() }
+  const close = () => { selection.current++; setSelected(null); stopSpeaking() }
   const sentences = segments.map((_, i) => i).filter(i => indexOfFirstWord[i] !== undefined)
   const activePosition = active === null ? -1 : sentences.indexOf(active)
   const goSentence = (step: number) => {
@@ -297,7 +298,6 @@ export default function Reader() {
   }
   // Shows a "More below" hint until the explanation is scrolled to its end.
   const measureMore = ({ layoutMeasurement, contentOffset, contentSize }: NativeScrollEvent) => setMoreBelow(contentOffset.y + layoutMeasurement.height < contentSize.height - 8)
-  const speak = (text: string) => { void Speech.stop(); Speech.speak(text, { language: 'he-IL', rate: 0.8 }) }
 
   const wordsOf = (segment: number) => indexOfFirstWord[segment] === undefined ? [] : words.slice(indexOfFirstWord[segment], indexOfLastWord[segment] + 1).map((item, offset) => ({ ...item, i: indexOfFirstWord[segment] + offset }))
   const englishOf = (segment: number) => { const { en, marker } = segments[segment]; return en ? `${marker ? `${marker}. ` : ''}${en}` : '' }
@@ -310,7 +310,7 @@ export default function Reader() {
       <View style={[styles.row, { gap: 8 }]}>
         <Pill icon={english === 'off' ? 'eye-off-outline' : 'eye-outline'} label={englishLabel[english]} active={english !== 'off'} onPress={cycleEnglish} accessibilityLabel={`${englishLabel[english]}. Change`} />
         {vowelled && <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />}
-        <Pill icon="volume-medium-outline" label="Listen" onPress={() => speak(recognition.text)} accessibilityLabel="Listen in Hebrew" />
+        <View style={[styles.row, { gap: 6, flexWrap: 'nowrap' }]}><ListenButton pill text={segments.map(segment => segment.he)} accessibilityLabel="Listen to the whole page in Hebrew" /></View>
         <FeedbackButton screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, active, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss, analysis })} />
       </View>
       {active === null && <Text style={[styles.copy, { fontSize: 13, lineHeight: 18 }]}>Tap a sentence to select it, then tap a word for its meaning or drag across words for a phrase.</Text>}
@@ -362,7 +362,7 @@ export default function Reader() {
       <Pressable accessibilityRole="button" accessibilityLabel="Next sentence" disabled={activePosition >= sentences.length - 1} onPress={() => goSentence(1)} hitSlop={8} style={[reader.barButton, activePosition >= sentences.length - 1 && { opacity: 0.3 }]}>
         <Text style={reader.barLabel}>Next</Text><Ionicons name="chevron-down" size={20} color={colors.green} />
       </Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel="Listen to this sentence" onPress={() => speak(segments[active].he)} hitSlop={8}><Ionicons name="volume-medium-outline" size={22} color={colors.green} /></Pressable>
+      <ListenButton text={segments[active].he} accessibilityLabel="Listen to this sentence" />
       <Pressable accessibilityRole="button" accessibilityLabel="Done with this sentence" onPress={leaveSentence} hitSlop={8}><Ionicons name="close" size={22} color={colors.muted} /></Pressable>
     </Animated.View>}
 
@@ -371,7 +371,7 @@ export default function Reader() {
       handle={<View style={reader.sheetHeader}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} hitSlop={10}><Ionicons name="close" size={22} color={colors.muted} /></Pressable>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 }}>
-          <Pressable accessibilityRole="button" accessibilityLabel={isPhrase ? 'Hear this phrase' : 'Hear this word'} onPress={() => speak(analysis?.vocalized || word.bare)} hitSlop={10}><Ionicons name="volume-medium-outline" size={22} color={colors.green} /></Pressable>
+          <ListenButton text={analysis?.vocalized || word.bare} accessibilityLabel={isPhrase ? 'Hear this phrase' : 'Hear this word'} />
           <Text style={reader.sheetWord}>{v(analysis?.vocalized || word.bare)}</Text>
         </View>
       </View>}>

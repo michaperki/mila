@@ -4,8 +4,9 @@ import { getDb } from './mongo'
 // the app is spending. Costs use list prices (USD) at the time of the call, before free tiers
 // and discounts; the provider's billing console stays the authoritative total.
 // Prices: platform.claude.com/docs/en/about-claude/pricing, cloud.google.com/vision/pricing,
-// cloud.google.com/translate/pricing (checked 2026-10-16).
-export type Feature = 'page' | 'word' | 'glosses' | 'forms' | 'ocr' | 'translate'
+// cloud.google.com/translate/pricing (checked 2026-10-16), elevenlabs.io/pricing/api,
+// ai.google.dev/gemini-api/docs/pricing (checked 2026-10-17).
+export type Feature = 'page' | 'word' | 'glosses' | 'forms' | 'ocr' | 'translate' | 'speech'
 
 // USD per million tokens. Cache writes are the 5-minute rate.
 const CLAUDE: Record<string, { input: number; cacheWrite: number; cacheRead: number; output: number }> = {
@@ -18,6 +19,14 @@ const CLAUDE: Record<string, { input: number; cacheWrite: number; cacheRead: num
 }
 const VISION_PER_IMAGE = 1.5 / 1000
 const TRANSLATE_PER_CHARACTER = 20 / 1_000_000
+// Eleven v3: $0.08 per 1,000 characters.
+const ELEVENLABS_PER_CHARACTER = 0.08 / 1000
+// Gemini 3.8 Flash TTS, USD per million tokens: text in, audio out (25 tokens a second).
+// Google doubles both on 2027-01-01.
+export function geminiSpeechCost(inputTokens: number, outputTokens: number, at = new Date()) {
+  const [input, output] = at < new Date('2027-01-01T00:00:00Z') ? [0.5, 9] : [1, 18]
+  return (inputTokens * input + outputTokens * output) / 1_000_000
+}
 
 type ClaudeUsage = { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number | null; cache_read_input_tokens?: number | null }
 
@@ -29,7 +38,7 @@ export function claudeCost(model: string, usage: ClaudeUsage) {
     + (usage.cache_read_input_tokens ?? 0) * price.cacheRead + usage.output_tokens * price.output) / 1_000_000
 }
 
-type Entry = { userId: string; feature: Feature; provider: 'anthropic' | 'google'; model: string; cost: number; ms: number
+type Entry = { userId: string; feature: Feature; provider: 'anthropic' | 'google' | 'elevenlabs'; model: string; cost: number; ms: number
   inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; characters?: number; images?: number }
 
 // Recording must never fail the request it describes.
@@ -58,6 +67,10 @@ export const recordVision = (userId: string, ms: number) =>
   record({ userId, feature: 'ocr', provider: 'google', model: 'vision-document-text', images: 1, cost: VISION_PER_IMAGE, ms })
 export const recordTranslation = (userId: string, characters: number, ms: number) =>
   record({ userId, feature: 'translate', provider: 'google', model: 'translate-v2', characters, cost: characters * TRANSLATE_PER_CHARACTER, ms })
+export const recordElevenLabs = (userId: string, model: string, characters: number, ms: number) =>
+  record({ userId, feature: 'speech', provider: 'elevenlabs', model, characters, cost: characters * ELEVENLABS_PER_CHARACTER, ms })
+export const recordGeminiSpeech = (userId: string, model: string, inputTokens: number, outputTokens: number, ms: number) =>
+  record({ userId, feature: 'speech', provider: 'google', model, inputTokens, outputTokens, cost: geminiSpeechCost(inputTokens, outputTokens), ms })
 
 // This calendar month (UTC) for one user, by feature.
 export async function monthSummary(userId: string, now = new Date()) {
