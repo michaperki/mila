@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { router } from 'expo-router'
-import { AccountGate, Button, colors, ErrorNotice, Page, Pill, Pressy, styles } from '../../components/ui'
+import { AccountGate, Button, colors, ErrorNotice, Loading, Page, Pill, Pressy, styles } from '../../components/ui'
 import { countsOf, formsIn, isDue, isSolid, statusOf, type Status, unlockedStages } from '../../lib/forms'
 import { matches } from '../../lib/review'
 import type { VocabEntry } from '../../lib/types'
@@ -22,7 +22,7 @@ export default function Vocabulary() {
   const { session } = useSession()
   // What is already loaded shows at once; every visit refreshes it in the background. Due dates
   // are judged against when the list was loaded.
-  const { entries, at: now, loaded, loading, error, refresh } = useVocab(session)
+  const { entries, at: now, loaded, error, reload } = useVocab(session)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [showVowels] = useVowels()
@@ -31,11 +31,11 @@ export default function Vocabulary() {
     && (filter === 'all' || (filter === 'due' ? isDue(entry, now) : statusOf(entry) === filter))), [entries, query, filter, now])
 
   const empty = !session || (loaded && !error && entries.length === 0)
-  return <Page refreshControl={<RefreshControl refreshing={loading} tintColor={colors.green} onRefresh={refresh} />}>
+  return <Page onRefresh={reload}>
     {empty && <><Text style={styles.eyebrow}>MAKE WORDS YOUR OWN</Text><Text style={styles.title}>Words worth keeping.</Text></>}
     {!session ? <AccountGate /> : <>
       <ErrorNotice message={error} />
-      {loading && !loaded && <ActivityIndicator color={colors.green} />}
+      {!loaded && <Loading />}
       {empty && <View style={styles.card}><Text style={styles.heading}>A fresh start.</Text><Text style={styles.copy}>Tap a word in the reader, then save it. Saved words come back here to study.</Text></View>}
       {!empty && loaded && <>
         <Text style={vocab.summary}>{counts.saved} {counts.saved === 1 ? 'word' : 'words'} · {counts.learning} learning · {counts.mastered} mastered</Text>

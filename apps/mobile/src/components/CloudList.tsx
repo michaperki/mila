@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
-import { ActivityIndicator, Pressable, RefreshControl, Text, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
-import { AccountGate, colors, ErrorNotice, Page, styles } from './ui'
+import { AccountGate, colors, ErrorNotice, Loading, Page, styles } from './ui'
 import { request } from '../lib/api'
 import { useSession } from '../state/session'
 import type { TextDoc } from '../lib/types'
@@ -10,29 +10,30 @@ import { titleFrom } from '../lib/ocr-cleanup'
 // The Library tab: saved passages, newest first. (Vocabulary has its own screen.)
 export default function CloudList({ kind }: { kind: 'texts' }) {
   const { session, setRecognition } = useSession()
-  const [items, setItems] = useState<TextDoc[]>([])
-  const [loading, setLoading] = useState(false)
-  const [loaded, setLoaded] = useState(false)
+  // The passages last loaded and whose they are: a visit shows them at once and refreshes them
+  // quietly; another account starts empty.
+  const [list, setList] = useState<{ owner: string; items: TextDoc[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [revision, setRevision] = useState(0)
+  const owner = session?.user.id
+  const items = list && list.owner === owner ? list.items : []
+  const loaded = !!list && list.owner === owner
+  const load = useCallback(async (signal?: AbortSignal) => {
+    if (!session) return
+    try {
+      const data = await request<{ texts?: TextDoc[] }>(kind, { token: session.token, signal })
+      if (!signal?.aborted) { setList({ owner: session.user.id, items: data.texts || [] }); setError(null) }
+    } catch (failure) { if (!signal?.aborted) setError((failure as Error).message) }
+  }, [session, kind])
   useFocusEffect(useCallback(() => {
     const controller = new AbortController()
-    setItems([]); setError(null); setLoaded(false)
-    if (!session) return
-    setLoading(true)
-    void request<{ texts?: TextDoc[] }>(kind, { token: session.token, signal: controller.signal })
-      .then(data => { if (!controller.signal.aborted) setItems(data.texts || []) })
-      .catch(failure => { if (!controller.signal.aborted) setError(failure.message) })
-      .finally(() => { if (!controller.signal.aborted) { setLoading(false); setLoaded(true) } })
+    void load(controller.signal)
     return () => controller.abort()
-    // revision only forces a refetch on pull-to-refresh; it is not read above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, kind, revision]))
+  }, [load]))
   // The big introduction only shows while there is nothing else to look at.
   const empty = !session || (loaded && !error && items.length === 0)
-  return <Page refreshControl={<RefreshControl refreshing={loading} tintColor={colors.green} onRefresh={() => setRevision(value => value + 1)} />}>
+  return <Page onRefresh={() => load()}>
     {empty && <><Text style={styles.eyebrow}>KEEP THE CONTEXT</Text><Text style={styles.title}>Your reading shelf.</Text></>}
-    {!session ? <AccountGate /> : <><ErrorNotice message={error} />{loading && items.length === 0 && <ActivityIndicator color={colors.green} />}
+    {!session ? <AccountGate /> : <><ErrorNotice message={error} />{!loaded && !error && <Loading />}
       {empty && <View style={styles.card}><Text style={styles.heading}>A fresh start.</Text><Text style={styles.copy}>Save a passage from the reader and it will appear here, on this phone and on the web.</Text></View>}
       {items.map(item => <PassageCard key={item.id} doc={item} onOpen={() => { setRecognition(textFromDocument(item)); router.push('/reader') }} />)}
     </>}

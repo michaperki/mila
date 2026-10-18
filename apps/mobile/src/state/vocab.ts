@@ -43,18 +43,18 @@ export const putEntry = (session: Session, entry: VocabEntry) =>
 export const dropEntry = (session: Session, id: string) => edit(session, entries => entries.filter(item => item.id !== id))
 export const clearVocab = (session: Session) => edit(session, () => [])
 
-// The saved words for a screen: what is cached shows at once, and every visit refreshes it.
-// `loaded` is false only until the first load for this account finishes (or fails).
+// The saved words for a screen: what is cached shows at once, and every visit refreshes it
+// quietly. `loaded` is false only until the first load for this account finishes (or fails).
+// `reload` settles once the words are in, for pull to refresh.
 export function useVocab(session: Session | null) {
   const snapshot = useSyncExternalStore(subscribe, () => store)
   const entries = session && snapshot.owner === session.user.id ? snapshot.entries : null
-  const [loadingNow, setLoadingNow] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const refresh = useCallback(() => {
+  const reload = useCallback(async () => {
     if (!session) return
-    setLoadingNow(true); setError(null)
-    void loadVocab(session).catch((failure: Error) => setError(failure.message)).finally(() => setLoadingNow(false))
+    setError(null)
+    try { await loadVocab(session) } catch (failure) { setError((failure as Error).message) }
   }, [session])
-  useFocusEffect(refresh)
-  return { entries: entries ?? EMPTY, at: snapshot.at, loaded: !!entries || !!error, loading: loadingNow, error, refresh }
+  useFocusEffect(useCallback(() => { void reload() }, [reload]))
+  return { entries: entries ?? EMPTY, at: snapshot.at, loaded: !!entries || !!error, error, reload }
 }

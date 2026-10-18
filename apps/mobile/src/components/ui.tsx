@@ -1,5 +1,5 @@
-import type { ComponentProps, ReactNode } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, type GestureResponderEvent, type StyleProp, type ViewStyle, type RefreshControlProps } from 'react-native'
+import { type ComponentProps, type ReactNode, useState } from 'react'
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type GestureResponderEvent, type StyleProp, type ViewStyle } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated'
 import { feel } from '../lib/feedback'
 import { DURATION, settle } from '../lib/motion'
@@ -18,8 +18,20 @@ export const styles = StyleSheet.create({
   label: { fontSize: 14, fontWeight: '600', color: colors.ink, marginBottom: 7 },
   hebrew: { fontSize: 25, lineHeight: 39, textAlign: 'right', writingDirection: 'rtl', color: colors.ink },
 })
-export function Page({ children, refreshControl }: { children: ReactNode; refreshControl?: React.ReactElement<RefreshControlProps> }) {
-  return <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" refreshControl={refreshControl}>{children}</ScrollView>
+// A screen. `onRefresh` adds pull to refresh, and its spinner shows only for a pull the learner
+// made: never for the refresh a screen does by itself on each visit, which is silent. (On iOS a
+// refresh control set spinning from code adds a second spinner above the screen's own and can
+// leave the page pushed down.)
+export function Page({ children, onRefresh }: { children: ReactNode; onRefresh?: () => Promise<unknown> }) {
+  const [pulling, setPulling] = useState(false)
+  const pull = () => { setPulling(true); void onRefresh?.().catch(() => {}).finally(() => setPulling(false)) }
+  return <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"
+    refreshControl={onRefresh ? <RefreshControl refreshing={pulling} tintColor={colors.green} onRefresh={pull} /> : undefined}>{children}</ScrollView>
+}
+// The one loading state, for a screen that has nothing yet to show. Once something is shown,
+// refreshing it keeps it in place instead.
+export function Loading() {
+  return <View accessibilityLabel="Loading" style={{ paddingVertical: 48, alignItems: 'center' }}><ActivityIndicator color={colors.green} /></View>
 }
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 // A Pressable that presses down a little under the finger and comes back up, with a light tap

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import Animated from 'react-native-reanimated'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { stop as stopSpeaking } from '../lib/speech'
 import { ListenButton } from '../components/Listen'
-import { Button, colors, ErrorNotice, Page, Pill, Pressy, styles } from '../components/ui'
+import { Button, colors, ErrorNotice, Loading, Page, Pill, Pressy, styles } from '../components/ui'
 import { FlipCard, Shake, SwipeCard } from '../components/Motion'
 import { CARD_BACK_IN, CARD_IN } from '../lib/motion'
 import { feel } from '../lib/feedback'
@@ -89,7 +89,7 @@ export default function Practice() {
   }, [session])
 
   if (!session) return <Page><Text style={styles.copy}>Sign in to study your saved words.</Text></Page>
-  if (!deck || !settings) return <Page>{error ? <ErrorNotice message={error} /> : <ActivityIndicator color={colors.green} />}</Page>
+  if (!deck || !settings) return <Page>{error ? <ErrorNotice message={error} /> : <Loading />}</Page>
   if (!Object.keys(words).length) return <Page>
     <Text style={styles.title}>Nothing to study yet.</Text>
     <Text style={styles.copy}>Save words as you read and they will show up here.</Text>

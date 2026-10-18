@@ -5,7 +5,7 @@ import { stop as stopSpeaking } from '../lib/speech'
 import { ListenButton } from '../components/Listen'
 import Animated from 'react-native-reanimated'
 import { REFLOW } from '../lib/motion'
-import { colors, ErrorNotice, Page, styles, TextButton } from '../components/ui'
+import { colors, ErrorNotice, Loading, Page, styles, TextButton } from '../components/ui'
 import { feel } from '../lib/feedback'
 import { EncounterView } from '../components/Encounter'
 import { request } from '../lib/api'
@@ -56,7 +56,7 @@ export default function Word() {
   useFocusEffect(useCallback(() => () => stopSpeaking(), []))
 
   if (!session) return <Page><Text style={styles.copy}>Sign in to see your saved words.</Text></Page>
-  if (!entry) return <Page>{loaded ? <ErrorNotice message={loadError || error || 'This word is no longer saved.'} /> : <ActivityIndicator color={colors.green} />}</Page>
+  if (!entry) return <Page>{loaded ? <ErrorNotice message={loadError || error || 'This word is no longer saved.'} /> : <Loading />}</Page>
 
   const setKnown = (known: string[]) => {
     putEntry(session, { ...entry, known })
