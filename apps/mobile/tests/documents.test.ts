@@ -7,7 +7,8 @@ test('native captures round-trip through the existing web document contract', ()
   const document = documentFromRecognition(recognition, 'test-capture')
   assert.equal(document.id, 'test-capture')
   assert.deepEqual(document.chunks.map(chunk => chunk.tokens.map(token => token.surface)), [['שלום', 'עולם'], ['מה', 'נשמע?']])
-  assert.deepEqual(textFromDocument(document), { ...recognition, id: 'test-capture', library: 'saved' })
+  // It opens under the Library's title for it (here its first line).
+  assert.deepEqual(textFromDocument(document), { ...recognition, id: 'test-capture', library: 'saved', title: 'שלום עולם' })
 })
 test('list numbers are part of the saved line on both sides', () => {
   const document = documentFromRecognition({ text: '1. מה?', translation: '1. What?', capturedAt: 1, segments: [{ he: 'מה?', en: 'What?', marker: '1' }] }, 'n')

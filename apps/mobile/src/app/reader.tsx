@@ -164,8 +164,10 @@ export default function Reader() {
     try { await request(`texts?textId=${encodeURIComponent(docId.current)}`, { token: session.token, method: 'DELETE' }); setSaved(false) }
     catch (failure) { setError((failure as Error).message) } finally { setBusy(false) }
   }
+  // A capture is saved on opening; a passage opened from the library notes when it was opened.
   useEffect(() => {
     if (autosave) void persist()
+    else if (saved && session) void request('texts', { token: session.token, method: 'PATCH', body: { textId: docId.current, opened: true } }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -193,11 +195,12 @@ export default function Reader() {
   const close = () => { selection.current++; setSelected(null); stopSpeaking() }
   const sentences = segments.map((_, i) => i).filter(i => indexOfFirstWord[i] !== undefined)
   const activePosition = active === null ? -1 : sentences.indexOf(active)
-  // Where reading stopped, for Continue reading on Today: only a passage in the library can be
-  // opened again.
+  // Where reading stopped, for Continue reading on Today and the Library's progress: only a
+  // passage in the library can be opened again.
   const remember = (segment: number) => {
-    if (!saved || !recognition) return
-    rememberRead(docId.current, segment, titleFrom(recognition.text))
+    if (!saved || !recognition || !session) return
+    rememberRead(docId.current, segment, recognition.title || titleFrom(recognition.text))
+    void request('texts', { token: session.token, method: 'PATCH', body: { textId: docId.current, read: segment } }).catch(() => {})
   }
   const goSentence = (step: number) => {
     const next = sentences[activePosition + step]

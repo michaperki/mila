@@ -49,6 +49,29 @@ const handler: Handler = async (event) => {
       }
     }
 
+    // Changes from the Library and the reader that leave the passage itself alone: `name`, the
+    // learner's own title ('' removes it); `read`, the sentence just selected (the last one and
+    // the furthest one are kept, for Continue reading and progress); `opened`, when it was opened.
+    if (event.httpMethod === 'PATCH') {
+      const payload = JSON.parse(event.body || '{}')
+      if (typeof payload.textId !== 'string') return { statusCode: 400, body: JSON.stringify({ message: 'Missing textId' }) }
+      const set: Record<string, unknown> = {}
+      const unset: Record<string, ''> = {}
+      let max: Record<string, number> | null = null
+      if (typeof payload.name === 'string') {
+        const name = payload.name.trim().slice(0, 80)
+        if (name) set.name = name; else unset.name = ''
+      }
+      if (Number.isInteger(payload.read) && payload.read >= 0) { set.lastSegment = payload.read; set.openedAt = Date.now(); max = { furthestSegment: payload.read } }
+      if (payload.opened === true) set.openedAt = Date.now()
+      if (!Object.keys(set).length && !Object.keys(unset).length) return { statusCode: 400, body: JSON.stringify({ message: 'Nothing to change' }) }
+      const result = await texts.updateOne({ userId: auth.userId, textId: payload.textId }, {
+        ...(Object.keys(set).length ? { $set: set } : {}), ...(Object.keys(unset).length ? { $unset: unset } : {}), ...(max ? { $max: max } : {}),
+      })
+      if (!result.matchedCount) return { statusCode: 404, body: JSON.stringify({ message: 'This passage is no longer in your library.' }) }
+      return { statusCode: 204, body: '' }
+    }
+
     if (event.httpMethod === 'DELETE') {
       const textId = event.queryStringParameters?.textId
       const id = event.queryStringParameters?.id

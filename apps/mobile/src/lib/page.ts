@@ -2,6 +2,7 @@ import type { ReadingSegment } from './types'
 
 // Mirrors `PageRead` in apps/web/netlify/functions/lib/page-read.ts.
 export type PageRead = {
+  title?: string
   blocks: { kind: 'heading' | 'paragraph'; sentences: { he: string; en: string }[] }[]
   startsMidSentence: boolean
   endsMidSentence: boolean

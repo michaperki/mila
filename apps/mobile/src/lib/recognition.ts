@@ -70,7 +70,7 @@ export async function recognizeImage(image: CapturedImage, token: string, option
     lastTail = tailOf(result.page, segments)
     return {
       text: segments.map(segment => segment.he).join('\n'), translation: segments.map(segment => segment.en).join('\n'),
-      capturedAt, segments, raw: result.text, source: 'page', omitted: result.page.omitted, ...meta,
+      capturedAt, segments, raw: result.text, source: 'page', omitted: result.page.omitted, ...(result.page.title?.trim() ? { title: result.page.title.trim() } : {}), ...meta,
     }
   }
   if (read) lastTail = null

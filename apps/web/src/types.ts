@@ -27,6 +27,11 @@ export type TextDoc = {
   id: string;
   source: 'ocr';
   title?: string;
+  // Mobile Library: the learner's own title, and how far they have read (sentence indexes).
+  name?: string;
+  lastSegment?: number;
+  furthestSegment?: number;
+  openedAt?: number;
   chunks: Chunk[];
   createdAt: number;
   thumbnail?: string;

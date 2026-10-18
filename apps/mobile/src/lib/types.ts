@@ -18,6 +18,8 @@ export type Recognition = {
   id?: string; library?: 'auto' | 'saved'
   // The sentence to open at (Continue reading on Today).
   startAt?: number
+  // A short English name for a photographed page (the page read gives it), for the Library.
+  title?: string
   // 'page': read by the vision model (paragraphs, corrected text); otherwise OCR + local cleanup.
   source?: 'page'; image?: CapturedImage; omitted?: string[]; readError?: string
 }

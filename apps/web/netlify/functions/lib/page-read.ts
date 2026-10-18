@@ -8,6 +8,8 @@ import { recordClaude } from './ai-usage'
 export type PageSentence = { he: string; en: string }
 export type PageBlock = { kind: 'heading' | 'paragraph'; sentences: PageSentence[] }
 export type PageRead = {
+  // A short English name for the page, for the Library.
+  title: string
   blocks: PageBlock[]
   // The first sentence finishes one from the previous page / the last one runs onto the next page.
   startsMidSentence: boolean
@@ -27,8 +29,9 @@ const sentence = {
 } as const
 
 const schema = {
-  type: 'object', additionalProperties: false, required: ['blocks', 'startsMidSentence', 'endsMidSentence', 'continuesPrevious', 'omitted'],
+  type: 'object', additionalProperties: false, required: ['title', 'blocks', 'startsMidSentence', 'endsMidSentence', 'continuesPrevious', 'omitted'],
   properties: {
+    title: { type: 'string', description: 'A short English title for this page, 2 to 6 words, so the learner can tell it apart in their library: the translated heading if the page has one, otherwise what the text is about. Empty if there is no Hebrew text.' },
     blocks: {
       type: 'array',
       description: 'The readable text in reading order: each heading or paragraph, split into sentences.',
