@@ -20,6 +20,8 @@ function Navigator() {
     <Stack.Screen name="compose" options={{ title: 'Read Hebrew text' }} />
     <Stack.Screen name="practice" options={{ title: 'Practice' }} />
     <Stack.Screen name="word" options={{ title: 'Word' }} />
+    <Stack.Screen name="table" options={{ title: 'All forms' }} />
+    <Stack.Screen name="root" options={{ title: 'Root' }} />
   </Stack></>
 }
 export default function RootLayout() {

@@ -9,6 +9,10 @@ import type { Encounter, VocabEntry } from './types'
 export const lemmaKey = (text: string) => stripNiqqud(text.normalize('NFC').replace(/[\u05BE\-–]/g, ' '))
   .replace(/'/g, '׳').replace(/"/g, '״').replace(/[,،，.!?]/g, '').replace(/\s+/g, ' ').trim()
 export const vocabId = (lemma: string) => `native-${encodeURIComponent(lemmaKey(lemma))}`
+// Saved word ids hold a percent-encoded lemma (native-%D7%9C…), and the router decodes the
+// query string, so an id from a screen's params arrives as native-ל…. Compare them decoded.
+const decoded = (value: string) => { try { return decodeURIComponent(value) } catch { return value } }
+export const sameId = (a: string, b: string) => a === b || decoded(a) === decoded(b)
 
 // Where a saved word was met, newest first. Entries saved before encounters existed have one,
 // kept at the top level of the entry.

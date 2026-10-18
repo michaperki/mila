@@ -6,26 +6,22 @@ import { stop as stopSpeaking } from '../lib/speech'
 import { ListenButton } from '../components/Listen'
 import Animated from 'react-native-reanimated'
 import { REFLOW } from '../lib/motion'
-import { colors, ErrorNotice, Loading, Page, styles, TextButton } from '../components/ui'
+import { colors, ErrorNotice, Loading, Page, Pill, styles, TextButton } from '../components/ui'
 import { feel } from '../lib/feedback'
 import { EncounterView } from '../components/Encounter'
 import { request } from '../lib/api'
 import { isolateHebrew } from '../lib/bidi'
 import { textFromDocument } from '../lib/documents'
+import { hasRoot, hasTable, rootOf } from '../lib/explore'
 import { formsIn, isKnownWord, isSolid, kindLabel, missingStages, slotLabel, stagesOf, stageState, type StageState, statusOf } from '../lib/forms'
 import { stripNiqqud } from '../lib/ocr-cleanup'
 import type { FormCard, TextDoc } from '../lib/types'
 import { withVowels } from '../lib/vowels'
 import { ensureForms } from '../lib/word-forms'
-import { encountersOf } from '../lib/words'
+import { encountersOf, sameId } from '../lib/words'
 import { useSession } from '../state/session'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
-
-// Saved word ids hold a percent-encoded lemma (native-%D7%9C…), and the router decodes the
-// query string, so the id arrives as native-ל…. Compare them decoded.
-const decoded = (value: string) => { try { return decodeURIComponent(value) } catch { return value } }
-const sameId = (a: string, b: string) => a === b || decoded(a) === decoded(b)
 
 const STATE: Record<StageState, string> = { known: 'Known', done: 'Learned', learning: 'Learning', locked: 'Locked' }
 
@@ -113,6 +109,12 @@ export default function Word() {
         ? <TextButton title="Undo" onPress={() => { feel('tick'); setKnown([]) }} />
         : <TextButton title="I know this word" color={colors.green} onPress={knowWord} />}
     </View>
+    {/* Looking around the word: all its forms at once, and the other words of its root. */}
+    {(hasTable(entry) || hasRoot(entry)) && <View style={[styles.row, { gap: 8, marginTop: -8 }]}>
+      {hasTable(entry) && <Pill icon="grid-outline" label="All forms" onPress={() => router.push({ pathname: '/table', params: { id: entry.id } })} />}
+      {hasRoot(entry) && <Pill icon="git-branch-outline" label={`Root ${rootOf(entry.root!)}`} accessibilityLabel={`Explore the root ${rootOf(entry.root!)}`}
+        onPress={() => router.push({ pathname: '/root', params: { root: entry.root!, word: entry.lemma } })} />}
+    </View>}
 
     {open.map(stage => {
       const state = stageState(entry, stage.key)

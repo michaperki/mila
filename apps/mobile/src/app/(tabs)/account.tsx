@@ -14,7 +14,7 @@ import { ListenButton } from '../../components/Listen'
 // Account → AI usage: the `ai-usage` function's summary of this month's paid calls, and how
 // many answers came from the cache instead (free).
 type Usage = { since: string; cost: number; requests: number; features: { feature: string; requests: number; cacheHits?: number; cost: number }[] }
-const FEATURES: Record<string, string> = { page: 'Page reads', word: 'Word explanations', forms: 'Practice cards', ocr: 'Text recognition', translate: 'Translation', speech: 'Listening' }
+const FEATURES: Record<string, string> = { page: 'Page reads', word: 'Word explanations', forms: 'Practice cards', table: 'Tables of forms', root: 'Root families', ocr: 'Text recognition', translate: 'Translation', speech: 'Listening' }
 // Played when a voice is picked, so the choice is heard straight away.
 const SAMPLE = 'מָחָר יֵשׁ לִי מִבְחָן בְּחֶשְׁבּוֹן.'
 const dollars = (value: number) => (value > 0 && value < 0.01 ? '< $0.01' : `$${value.toFixed(2)}`)
