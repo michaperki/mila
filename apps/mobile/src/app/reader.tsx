@@ -391,7 +391,7 @@ export default function Reader() {
 
   const wordsOf = (segment: number) => indexOfFirstWord[segment] === undefined ? [] : words.slice(indexOfFirstWord[segment], indexOfLastWord[segment] + 1).map((item, offset) => ({ ...item, i: indexOfFirstWord[segment] + offset }))
   const englishOf = (segment: number) => { const { en, marker } = segments[segment]; return en ? `${marker ? `${marker}. ` : ''}${en}` : '' }
-  const hasDetails = !!analysis && (analysis.parts.length > 1 || !!phrase || !!analysis.note || !!analysis.root || !!analysis.lemmaMeaning || !!analysis.partOfSpeech || (!!analysis.readAs && stripNiqqud(analysis.readAs) !== word?.bare))
+  const hasDetails = !!analysis && (analysis.parts.length > 1 || !!analysis.note || !!analysis.root || !!analysis.lemmaMeaning || !!analysis.partOfSpeech || (!!analysis.readAs && stripNiqqud(analysis.readAs) !== word?.bare))
   const detailsHeight = Math.max(180, screenHeight * 0.4)
 
   return <View ref={frame} style={{ flex: 1, backgroundColor: colors.paper }}>
@@ -473,6 +473,12 @@ export default function Reader() {
           {wordBusy && <ActivityIndicator color={colors.green} />}
         </View>}
       {!wordBusy && !analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation.</Text>}
+      {/* A word that belongs to an expression (להעמיד פנים) is taught as the expression: its own
+          meaning can be misleading on its own, so the expression leads and is what Save keeps. */}
+      {phrase && !wordBusy && <Animated.View entering={APPEAR} style={[reader.phrase, { flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingRight: 10, paddingVertical: 8 }]}>
+        <Text style={reader.label}>Part of an expression</Text>
+        <Text style={reader.fact}><Text style={reader.factHebrew}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>
+      </Animated.View>}
       {details && !wordBusy && analysis && <Animated.View entering={APPEAR}>
         <ScrollView style={{ maxHeight: detailsHeight }} contentContainerStyle={{ gap: 12, paddingBottom: 4 }} scrollEventThrottle={64}
           onScroll={event => measureMore(event.nativeEvent)}
@@ -480,10 +486,6 @@ export default function Reader() {
           {!isPhrase && !!analysis.readAs && stripNiqqud(analysis.readAs) !== word.bare && <Text style={reader.fact}>The photo text reads <Text style={reader.factHebrew}>{isolateHebrew(word.bare)}</Text>; this is probably <Text style={reader.factHebrew}>{isolateHebrew(v(analysis.readAs))}</Text>.</Text>}
           {analysis.parts.length > 1 && <Section label="Breakdown"><View style={reader.parts}>
             {analysis.parts.map((part, i) => <View key={i} style={reader.part}><Text style={reader.partHebrew}>{v(part.text)}</Text><Text style={reader.partMeaning}>{isolateHebrew(v(part.meaning))}</Text></View>)}
-          </View></Section>}
-          {phrase && <Section label="Phrase"><View style={reader.phrase}>
-            <Text style={[reader.fact, { flex: 1 }]}><Text style={reader.factHebrew}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>
-            <TextButton title={phraseSaved ? (unsaving.has(tapKey(phrase.text, sentence)) ? 'Undoing…' : 'Saved ✓ · Undo') : 'Save phrase'} color={colors.green} onPress={() => (phraseSaved ? unsave(true) : void saveWord(true))} />
           </View></Section>}
           <WordFacts analysis={analysis} gloss={gloss} v={v} />
         </ScrollView>
@@ -494,9 +496,14 @@ export default function Reader() {
         {hasDetails && !wordBusy && <Pressable accessibilityRole="button" onPress={() => setDetails(value => !value)} style={reader.detailsToggle} hitSlop={6}>
           <Text style={reader.barLabel}>{details ? 'Less' : 'Details'}</Text><Ionicons name={details ? 'chevron-down' : 'chevron-up'} size={16} color={colors.green} />
         </Pressable>}
-        <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : isPhrase ? 'Save phrase' : 'Save word'} detail={wordSaved ? 'Tap to undo' : undefined}
-          busy={unsaving.has(tapKey(word.bare, sentence))} moment={wordSaved ? null : undefined} onPress={() => (wordSaved ? unsave() : void saveWord())} style={{ flex: 1 }} />
+        {phrase
+          ? <Button secondary={phraseSaved} title={phraseSaved ? 'Expression saved ✓' : 'Save expression'} detail={phraseSaved ? 'Tap to undo' : undefined}
+            busy={unsaving.has(tapKey(phrase.text, sentence))} moment={phraseSaved ? null : undefined} onPress={() => (phraseSaved ? unsave(true) : void saveWord(true))} style={{ flex: 1 }} />
+          : <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : isPhrase ? 'Save phrase' : 'Save word'} detail={wordSaved ? 'Tap to undo' : undefined}
+            busy={unsaving.has(tapKey(word.bare, sentence))} moment={wordSaved ? null : undefined} onPress={() => (wordSaved ? unsave() : void saveWord())} style={{ flex: 1 }} />}
       </View>
+      {phrase && <TextButton title={unsaving.has(tapKey(word.bare, sentence)) ? 'Undoing…' : wordSaved ? `${isolateHebrew(word.bare)} saved on its own ✓ · Undo` : `Save just ${isolateHebrew(word.bare)}`}
+        onPress={() => (wordSaved ? unsave() : void saveWord())} />}
     </DraggableSheet>}
   </View>
 }

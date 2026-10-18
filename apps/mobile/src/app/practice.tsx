@@ -31,7 +31,7 @@ const next = <T extends string>(options: Record<T, string>, value: T) => { const
 
 // The one place to study. A deck of every saved word (its dictionary form and meanings) and the
 // forms of its open stages, each in its own sentence. Study for as long as you like: tap a card
-// to turn it over, swipe or use the arrows to move on or back, grade it if you want (a card left
+// to turn it over, swipe it either way to move on (the arrows also go back), grade it if you want (a card left
 // ungraded keeps its schedule), and stop with Done. Hebrew or English first, smart or shuffled
 // order, which cards and quiz mode are chosen on the screen and remembered. Stages unlock as
 // forms become solid (lib/forms.ts); their cards are written in the background.
@@ -102,9 +102,9 @@ export default function Practice() {
   // Moving through the deck. Past the end, the deck goes round again from the latest copy of
   // each word (its order reflects what was just studied). Every card comes back to its question
   // side, a quiz card to its choices; a grade it was given stays and shows once it is turned.
-  // `cards`: the deck as just changed by a grade, if it was; `quiet` when the grade already
-  // made its sound. False when there was nowhere to go.
-  const go = (step: 1 | -1, cards = deck, quiet = false) => {
+  // `quiet` when a grade already made its sound. False when there was nowhere to go.
+  const go = (step: 1 | -1, quiet = false) => {
+    const cards = deck
     const to = position + step
     if (to < 0) return false
     if (to >= cards.length) {
@@ -177,14 +177,10 @@ export default function Practice() {
       setTimeout(() => feel('unlock'), 250)
       void ensureForms(updated, session.token).then(ready => { share(session, ready); keep(ready) })
     }
-    // Missed for the first time, at the furthest card reached: it comes back a few cards later.
-    let cards = deck
-    if (rating === 'again' && grades[position] === undefined && !Object.keys(grades).some(i => Number(i) > position)) {
-      cards = deck.slice(); cards.splice(Math.min(position + 4, cards.length), 0, { entry: updated, form: form && { ...form, ...result } })
-      setDeck(cards)
-    }
+    // The deck in front of the learner isn't reordered by a grade: it only sets when the card
+    // comes back in a later session (or the next round of this one).
     setBefore(current => ({ ...current, [position]: start })); setGrades(current => ({ ...current, [position]: rating }))
-    if (advance) go(1, cards, true)
+    if (advance) go(1, true)
   }
 
   const listen = form ? form.sentence : entry.lemma
@@ -198,7 +194,7 @@ export default function Practice() {
       <ErrorNotice message={error} />
       {/* One swipe card for the whole deck; only what is on it changes (see SwipeCard). No exit
           animation: a swiped card has already left. */}
-      <SwipeCard card={position} canGoBack={position > 0} onSwipe={direction => go(direction === 'next' ? 1 : -1)} onDrag={onDrag}>
+      <SwipeCard card={position} onSwipe={() => go(1)} onDrag={onDrag}>
         <Animated.View key={position} entering={way === 'next' ? CARD_IN : CARD_BACK_IN}>
           {choices
             ? <View style={[styles.card, practice.card]}>

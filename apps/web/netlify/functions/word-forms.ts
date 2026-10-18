@@ -45,6 +45,10 @@ const STAGES: Record<string, Record<string, Slot[]>> = {
   },
   other: { meanings: MEANINGS },
 }
+// The meaning every form is written in: the word's first meaning card if it has one, else the
+// first sense of its gloss.
+const mainMeaning = (entry: Entry) =>
+  entry.forms?.find(form => form.stage === 'meanings' && form.slot === 'sense1')?.en || entry.gloss.split(/[,;]/)[0].trim()
 export const kindOf = (partOfSpeech?: string) =>
   partOfSpeech === 'verb' || partOfSpeech === 'adjective' || partOfSpeech === 'noun' ? partOfSpeech : 'other'
 
@@ -74,7 +78,7 @@ const SYSTEM = `You write practice material for an English-speaking learner of m
 
 Meanings: when asked for the word's meanings, give one card per distinct meaning a learner meets in everyday modern Hebrew, most common first; most words have one, give at most three, and never split one meaning into near-synonyms. Each card uses the dictionary form (verbs: the infinitive) in that meaning; "english" is that meaning in 1 to 4 words (verbs as "to …"). Include the meaning the learner met the word in.
 
-Forms: for each requested form, give the correct standard modern Hebrew form and a sentence that uses exactly that form. Leave out a form that is not in real use (for example a verbal noun the verb doesn't have) rather than inventing one.
+Forms: for each requested form, give the correct standard modern Hebrew form and a sentence that uses exactly that form. Leave out a form that is not in real use (for example a verbal noun the verb doesn't have) rather than inventing one. The forms are one word, not different meanings: every form's "english" uses the main meaning you are given, changing only for person, tense, number and gender ("he guesses", "they guessed", "guess! (to one woman)"), never to a synonym, and each sentence uses the word in that meaning, rendered with that same English word in its translation.
 
 Sentences must differ from each other and from the sentences already used for this word: vary who acts, the setting, the objects and the sentence shape, so no two read as the same sentence with the person changed. Keep the rest of each sentence simple, common vocabulary, so the target word is the only hard part and its meaning is clear from the sentence.`
 
@@ -82,7 +86,7 @@ const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { '
 let client: Anthropic | null = null
 
 type Generated = { slot: string; form: string; english: string; sentence: string; inSentence: string; translation: string; inTranslation: string }
-type Entry = { lemma: string; gloss: string; partOfSpeech?: string; binyan?: string; forms?: { stage: string; sentence: string }[]; encounters?: { surface: string; context: string }[] }
+type Entry = { lemma: string; gloss: string; partOfSpeech?: string; binyan?: string; forms?: { stage: string; slot?: string; en?: string; sentence: string }[]; encounters?: { surface: string; context: string }[] }
 
 export const handler: Handler = async (event) => {
   const requestId = randomUUID()
@@ -108,7 +112,7 @@ export const handler: Handler = async (event) => {
       `Word: ${entry.lemma} (${entry.partOfSpeech || 'word'}${entry.binyan ? `, ${entry.binyan}` : ''}) — ${entry.gloss}`,
       ...(stage === 'meanings'
         ? ['Write its meanings, one card each, using slots "sense1", "sense2", "sense3" in order (only as many as it has).']
-        : [`Forms to write (${stage}):`, ...slots.map(item => `- slot "${item.slot}": ${item.means}`)]),
+        : [`Main meaning, the same for every form: ${mainMeaning(entry)}`, `Forms to write (${stage}):`, ...slots.map(item => `- slot "${item.slot}": ${item.means}`)]),
       ...(used.length ? ['Sentences already used for this word (do not repeat or imitate):', ...used.map(item => `- ${item}`)] : []),
       ...(met.length ? ['Where the learner met this word (for its meaning only; do not reuse these sentences):', ...met.map(item => `- ${item}`)] : []),
     ].join('\n')
