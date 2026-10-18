@@ -288,6 +288,7 @@ export default function Reader() {
             lemma: lemmaNow, gloss: found?.lemmaMeaning || meaning,
             ...(found?.lemmaPlain ? { lemmaPlain: found.lemmaPlain } : {}),
             ...(found?.partOfSpeech ? { partOfSpeech: found.partOfSpeech } : {}),
+            ...(found?.gender ? { gender: found.gender } : {}),
             ...(found?.root ? { root: found.root } : {}),
             ...(found?.binyan ? { binyan: found.binyan } : {}),
           }),

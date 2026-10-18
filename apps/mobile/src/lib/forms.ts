@@ -38,6 +38,8 @@ const STAGES: Record<Kind, Stage[]> = {
 export const kindOf = (partOfSpeech?: string): Kind =>
   partOfSpeech === 'verb' || partOfSpeech === 'adjective' || partOfSpeech === 'noun' ? partOfSpeech : 'other'
 export const stagesOf = (entry: VocabEntry) => STAGES[kindOf(entry.partOfSpeech)]
+// What kind of word it is, with a noun's gender: "feminine noun", "verb".
+export const kindLabel = (entry: VocabEntry) => (entry.partOfSpeech === 'noun' && entry.gender ? `${entry.gender} noun` : entry.partOfSpeech || '')
 export const slotLabel = (entry: VocabEntry, form: FormCard) => stagesOf(entry).find(stage => stage.key === form.stage)?.slots[form.slot] ?? form.slot
 
 // Local calendar day, so "two different days" means what it says to the learner.
@@ -45,6 +47,8 @@ export const dayOf = (now: number) => { const date = new Date(now); return `${da
 export const isSolid = (form: FormCard) => (form.goodDays?.length ?? 0) >= 2
 export const formsIn = (entry: VocabEntry, stage: string) => (entry.forms || []).filter(form => form.stage === stage)
 const isKnown = (entry: VocabEntry, stage: string) => !!entry.known?.includes(stage)
+// "I know this word": every stage marked known. It then leaves studying altogether.
+export const isKnownWord = (entry: VocabEntry) => stagesOf(entry).every(stage => isKnown(entry, stage.key))
 const isDone = (entry: VocabEntry, stage: string) => {
   const forms = formsIn(entry, stage)
   return isKnown(entry, stage) || (forms.length > 0 && forms.every(isSolid))
@@ -100,7 +104,7 @@ export function newCards(entry: VocabEntry) {
 export type Card = { entry: VocabEntry; form: FormCard | null }
 export const cardKey = ({ entry, form }: Card) => `${entry.id}:${form ? form.key : 'word'}`
 export const reviewOf = ({ entry, form }: Card) => (form ? form.review : entry.review)
-const wordDue = (entry: VocabEntry, now: number) => !!entry.review && entry.review.due <= endOfDay(now)
+const wordDue = (entry: VocabEntry, now: number) => !isKnownWord(entry) && !!entry.review && entry.review.due <= endOfDay(now)
 
 // What to study: word cards, sentence cards or both, in smart or shuffled order.
 export type Include = 'words' | 'sentences' | 'both'
@@ -112,7 +116,7 @@ export type Order = 'smart' | 'shuffle'
 // another card can go between.
 export function deckOf(entries: VocabEntry[], { include, order }: { include: Include; order: Order }, now = Date.now(), seed = String(now)): Card[] {
   const cards: Card[] = entries.flatMap(entry => [
-    ...(include === 'sentences' ? [] : [{ entry, form: null }]),
+    ...(include === 'sentences' || isKnownWord(entry) ? [] : [{ entry, form: null }]),
     ...(include === 'words' ? [] : [...activeForms(entry).filter(form => !!form.review), ...newCards(entry)].map(form => ({ entry, form }))),
   ])
   if (order === 'shuffle') return spread(shuffle(cards, seed))

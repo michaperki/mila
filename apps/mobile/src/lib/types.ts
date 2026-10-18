@@ -26,7 +26,7 @@ export type Recognition = {
 // Mirrors the `word-analysis` function's response (apps/web/netlify/functions/word-analysis.ts).
 export type WordAnalysis = {
   word: string; vocalized: string; meaning: string; parts: { text: string; meaning: string }[]
-  lemma: string; lemmaPlain?: string; lemmaMeaning: string; root: string; partOfSpeech: string; binyan: string; form: string; note: string
+  lemma: string; lemmaPlain?: string; lemmaMeaning: string; root: string; partOfSpeech: string; gender?: string; binyan: string; form: string; note: string
   readAs?: string; phrase?: { text: string; meaning: string }; excerpt?: { text: string; meaning: string }
 }
 // A saved word is its dictionary form (להדביק, not the הדביק that was tapped): `lemma`, `gloss`
@@ -35,6 +35,8 @@ export type WordAnalysis = {
 // practice history. Entries saved before encounters existed keep that data at the top level.
 export type VocabEntry = StarredItem & {
   partOfSpeech?: string; binyan?: string; encounters?: Encounter[]; review?: Review
+  // Nouns: 'masculine' or 'feminine'.
+  gender?: string
   // The dictionary form without niqqud, in full spelling: what identifies the word (lib/words.ts).
   lemmaPlain?: string
   // Practice cards, one per form, written stage by stage (see lib/forms.ts); `known` lists the

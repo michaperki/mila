@@ -11,7 +11,7 @@ import { FlipCard, Shake, SwipeCard } from '../components/Motion'
 import { CARD_BACK_IN, CARD_IN } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
-import { answer, type Card, cardKey, deckOf, type Include, missingStages, type Order, quizOf, type Result, stagesOf, unlockedStages } from '../lib/forms'
+import { answer, type Card, cardKey, deckOf, type Include, kindLabel, missingStages, type Order, quizOf, type Result, stagesOf, unlockedStages } from '../lib/forms'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
 import { waitOf, type Rating } from '../lib/review'
@@ -274,7 +274,7 @@ function WordSide({ entry, english, answer: answerSide, v }: { entry: VocabEntry
   const hebrew = <Text style={practice.word}>{v(entry.lemma)}</Text>
   const meaning = <Text style={practice.meaning}>{entry.gloss}</Text>
   if (!answerSide) return english ? meaning : hebrew
-  const grammar = [entry.partOfSpeech, entry.binyan, entry.root && `root ${entry.root}`].filter(Boolean).join(' · ')
+  const grammar = [kindLabel(entry), entry.binyan, entry.root && `root ${entry.root}`].filter(Boolean).join(' · ')
   return <View style={{ gap: 8, alignItems: 'center', alignSelf: 'stretch' }}>
     {english ? <>{meaning}{hebrew}</> : <>{hebrew}{meaning}</>}
     {!!grammar && <Text style={practice.detail}>{grammar}</Text>}
@@ -312,10 +312,14 @@ function MarkedHebrew({ sentence, mark, form, blank }: { sentence: string; mark:
 }
 
 // English text with one phrase marked (case-insensitive); unmarked if the phrase isn't found.
+// Each word of the phrase is marked on its own and the spaces between are not: iOS draws a
+// marked run that wraps onto the next line of centred text from that line's edge, far wider
+// than the words, so no marked run may contain a place where the line can break.
 function Marked({ text, mark }: { text: string; mark?: string }) {
   const at = mark ? text.toLowerCase().indexOf(mark.toLowerCase()) : -1
   if (at < 0) return <>{text}</>
-  return <>{text.slice(0, at)}<Text style={practice.mark}>{text.slice(at, at + mark!.length)}</Text>{text.slice(at + mark!.length)}</>
+  const words = text.slice(at, at + mark!.length).split(/(\s+)/)
+  return <>{text.slice(0, at)}{words.map((piece, i) => (/^\s+$/.test(piece) || !piece ? piece : <Text key={i} style={practice.mark}>{piece}</Text>))}{text.slice(at + mark!.length)}</>
 }
 
 // Quiz mode: the blank is filled by choosing among the word's own forms.

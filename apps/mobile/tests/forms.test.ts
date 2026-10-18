@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { answer, cardKey, choicesFor, countsOf, deckOf, missingStages, newCards, quizOf, spread, stageState, statusOf, unlockedStages } from '../src/lib/forms.ts'
+import { answer, cardKey, choicesFor, countsOf, deckOf, isKnownWord, missingStages, newCards, quizOf, spread, stageState, statusOf, unlockedStages } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -113,4 +113,13 @@ test('word and meanings cards are quizzed with the learner\'s other saved words'
   assert.equal(quizOf(all, { entry: open, form: open.forms![0] }, true, 'seed')!.answer, 'לִפְתֹּחַ')
   // Too few other words: no quiz.
   assert.equal(quizOf([open, others[0]], { entry: open, form: null }, true, 'seed'), null)
+})
+
+test('a word marked known in every stage leaves studying', () => {
+  const now = Date.now()
+  const known = verb([form('meanings:sense1', { review: { due: now - 1, interval: 1, reps: 1, lapses: 0 } })], { review: { due: now - 1, interval: 1, reps: 1, lapses: 0 }, known: ['meanings', 'present', 'past', 'future', 'imperative', 'noun'] })
+  assert.ok(isKnownWord(known))
+  assert.deepEqual(deckOf([known], { include: 'both', order: 'smart' }, now), [])
+  assert.equal(countsOf([known], now).due, 0)
+  assert.ok(!isKnownWord({ ...known, known: ['meanings'] }))
 })

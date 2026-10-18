@@ -18,6 +18,7 @@ export type WordAnalysis = {
   lemmaMeaning: string
   root: string
   partOfSpeech: string
+  gender: string
   binyan: string
   form: string
   note: string
@@ -29,7 +30,7 @@ export type WordAnalysis = {
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['word', 'vocalized', 'meaning', 'parts', 'lemma', 'lemmaPlain', 'lemmaMeaning', 'root', 'partOfSpeech', 'binyan', 'form', 'note', 'readAs', 'phrase', 'excerpt'],
+  required: ['word', 'vocalized', 'meaning', 'parts', 'lemma', 'lemmaPlain', 'lemmaMeaning', 'root', 'partOfSpeech', 'gender', 'binyan', 'form', 'note', 'readAs', 'phrase', 'excerpt'],
   properties: {
     word: { type: 'string', description: 'The word exactly as given.' },
     vocalized: { type: 'string', description: 'The word with full niqqud as read in this sentence.' },
@@ -50,6 +51,7 @@ const schema = {
     lemmaMeaning: { type: 'string', description: 'The lemma\'s common English senses, comma-separated, most common first; at most five. Verbs as "to …" ("to stick, to attach").' },
     root: { type: 'string', description: 'Root letters joined with ־ (e.g. ח־ש־ב), or empty if none applies.' },
     partOfSpeech: { type: 'string', description: 'noun, verb, adjective, adverb, preposition, pronoun, number, name, or phrase.' },
+    gender: { type: 'string', description: 'Nouns only: the lemma\'s grammatical gender, "masculine" or "feminine" (also for nouns whose form misleads, like שֻׁלְחָן masculine or עִיר feminine); otherwise empty.' },
     binyan: { type: 'string', description: 'Verbs only: binyan in Latin letters (pa\'al, nif\'al, pi\'el, pu\'al, hif\'il, huf\'al, hitpa\'el); otherwise empty.' },
     form: { type: 'string', description: 'Concise grammatical form, e.g. "past, 1st person singular" or "masculine singular, construct"; empty if trivial.' },
     note: { type: 'string', description: 'Only if it matters for understanding this sentence (an idiom, register, an irregular form): one short sentence that adds something no other field says. Do not restate the meaning, breakdown, lemma or grammar, and do not describe forms or vowel patterns that are not in the sentence. Usually empty.' },
@@ -72,7 +74,7 @@ const SYSTEM = `You are a Hebrew tutor inside a reading app for English-speaking
 The learner may select several words instead of one. Then explain them as one unit: "meaning" is what the words mean together here; "parts" lists each word (with its prefixes) and its meaning here; "lemma" and "lemmaMeaning" are the expression's dictionary form and senses only if it is a fixed expression, otherwise empty; root, binyan and form apply only if one word carries the meaning, otherwise empty; "partOfSpeech" is "phrase"; "phrase" and "readAs" are empty; "excerpt" is as for one word. If the words don't form a unit, still give their combined meaning and say so in "note".`
 
 // The cache name for this prompt and schema: bump the version when either changes.
-const CACHE_KIND = 'word-analysis-v2'
+const CACHE_KIND = 'word-analysis-v3'
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, WordAnalysis>()
 let client: Anthropic | null = null
