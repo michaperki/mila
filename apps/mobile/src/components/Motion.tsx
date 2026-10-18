@@ -27,37 +27,49 @@ const SWIPE = 110
 // reads the latest callbacks, so a re-render during a swipe never swaps it mid-flight, and a
 // view with a gesture on it is never unmounted while it is animating. `onSwipe` returns false
 // when there was nowhere to go, and the card slides back.
-export function SwipeCard({ card, canGoBack, onSwipe, onDrag, children, style }: {
+// TEMPORARY, to find the iOS swipe crash: an error thrown in a gesture worklet ends the app
+// with no message, so each callback catches it and hands it to `onError` (practice files it as
+// a Feedback report). Remove once the cause is fixed.
+export function SwipeCard({ card, canGoBack, onSwipe, onDrag, onError, children, style }: {
   card: string | number; canGoBack: boolean; onSwipe: (way: 'next' | 'previous') => boolean | void; onDrag?: (dragging: boolean) => void
-  children: ReactNode; style?: StyleProp<ViewStyle>
+  onError?: (where: string, message: string, stack: string) => void; children: ReactNode; style?: StyleProp<ViewStyle>
 }) {
   const x = useSharedValue(0)
   const past = useSharedValue(0)
   const back = useSharedValue(canGoBack)
   useEffect(() => { back.set(canGoBack) }, [canGoBack, back])
   useEffect(() => { x.set(0); past.set(0) }, [card, x, past])
-  const latest = useRef({ onSwipe, onDrag })
-  useEffect(() => { latest.current = { onSwipe, onDrag } })
+  const latest = useRef({ onSwipe, onDrag, onError })
+  useEffect(() => { latest.current = { onSwipe, onDrag, onError } })
   // The gesture's callbacks read `latest` only when a swipe happens, never while rendering.
   /* eslint-disable react-hooks/refs */
   const pan = useMemo(() => {
     const swiped = (way: 'next' | 'previous') => { if (latest.current.onSwipe(way) === false) { x.set(settle(0)); past.set(0) } }
     const dragging = (on: boolean) => latest.current.onDrag?.(on)
+    const failed = (where: string, message: string, stack: string) => latest.current.onError?.(where, message, stack)
     return Gesture.Pan().activeOffsetX([-14, 14]).failOffsetY([-16, 16])
-      .onStart(() => { scheduleOnRN(dragging, true) })
-      .onFinalize((_event, activated) => { if (activated) scheduleOnRN(dragging, false) })
+      .onStart(() => {
+        try { scheduleOnRN(dragging, true) } catch (error) { scheduleOnRN(failed, 'onStart', String((error as Error)?.message ?? error), String((error as Error)?.stack ?? '')) }
+      })
+      .onFinalize((_event, activated) => {
+        try { if (activated) scheduleOnRN(dragging, false) } catch (error) { scheduleOnRN(failed, 'onFinalize', String((error as Error)?.message ?? error), String((error as Error)?.stack ?? '')) }
+      })
       .onUpdate(event => {
-        x.set(event.translationX)
-        const side = event.translationX < -SWIPE ? -1 : event.translationX > SWIPE && back.get() ? 1 : 0
-        if (side !== past.get()) { past.set(side); if (side) scheduleOnRN(feel, 'tick') }
+        try {
+          x.set(event.translationX)
+          const side = event.translationX < -SWIPE ? -1 : event.translationX > SWIPE && back.get() ? 1 : 0
+          if (side !== past.get()) { past.set(side); if (side) scheduleOnRN(feel, 'tick') }
+        } catch (error) { scheduleOnRN(failed, 'onUpdate', String((error as Error)?.message ?? error), String((error as Error)?.stack ?? '')) }
       })
       .onEnd(event => {
-        const toBack = event.translationX > 0
-        const far = Math.abs(event.translationX) > SWIPE || Math.abs(event.velocityX) > 900
-        if (!far || (toBack && !back.get())) { x.set(settle(0)); past.set(0); return }
-        x.set(withTiming(toBack ? 520 : -520, { duration: DURATION.quick, easing: Easing.out(Easing.quad), reduceMotion: ReduceMotion.System }, done => {
-          if (done) scheduleOnRN(swiped, toBack ? 'previous' : 'next')
-        }))
+        try {
+          const toBack = event.translationX > 0
+          const far = Math.abs(event.translationX) > SWIPE || Math.abs(event.velocityX) > 900
+          if (!far || (toBack && !back.get())) { x.set(settle(0)); past.set(0); return }
+          x.set(withTiming(toBack ? 520 : -520, { duration: DURATION.quick, easing: Easing.out(Easing.quad), reduceMotion: ReduceMotion.System }, done => {
+            try { if (done) scheduleOnRN(swiped, toBack ? 'previous' : 'next') } catch (error) { scheduleOnRN(failed, 'onEnd timing', String((error as Error)?.message ?? error), String((error as Error)?.stack ?? '')) }
+          }))
+        } catch (error) { scheduleOnRN(failed, 'onEnd', String((error as Error)?.message ?? error), String((error as Error)?.stack ?? '')) }
       })
   }, [x, past, back])
   /* eslint-enable react-hooks/refs */

@@ -11,6 +11,7 @@ import { FlipCard, Shake, SwipeCard } from '../components/Motion'
 import { CARD_BACK_IN, CARD_IN } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
+import { appInfo } from '../lib/app-info'
 import { answer, type Card, cardKey, choicesFor, deckOf, type Include, missingStages, type Order, type Result, stagesOf, unlockedStages } from '../lib/forms'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, setPref } from '../lib/prefs'
@@ -59,6 +60,14 @@ export default function Practice() {
   const drag = useRef<{ on: boolean; ended: number }>({ on: false, ended: 0 })
   const tapped = () => !drag.current.on && Date.now() - drag.current.ended > 300
   const onDrag = (dragging: boolean) => { drag.current = { on: dragging, ended: dragging ? drag.current.ended : Date.now() } }
+  // TEMPORARY (see SwipeCard): a swipe's error is shown and filed once as a Feedback report.
+  const reported = useRef(new Set<string>())
+  const reportSwipeError = (where: string, message: string, stack: string) => {
+    setError(`Swipe failed in ${where}: ${message}`)
+    if (!session || reported.current.has(`${where}${message}`)) return
+    reported.current.add(`${where}${message}`)
+    void request('feedback', { token: session.token, body: { note: `Swipe error (${where}): ${message}`, screen: 'practice', context: { where, message, stack }, app: appInfo() } }).catch(() => {})
+  }
   const keep = (ready: VocabEntry) => setWords(current => ({ ...current, [ready.id]: withNewForms(current[ready.id], ready) }))
 
   useEffect(() => {
@@ -195,7 +204,7 @@ export default function Practice() {
       <ErrorNotice message={error} />
       {/* One swipe card for the whole deck; only what is on it changes (see SwipeCard). No exit
           animation: a swiped card has already left. */}
-      <SwipeCard card={position} canGoBack={position > 0} onSwipe={direction => go(direction === 'next' ? 1 : -1)} onDrag={onDrag}>
+      <SwipeCard card={position} canGoBack={position > 0} onSwipe={direction => go(direction === 'next' ? 1 : -1)} onDrag={onDrag} onError={reportSwipeError}>
         <Animated.View key={position} entering={way === 'next' ? CARD_IN : CARD_BACK_IN}>
           {choices
             ? <View style={[styles.card, practice.card]}>
