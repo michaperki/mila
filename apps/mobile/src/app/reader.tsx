@@ -35,7 +35,12 @@ const without = (set: Set<string>, key: string) => { const next = new Set(set); 
 export default function Reader() {
   const { recognition, session } = useSession()
   const insets = useSafeAreaInsets()
-  const { height: screenHeight } = useWindowDimensions()
+  const { height: screenHeight, width: screenWidth } = useWindowDimensions()
+  // Turned sideways the page keeps clear of the notch, and the drawer and sentence bar sit in a
+  // column of reading width in the middle rather than across the whole screen.
+  const landscape = screenWidth > screenHeight
+  const side = landscape ? Math.max(insets.left, insets.right, (screenWidth - 640) / 2) : 0
+  const overlaySides = landscape ? [{ left: side, right: side }, reader.overlaySides] : null
   // Height of whatever sits over the bottom of the page (word drawer or sentence bar), so the
   // passage can be padded by it and the active sentence scrolled clear of it.
   const [overlayHeight, setOverlayHeight] = useState(0)
@@ -393,11 +398,12 @@ export default function Reader() {
   const wordsOf = (segment: number) => indexOfFirstWord[segment] === undefined ? [] : words.slice(indexOfFirstWord[segment], indexOfLastWord[segment] + 1).map((item, offset) => ({ ...item, i: indexOfFirstWord[segment] + offset }))
   const englishOf = (segment: number) => { const { en, marker } = segments[segment]; return en ? `${marker ? `${marker}. ` : ''}${en}` : '' }
   const hasDetails = !!analysis && (analysis.parts.length > 1 || !!analysis.note || !!analysis.root || !!analysis.lemmaMeaning || !!analysis.partOfSpeech || (!!analysis.readAs && stripNiqqud(analysis.readAs) !== word?.bare))
-  const detailsHeight = Math.max(180, screenHeight * 0.4)
+  // Sideways the screen is short, so the details scroll in less of it.
+  const detailsHeight = landscape ? Math.max(90, screenHeight * 0.28) : Math.max(180, screenHeight * 0.4)
 
   return <View ref={frame} style={{ flex: 1, backgroundColor: colors.paper }}>
     <ScrollView ref={scroller} scrollEnabled={!dragRange} scrollEventThrottle={32} onScroll={event => { scrollY.current = event.nativeEvent.contentOffset.y }}
-      contentContainerStyle={[styles.content, { gap: 10, paddingTop: 14, paddingBottom: active !== null ? overlayHeight + 24 : 36 }]}>
+      contentContainerStyle={[styles.content, { gap: 10, paddingTop: 14, paddingBottom: active !== null ? overlayHeight + 24 : 36, paddingLeft: 22 + insets.left, paddingRight: 22 + insets.right }]}>
       <View style={[styles.row, { gap: 8 }]}>
         <Pill icon={english === 'off' ? 'eye-off-outline' : 'eye-outline'} label={englishLabel[english]} active={english !== 'off'} onPress={cycleEnglish} accessibilityLabel={`${englishLabel[english]}. Change`} />
         {vowelled && <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />}
@@ -447,7 +453,7 @@ export default function Reader() {
     </ScrollView>
 
     {/* Sentence bar: moving between sentences is separate from studying a word. */}
-    {active !== null && !word && <Animated.View entering={SHEET_IN} exiting={SHEET_OUT} style={[reader.overlay, reader.bar, { paddingBottom: 10 + insets.bottom }]} onLayout={event => setOverlayHeight(event.nativeEvent.layout.height)}>
+    {active !== null && !word && <Animated.View entering={SHEET_IN} exiting={SHEET_OUT} style={[reader.overlay, reader.bar, overlaySides, { paddingBottom: 10 + insets.bottom }]} onLayout={event => setOverlayHeight(event.nativeEvent.layout.height)}>
       <Pressable accessibilityRole="button" accessibilityLabel="Previous sentence" disabled={activePosition <= 0} onPress={() => goSentence(-1)} hitSlop={8} style={[reader.barButton, activePosition <= 0 && { opacity: 0.3 }]}>
         <Ionicons name="chevron-up" size={20} color={colors.green} /><Text style={reader.barLabel}>Previous</Text>
       </Pressable>
@@ -460,7 +466,7 @@ export default function Reader() {
     </Animated.View>}
 
     {/* Word drawer: compact by default (meaning and save); details expand on request. */}
-    {word && <DraggableSheet onDismiss={close} style={[reader.overlay, reader.sheet, { paddingBottom: 12 + insets.bottom }]} accessibilityViewIsModal onLayout={event => setOverlayHeight(event.nativeEvent.layout.height)}
+    {word && <DraggableSheet onDismiss={close} style={[reader.overlay, reader.sheet, overlaySides, { paddingBottom: 12 + insets.bottom }]} accessibilityViewIsModal onLayout={event => setOverlayHeight(event.nativeEvent.layout.height)}
       handle={<View style={reader.sheetHeader}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} hitSlop={10}><Ionicons name="close" size={22} color={colors.muted} /></Pressable>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 }}>
@@ -545,6 +551,7 @@ const reader = StyleSheet.create({
   marker: { color: colors.muted, paddingHorizontal: 3 },
   english: { fontSize: 15, lineHeight: 21, color: colors.muted, writingDirection: 'ltr', textAlign: 'left', paddingBottom: 2 },
   overlay: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  overlaySides: { borderLeftWidth: 1, borderRightWidth: 1, borderColor: colors.line },
   bar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: 16, paddingTop: 10, backgroundColor: colors.white, borderTopWidth: 1, borderColor: colors.line },
   barButton: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   barLabel: { fontSize: 14, fontWeight: '600', color: colors.green },

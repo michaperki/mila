@@ -11,12 +11,14 @@ import { colors } from '../components/ui'
 function Navigator() {
   const { ready } = useSession()
   if (!ready) return <View style={{ flex: 1, justifyContent: 'center', backgroundColor: colors.paper }}><ActivityIndicator color={colors.green} /></View>
-  return <><StatusBar style="dark" /><Stack screenOptions={{ headerTintColor: colors.ink, headerStyle: { backgroundColor: colors.paper }, headerShadowVisible: false, headerBackButtonDisplayMode: 'minimal', contentStyle: { backgroundColor: colors.paper } }}>
+  return <><StatusBar style="dark" /><Stack screenOptions={{ headerTintColor: colors.ink, headerStyle: { backgroundColor: colors.paper }, headerShadowVisible: false, headerBackButtonDisplayMode: 'minimal', contentStyle: { backgroundColor: colors.paper }, orientation: 'portrait_up' }}>
     <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
     <Stack.Screen name="login" options={{ title: 'Sign in' }} />
     <Stack.Screen name="signup" options={{ title: 'Create account' }} />
     <Stack.Screen name="camera" options={{ title: 'Read a page' }} />
-    <Stack.Screen name="reader" options={{ title: 'Read & learn' }} />
+    {/* The reader also turns sideways, for a book held in landscape or longer lines; every other
+        screen stays upright. (app.json allows landscape for the app as a whole.) */}
+    <Stack.Screen name="reader" options={{ title: 'Read & learn', orientation: 'default' }} />
     <Stack.Screen name="compose" options={{ title: 'Read Hebrew text' }} />
     <Stack.Screen name="practice" options={{ title: 'Practice' }} />
     <Stack.Screen name="word" options={{ title: 'Word' }} />
