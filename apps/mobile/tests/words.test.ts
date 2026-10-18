@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { encountersOf, savedKey, savedKeysOf, savedTapsOf, tapKey } from '../src/lib/words.ts'
+import { encountersOf, lemmaKey, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../src/lib/words.ts'
 
 const encounter = (surface: string, context: string, at: number) => ({ surface, meaning: 'm', context, at })
 
@@ -24,4 +24,12 @@ test('a saved word is found from the tap alone: what was tapped and its sentence
   assert.equal(taps.get(tapKey('הדביק', 'one'))?.id, 'a')
   assert.equal(taps.get(tapKey('הדביק', 'two')), undefined)
   assert.equal(taps.get(tapKey('לְהַדְבִּיק', 'one')), undefined)
+})
+
+test('identifies a word by its plain dictionary form, whatever vowels it was given', () => {
+  assert.equal(lemmaKey('לִכְתּוֹב'), 'לכתוב')
+  assert.equal(vocabId('לִכְתּוֹב'), vocabId('לכתוב'))
+  assert.equal(lemmaKey('בֵּית־סֵפֶר'), 'בית ספר')
+  assert.equal(lemmaKey(' בית  ספר, '), 'בית ספר')
+  assert.equal(lemmaKey("צ'יפס"), 'צ׳יפס')
 })

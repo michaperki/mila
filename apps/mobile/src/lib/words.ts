@@ -1,4 +1,14 @@
+import { stripNiqqud } from './ocr-cleanup.ts'
 import type { Encounter, VocabEntry } from './types'
+
+// A saved word's identity: its dictionary form as plainly written (no niqqud, a maqaf read as a
+// space), so the same word saved again with other vowels is one entry. Words are identified by
+// the explanation's `lemmaPlain`, its full spelling, since stripping vowels alone leaves לכתב
+// and לכתוב apart. Homographs (סֵפֶר book / סַפָּר barber) share an entry: rare, and cheaper than
+// duplicates. The server matches saves by the same key (vocab.ts lemmaKeyOf).
+export const lemmaKey = (text: string) => stripNiqqud(text.normalize('NFC').replace(/[\u05BE\-–]/g, ' '))
+  .replace(/'/g, '׳').replace(/"/g, '״').replace(/[,،，.!?]/g, '').replace(/\s+/g, ' ').trim()
+export const vocabId = (lemma: string) => `native-${encodeURIComponent(lemmaKey(lemma))}`
 
 // Where a saved word was met, newest first. Entries saved before encounters existed have one,
 // kept at the top level of the entry.

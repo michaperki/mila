@@ -38,16 +38,22 @@ const handler: Handler = async (event) => {
       if (encounter !== undefined && !(encounter && typeof encounter === 'object' && typeof encounter.context === 'string')) {
         return { statusCode: 400, body: JSON.stringify({ message: 'Invalid encounter' }) }
       }
+      // One entry per word: a save whose dictionary form is already saved under another id
+      // (other vowels, an older save) is added to that entry rather than starting a second one.
+      const lemmaKey = typeof fields.lemma === 'string' ? lemmaKeyOf(typeof fields.lemmaPlain === 'string' && fields.lemmaPlain ? fields.lemmaPlain : fields.lemma) : ''
+      const same = lemmaKey ? await vocab.findOne<{ id: string }>({ userId: auth.userId, lemmaKey, id: { $ne: id } }, { projection: { id: 1 } }) : null
+      const target = same?.id ?? id
       const doc = {
         ...fields,
-        id,
+        id: target,
+        ...(lemmaKey ? { lemmaKey } : {}),
         userId: auth.userId,
         updatedAt: Date.now(),
       }
 
-      if (encounter) await vocab.updateOne({ userId: auth.userId, id }, { $pull: { encounters: { context: encounter.context } } } as never)
+      if (encounter) await vocab.updateOne({ userId: auth.userId, id: target }, { $pull: { encounters: { context: encounter.context } } } as never)
       await vocab.updateOne(
-        { userId: auth.userId, id },
+        { userId: auth.userId, id: target },
         {
           $set: doc,
           // Saving again keeps the word's place in the practice order.
@@ -67,6 +73,16 @@ const handler: Handler = async (event) => {
     // `review` a whole-word result (entries from before form cards).
     if (event.httpMethod === 'PATCH') {
       const payload = JSON.parse(event.body || '{}')
+      // Undoing a save: `unsave` is the sentence it was saved from. That encounter goes; an entry
+      // left with no encounters and never practised goes with it, so undoing the first save of a
+      // word leaves nothing behind while undoing a later one keeps the word and its history.
+      if (typeof payload.id === 'string' && typeof payload.unsave === 'string') {
+        await vocab.updateOne({ userId: auth.userId, id: payload.id }, { $pull: { encounters: { context: payload.unsave } }, $set: { updatedAt: Date.now() } } as never)
+        const { deletedCount } = await vocab.deleteOne({
+          userId: auth.userId, id: payload.id, encounters: { $size: 0 }, review: { $exists: false }, 'forms.review': { $exists: false },
+        })
+        return { statusCode: 200, body: JSON.stringify({ deleted: deletedCount > 0 }) }
+      }
       if (typeof payload.id === 'string' && Array.isArray(payload.known)) {
         if (!payload.known.every((stage: unknown) => typeof stage === 'string')) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid stages' }) }
         const result = await vocab.updateOne({ userId: auth.userId, id: payload.id }, { $set: { known: payload.known, updatedAt: Date.now() } })
@@ -123,6 +139,11 @@ const handler: Handler = async (event) => {
 }
 
 export { handler }
+
+// A word's identity: its dictionary form as plainly written (no niqqud, a maqaf read as a space),
+// so the same word saved with other vowels is one entry. Mirrors apps/mobile/src/lib/words.ts.
+const lemmaKeyOf = (text: string) => text.normalize('NFC').replace(/[\u05BE\-–]/g, ' ').replace(/[\u0591-\u05C7]/g, '')
+  .replace(/'/g, '׳').replace(/"/g, '״').replace(/[,،，.!?]/g, '').replace(/\s+/g, ' ').trim()
 
 const isReview = (review: any) => !!review && ['due', 'interval', 'reps', 'lapses'].every(key => typeof review[key] === 'number' && Number.isFinite(review[key]))
 const cleanReview = ({ due, interval, reps, lapses, last, first }: any) => ({

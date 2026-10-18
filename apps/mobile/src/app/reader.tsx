@@ -21,17 +21,16 @@ import { paragraphsOf, runsOf } from '../lib/page'
 import { type EnglishMode, getPref, setPref, TEXT_SIZES } from '../lib/prefs'
 import { explainWord, quickMeanings } from '../lib/recognition'
 import type { Encounter, VocabEntry, WordAnalysis } from '../lib/types'
-import { encountersOf, savedKey, savedKeysOf, savedTapsOf, tapKey } from '../lib/words'
+import { encountersOf, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
 import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
-import { cachedVocab, putEntry, useVocab } from '../state/vocab'
+import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
 import { isVowelled, withVowels } from '../lib/vowels'
 
-// Keyed by the vocalized lemma so homographs (סֵפֶר book / סַפָּר barber) don't collide.
 // Runs reflow (REFLOW) when a sentence is selected and its English opens beneath it.
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
-const vocabId = (lemma: string) => `native-${encodeURIComponent(lemma.normalize('NFC'))}`
+const without = (set: Set<string>, key: string) => { const next = new Set(set); next.delete(key); return next }
 
 export default function Reader() {
   const { recognition, session } = useSession()
@@ -65,6 +64,10 @@ export default function Reader() {
   const [wordError, setWordError] = useState<string | null>(null)
   // Saves pressed and still being written (by tapKey), shown as saved meanwhile.
   const [saving, setSaving] = useState<Set<string>>(new Set())
+  // Saves being undone (Saved ✓ tapped again), and saves still on their way that are to be
+  // undone once they land, by tapKey.
+  const [unsaving, setUnsaving] = useState<Set<string>>(new Set())
+  const undoAfterSave = useRef(new Set<string>())
   // Know which words are already saved so the card can say so instead of offering a duplicate,
   // and show a word saved from this sentence with what it was saved with.
   const { entries: vocab } = useVocab(session)
@@ -87,6 +90,9 @@ export default function Reader() {
   useEffect(() => { void getPref('english').then(setEnglish) }, [])
   // Text size (A− / A+), remembered on this device; the passage's Hebrew and English scale together.
   const [size, setSize] = useState(1)
+  // How the reader works, said once: shown until a sentence has been selected for the first time.
+  const [hint, setHint] = useState(false)
+  useEffect(() => { void getPref('readerHint').then(setHint) }, [])
   useEffect(() => { void getPref('textSize').then(value => setSize(TEXT_SIZES.includes(Number(value)) ? Number(value) : 1)) }, [])
   const resize = (step: 1 | -1) => {
     const next = TEXT_SIZES[TEXT_SIZES.indexOf(size) + step]
@@ -195,7 +201,10 @@ export default function Reader() {
   const leaveSentence = () => { close(); setActive(null) }
   // The first tap on a sentence only selects the sentence (its English, the sentence bar and
   // quick meanings); words are tapped or dragged once their sentence is selected.
-  const chooseSentence = (segment: number) => { feel('tick'); close(); setActive(segment) }
+  const chooseSentence = (segment: number) => {
+    feel('tick'); close(); setActive(segment)
+    if (hint) { setHint(false); setPref('readerHint', false) }
+  }
   const last = selected === null ? null : (selectedTo ?? selected)
   const word = selected === null || last === null ? null
     : { bare: words.slice(selected, last + 1).map(item => item.bare).join(' '), segment: words[selected].segment }
@@ -204,16 +213,38 @@ export default function Reader() {
   const quickMeaning = word && !isPhrase && selected !== null ? quick[word.segment]?.[selected - indexOfFirstWord[word.segment]] || '' : ''
   const highlighted = dragRange ?? (selected === null ? null : { from: selected, to: last! })
   // A selected phrase is saved as written; a single word by its dictionary form.
-  const lemma = isPhrase ? word!.bare : analysis?.lemma || word?.bare || ''
+  const lemma = isPhrase ? word!.bare : analysis?.lemmaPlain || analysis?.lemma || word?.bare || ''
   const sentence = word ? segments[word.segment].he : ''
   // Saved is known from the tap itself, so it shows at once rather than after the explanation.
   const wordSaved = !!word && (saving.has(tapKey(word.bare, sentence)) || savedTaps.has(tapKey(word.bare, sentence)) || savedWords.has(savedKey(vocabId(lemma), sentence)))
   const phrase = !isPhrase && analysis?.phrase?.text ? analysis.phrase : null
   const phraseSaved = !!phrase && (saving.has(tapKey(phrase.text, sentence)) || savedWords.has(savedKey(vocabId(phrase.text), sentence)))
+  // Saved ✓ tapped again undoes the save from this sentence. The server drops the encounter, and
+  // the whole entry if that was its only one and it was never practised; a save still on its way
+  // is undone when it lands.
+  const unsave = (asPhrase = false) => {
+    if (!session || !word || (asPhrase && !phrase)) return
+    const key = tapKey(asPhrase ? phrase!.text : word.bare, sentence)
+    if (unsaving.has(key)) return
+    feel('tick'); setUnsaving(current => new Set(current).add(key))
+    if (saving.has(key)) { undoAfterSave.current.add(key); return }
+    void removeSave(savedTaps.get(key)?.id ?? vocabId(asPhrase ? phrase!.text : lemma), sentence, key)
+  }
+  const removeSave = async (id: string, context: string, key: string) => {
+    if (!session) return
+    try {
+      const { deleted } = await request<{ deleted?: boolean }>('vocab', { token: session.token, method: 'PATCH', body: { id, unsave: context } })
+      const existing = cachedVocab(session)?.find(item => item.id === id)
+      if (deleted) dropEntry(session, id)
+      else if (existing) putEntry(session, { ...existing, encounters: (existing.encounters || []).filter(item => item.context !== context) })
+    } catch (failure) { setError(`The save wasn't undone. ${(failure as Error).message}`) }
+    finally { setUnsaving(current => without(current, key)) }
+  }
   // Saves the tapped word, or the multi-word phrase it belongs to, with its source sentence.
   // Saving doesn't wait for the explanation: Saved ✓ shows at once and the entry is written when
   // the explanation arrives (the dictionary form it is saved under comes from it), even if the
-  // drawer is closed meanwhile. Without an explanation the word is saved as written.
+  // drawer is closed meanwhile. Without an explanation a single word isn't saved: as written it
+  // would be a second entry for a word already saved under its dictionary form.
   const saveWord = async (asPhrase = false) => {
     if (!session) { router.push('/login'); return }
     if (!word || (asPhrase ? !phrase || phraseSaved : wordSaved)) return
@@ -228,8 +259,9 @@ export default function Reader() {
       const found = explained.analysis
       const meaning = explained.gloss || quickNow
       if (!meaning) throw new Error('Its meaning could not be looked up.')
+      if (!asPhrase && !dragged && !found) throw new Error('It could not be explained just now, so it wasn\'t saved. Try again.')
       const lemmaNow = dragged ? tapped.bare : found?.lemma || tapped.bare
-      const id = vocabId(asPhrase ? unit!.text : lemmaNow)
+      const id = vocabId(asPhrase ? unit!.text : dragged ? lemmaNow : found?.lemmaPlain || lemmaNow)
       // The entry is the dictionary form; this sentence is added to it as one encounter.
       const encounter: Encounter = {
         surface: asPhrase ? unit!.text : tapped.bare, meaning: asPhrase ? unit!.meaning : meaning, context: segment.he, at: Date.now(),
@@ -245,26 +277,34 @@ export default function Reader() {
         ...(asPhrase ? { lemma: unit!.text, gloss: unit!.meaning, partOfSpeech: 'phrase' }
           : dragged ? { lemma: lemmaNow, gloss: found?.lemmaMeaning || meaning, partOfSpeech: 'phrase' } : {
             lemma: lemmaNow, gloss: found?.lemmaMeaning || meaning,
+            ...(found?.lemmaPlain ? { lemmaPlain: found.lemmaPlain } : {}),
             ...(found?.partOfSpeech ? { partOfSpeech: found.partOfSpeech } : {}),
             ...(found?.root ? { root: found.root } : {}),
             ...(found?.binyan ? { binyan: found.binyan } : {}),
           }),
       }
-      await request('vocab', { token: session.token, body: entry })
+      // The server may add it to the entry the word is already saved under, and says which.
+      const { item } = await request<{ item?: VocabEntry }>('vocab', { token: session.token, body: entry })
+      const savedId = item?.id ?? id
+      // Undone while it was on its way: take it back out now that it has landed.
+      if (undoAfterSave.current.delete(key)) { await removeSave(savedId, segment.he, key); return }
       // The saved words as the server now has them: this entry, with this sentence's encounter
       // in place of any earlier one from the same sentence.
-      const { encounter: _added, createdAt: _created, ...fields } = entry
-      const existing = cachedVocab(session)?.find(item => item.id === id)
+      const { encounter: _added, createdAt: _created, ...rest } = entry
+      const fields = { ...rest, id: savedId }
+      const existing = cachedVocab(session)?.find(item => item.id === savedId)
       const stored: VocabEntry = existing
         ? { ...existing, ...fields, encounters: [...encountersOf(existing).filter(item => item.context !== encounter.context).reverse(), encounter].slice(-20) }
         : { ...fields, createdAt: entry.createdAt, encounters: [encounter] }
       putEntry(session, stored)
       // Write the word's first practice cards now, so they are ready by the next practice.
       void ensureForms(stored, session.token).then(ready => {
-        const latest = cachedVocab(session)?.find(item => item.id === id)
+        const latest = cachedVocab(session)?.find(item => item.id === savedId)
         if (latest && ready.forms?.length) putEntry(session, { ...latest, forms: ready.forms })
       }).catch(() => {})
     } catch (failure) {
+      // Undone anyway: nothing was saved, so there is nothing to say.
+      if (undoAfterSave.current.delete(key)) { setUnsaving(current => without(current, key)); return }
       // Shown in the drawer if it is still open on this word, otherwise on the page.
       const message = (failure as Error).message
       if (selection.current === version) setWordError(message)
@@ -356,7 +396,7 @@ export default function Reader() {
         <View style={[styles.row, { gap: 6, flexWrap: 'nowrap' }]}><ListenButton pill text={segments.map(segment => segment.he)} accessibilityLabel="Listen to the whole page in Hebrew" /></View>
         <FeedbackButton screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, active, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss, analysis })} />
       </View>
-      {active === null && <Text style={[styles.copy, { fontSize: 13, lineHeight: 18 }]}>Tap a sentence to select it, then tap a word for its meaning or drag across words for a phrase.</Text>}
+      {active === null && hint && <Text style={[styles.copy, { fontSize: 13, lineHeight: 18 }]}>Tap a sentence to select it, then tap a word for its meaning or drag across words for a phrase.</Text>}
       {!!recognition.readError && <Text style={reader.edge}>Read with basic text recognition, so some letters may be wrong.</Text>}
       <View style={[styles.card, { gap: 0, paddingVertical: 6, paddingHorizontal: 14 }]}>
         {paragraphs.map((members, p) => {
@@ -434,7 +474,7 @@ export default function Reader() {
           </View></Section>}
           {phrase && <Section label="Phrase"><View style={reader.phrase}>
             <Text style={[reader.fact, { flex: 1 }]}><Text style={reader.factHebrew}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>
-            <TextButton title={phraseSaved ? 'Saved ✓' : 'Save phrase'} color={colors.green} onPress={() => void saveWord(true)} />
+            <TextButton title={phraseSaved ? (unsaving.has(tapKey(phrase.text, sentence)) ? 'Undoing…' : 'Saved ✓ · Undo') : 'Save phrase'} color={colors.green} onPress={() => (phraseSaved ? unsave(true) : void saveWord(true))} />
           </View></Section>}
           <WordFacts analysis={analysis} gloss={gloss} v={v} />
         </ScrollView>
@@ -445,7 +485,8 @@ export default function Reader() {
         {hasDetails && !wordBusy && <Pressable accessibilityRole="button" onPress={() => setDetails(value => !value)} style={reader.detailsToggle} hitSlop={6}>
           <Text style={reader.barLabel}>{details ? 'Less' : 'Details'}</Text><Ionicons name={details ? 'chevron-down' : 'chevron-up'} size={16} color={colors.green} />
         </Pressable>}
-        <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : isPhrase ? 'Save phrase' : 'Save word'} disabled={wordSaved} onPress={() => void saveWord()} style={{ flex: 1 }} />
+        <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : isPhrase ? 'Save phrase' : 'Save word'} detail={wordSaved ? 'Tap to undo' : undefined}
+          busy={unsaving.has(tapKey(word.bare, sentence))} moment={wordSaved ? null : undefined} onPress={() => (wordSaved ? unsave() : void saveWord())} style={{ flex: 1 }} />
       </View>
     </DraggableSheet>}
   </View>
