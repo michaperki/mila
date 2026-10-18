@@ -16,6 +16,8 @@ export type CapturedImage = { uri: string; width: number; height: number }
 export type Recognition = {
   text: string; translation: string; capturedAt: number; segments?: ReadingSegment[]; raw?: string
   id?: string; library?: 'auto' | 'saved'
+  // The sentence to open at (Continue reading on Today).
+  startAt?: number
   // 'page': read by the vision model (paragraphs, corrected text); otherwise OCR + local cleanup.
   source?: 'page'; image?: CapturedImage; omitted?: string[]; readError?: string
 }

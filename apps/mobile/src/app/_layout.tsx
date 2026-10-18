@@ -15,6 +15,7 @@ function Navigator() {
     <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
     <Stack.Screen name="login" options={{ title: 'Sign in' }} />
     <Stack.Screen name="signup" options={{ title: 'Create account' }} />
+    <Stack.Screen name="camera" options={{ title: 'Read a page' }} />
     <Stack.Screen name="reader" options={{ title: 'Read & learn' }} />
     <Stack.Screen name="compose" options={{ title: 'Read Hebrew text' }} />
     <Stack.Screen name="practice" options={{ title: 'Practice' }} />

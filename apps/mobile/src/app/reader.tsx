@@ -16,9 +16,9 @@ import { request } from '../lib/api'
 import { isolateHebrew, otherSenses } from '../lib/bidi'
 import { rangeOf, type Rect, wordAt } from '../lib/selection'
 import { documentFromRecognition, segmentsOf } from '../lib/documents'
-import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
+import { bareWord, stripNiqqud, titleFrom } from '../lib/ocr-cleanup'
 import { paragraphsOf, runsOf } from '../lib/page'
-import { type EnglishMode, getPref, setPref, TEXT_SIZES } from '../lib/prefs'
+import { type EnglishMode, getPref, rememberRead, setPref, TEXT_SIZES } from '../lib/prefs'
 import { explainWord, quickMeanings } from '../lib/recognition'
 import type { Encounter, VocabEntry, WordAnalysis } from '../lib/types'
 import { encountersOf, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
@@ -77,7 +77,7 @@ export default function Reader() {
   // Three states: reading (nothing active), a sentence active (highlighted, English under it,
   // sentence bar), and a word or phrase selected in it (drawer). Closing the drawer goes back
   // to the sentence; closing the sentence bar goes back to reading.
-  const [active, setActive] = useState<number | null>(null)
+  const [active, setActive] = useState<number | null>(recognition?.startAt ?? null)
   // Quick meanings for the words of each selected sentence (by segment), see quickMeanings.
   const [quick, setQuick] = useState<Record<number, string[]>>({})
   const [showNiqqud, setShowNiqqud] = useVowels()
@@ -169,7 +169,7 @@ export default function Reader() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  if (!recognition) return <Page><Text style={styles.title}>Find something to read.</Text><Button title="Open camera" onPress={() => router.replace('/')} /></Page>
+  if (!recognition) return <Page><Text style={styles.title}>Find something to read.</Text><Button title="Open camera" onPress={() => router.replace('/camera')} /></Page>
 
   const select = async (index: number, to = index) => {
     const first = words[index]
@@ -193,16 +193,22 @@ export default function Reader() {
   const close = () => { selection.current++; setSelected(null); stopSpeaking() }
   const sentences = segments.map((_, i) => i).filter(i => indexOfFirstWord[i] !== undefined)
   const activePosition = active === null ? -1 : sentences.indexOf(active)
+  // Where reading stopped, for Continue reading on Today: only a passage in the library can be
+  // opened again.
+  const remember = (segment: number) => {
+    if (!saved || !recognition) return
+    rememberRead(docId.current, segment, titleFrom(recognition.text))
+  }
   const goSentence = (step: number) => {
     const next = sentences[activePosition + step]
     if (next === undefined) return
-    feel('tick'); close(); setActive(next)
+    feel('tick'); close(); setActive(next); remember(next)
   }
   const leaveSentence = () => { close(); setActive(null) }
   // The first tap on a sentence only selects the sentence (its English, the sentence bar and
   // quick meanings); words are tapped or dragged once their sentence is selected.
   const chooseSentence = (segment: number) => {
-    feel('tick'); close(); setActive(segment)
+    feel('tick'); close(); setActive(segment); remember(segment)
     if (hint) { setHint(false); setPref('readerHint', false) }
   }
   const last = selected === null ? null : (selectedTo ?? selected)

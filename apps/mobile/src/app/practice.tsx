@@ -13,7 +13,7 @@ import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { answer, type Card, cardKey, deckOf, type Include, missingStages, type Order, quizOf, type Result, stagesOf, unlockedStages } from '../lib/forms'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
-import { type Front, getPref, setPref } from '../lib/prefs'
+import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
 import { waitOf, type Rating } from '../lib/review'
 import type { FormCard, Session, VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
@@ -162,6 +162,7 @@ export default function Practice() {
   // a grade replaces it) and moves on; a quiz choice grades without moving on.
   const grade = (rating: Rating, { felt = false, advance = true } = {}) => {
     if (!felt) feel(rating === 'good' ? 'gotIt' : 'graded')
+    void noteStudyDay()
     const start = before[position] ?? record
     const result = answer(start, rating)
     void request('vocab', { token: session.token, method: 'PATCH', body: form ? { id: entry.id, form: { key: form.key, ...result } } : { id: entry.id, review: result.review } })

@@ -1,246 +1,134 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, AppState, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
-import { CameraView, useCameraPermissions } from 'expo-camera'
-import * as ImagePicker from 'expo-image-picker'
+import { useCallback, useMemo, useState } from 'react'
+import { StyleSheet, Text, View } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import Animated from 'react-native-reanimated'
-import { APPEAR } from '../../lib/motion'
-import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles } from '../../components/ui'
-import { ScanShimmer } from '../../components/Motion'
-import { FeedbackButton } from '../../components/Feedback'
-import { useSession } from '../../state/session'
-import { recognizeImage } from '../../lib/recognition'
-import { createLiveSession, skip } from '../../lib/live-session'
+import { AccountGate, Button, colors, ErrorNotice, Loading, Page, Pressy, styles, TextButton } from '../../components/ui'
+import { request } from '../../lib/api'
+import { isolateHebrew } from '../../lib/bidi'
+import { textFromDocument } from '../../lib/documents'
+import { countsOf } from '../../lib/forms'
 import { getPref, setPref } from '../../lib/prefs'
-import type { CapturedImage, Recognition } from '../../lib/types'
+import { type LastRead, minutesFor, parseLastRead, readyStages, studiedDays, weekDots } from '../../lib/today'
+import type { TextDoc } from '../../lib/types'
+import { withVowels } from '../../lib/vowels'
+import { useSession } from '../../state/session'
+import { useVocab } from '../../state/vocab'
+import { useVowels } from '../../state/vowels'
 
-export default function Camera() {
+// The first screen: what to do today. Studying (what's due, about how long, the week's dots and
+// any stage that has just opened), the passage being read, opened where it stopped, and the
+// camera one tap away. Everything comes from the saved words and this phone's own notes.
+export default function Today() {
   const { session, setRecognition } = useSession()
-  const [permission, askPermission] = useCameraPermissions()
-  const camera = useRef<CameraView>(null)
-  const [focused, setFocused] = useState(false)
-  const [foreground, setForeground] = useState(AppState.currentState === 'active')
-  const [cameraReady, setCameraReady] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [capturing, setCapturing] = useState(false)
-  const locked = useRef(false)
-  const [live, setLive] = useState(false)
-  const [result, setResult] = useState<Recognition | null>(null)
-  const [message, setMessage] = useState('Point at a short Hebrew passage.')
-  const [error, setError] = useState<string | null>(null)
-  const [info, setInfo] = useState(false)
-  // Once a page read starts, the photo is already taken: the viewfinder freezes on it and
-  // the camera turns off, so it's clear the phone no longer needs to point at the page.
-  const [reading, setReading] = useState<CapturedImage | null>(null)
-  const liveSession = useRef<{ stop: () => void } | null>(null)
-  const userStopped = useRef(false)
-  const requestController = useRef<AbortController | null>(null)
-  const cancel = useCallback(() => {
-    liveSession.current?.stop(); liveSession.current = null
-    requestController.current?.abort()
-    setLive(false); setBusy(false); setResult(null); setCameraReady(false); setReading(null)
-  }, [])
+  const { entries, at: now, loaded, error, reload } = useVocab(session)
+  const [showVowels] = useVowels()
+  const v = (text: string) => withVowels(text, showVowels)
+  const [lastRead, setLastRead] = useState<LastRead | null>(null)
+  const [recorded, setRecorded] = useState<string[]>([])
+  const [opening, setOpening] = useState(false)
+  const [openError, setOpenError] = useState<string | null>(null)
   useFocusEffect(useCallback(() => {
-    setFocused(true)
-    return () => { setFocused(false); cancel() }
-  }, [cancel]))
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', state => {
-      setForeground(state === 'active')
-      if (state !== 'active') cancel()
-    })
-    return () => subscription.remove()
-  }, [cancel])
-  // Every camera passage the learner opens is kept in their library automatically.
-  const openReader = (value: Recognition) => { setRecognition({ ...value, library: 'auto' }); router.push('/reader') }
-  const present = (value: Recognition) => {
-    setResult(value.text ? value : null)
-    setMessage(value.text ? 'Translation of the last sampled image.' : 'No text found. Move closer and hold steady.')
-  }
-  const READING_PAGE = 'Reading the page… this takes a few seconds.'
-  const sample = async (signal: AbortSignal, read = false) => {
-    if (!camera.current || !session || locked.current) throw new Error('Camera is not ready yet.')
-    locked.current = true; setBusy(true); setResult(null); setMessage(read ? READING_PAGE : 'Reading Hebrew…')
+    void getPref('lastRead').then(value => setLastRead(parseLastRead(value)))
+    void getPref('studyDays').then(value => setRecorded(value.split(',').filter(Boolean)))
+  }, []))
+  const counts = useMemo(() => countsOf(entries, now), [entries, now])
+  const dots = useMemo(() => weekDots(studiedDays(entries, recorded)), [entries, recorded])
+  const ready = useMemo(() => readyStages(entries), [entries])
+  const recent = entries.slice(0, 6)
+
+  // The passage comes from the library, so it opens as saved, at the sentence where reading stopped.
+  const continueReading = async () => {
+    if (!session || !lastRead) return
+    setOpening(true); setOpenError(null)
     try {
-      const picture = await camera.current.takePictureAsync({ quality: 0.85, shutterSound: false })
-      if (signal.aborted) throw new Error('Canceled')
-      if (!picture) throw new Error('The camera could not capture this passage. Try again.')
-      const image = { uri: picture.uri, width: picture.width, height: picture.height }
-      if (read) setReading(image)
-      return await recognizeImage(image, session.token, { signal, read })
-    } finally { locked.current = false; if (!signal.aborted) setBusy(false) }
-  }
-  const capture = async () => {
-    if (locked.current || !session) return
-    const controller = new AbortController(); requestController.current = controller
-    setError(null); setCapturing(true)
-    try {
-      const value = await sample(controller.signal, true)
-      if (controller.signal.aborted) return
-      present(value)
-      if (value.text) openReader(value)
-    } catch (failure) { if (!controller.signal.aborted) setError((failure as Error).message) }
-    finally { setCapturing(false); setReading(null) }
-  }
-  // A live result is quick OCR of one frame; reading it in full re-reads that frame with
-  // the vision model. If that fails, the learner still gets the live result.
-  const readPassage = async (value: Recognition) => {
-    userStopped.current = true; liveSession.current?.stop()
-    if (value.source === 'page' || !value.image || !session || locked.current) { openReader(value); return }
-    const controller = new AbortController(); requestController.current = controller
-    locked.current = true; setBusy(true); setError(null); setMessage(READING_PAGE); setReading(value.image)
-    let next = value
-    try {
-      const read = await recognizeImage(value.image, session.token, { signal: controller.signal, read: true })
-      if (read.text) next = read
-    } catch { /* keep the live result */ } finally { locked.current = false; setReading(null); if (!controller.signal.aborted) setBusy(false) }
-    if (!controller.signal.aborted) openReader(next)
-  }
-  // Stops a page read in progress and brings the camera back.
-  const cancelReading = () => {
-    requestController.current?.abort()
-    locked.current = false
-    setReading(null); setBusy(false); setCapturing(false); setMessage('Point at a short Hebrew passage.')
-  }
-  const startLive = () => {
-    if (live || locked.current) return
-    setError(null); setResult(null); setLive(true)
-    liveSession.current = createLiveSession({
-      // A manual capture holds the same camera lock; skip this tick rather than
-      // failing the whole live session when the two collide.
-      sample: signal => (locked.current ? Promise.reject(skip) : sample(signal)),
-      onResult: present,
-      onError: failure => setError(failure.message),
-      onStop: () => {
-        setLive(false); setBusy(false)
-        setMessage(userStopped.current ? 'Point at a short Hebrew passage.' : 'Live preview paused to save battery. Tap Live to resume.')
-        userStopped.current = false
-      },
-    })
-  }
-  const toggleLive = () => {
-    // The choice is remembered: live preview only auto-starts for people who turned it on.
-    if (live) { userStopped.current = true; liveSession.current?.stop(); setPref('livePreview', false) }
-    else { setPref('livePreview', true); startLive() }
-  }
-  useEffect(() => {
-    // Fires only when the camera transitions to ready, not on every render —
-    // startLive's own `live`/`locked` guards cover re-entry, and re-running this
-    // on unrelated re-renders would silently restart a session the budget below
-    // (or the user) had deliberately stopped.
-    if (cameraReady) void getPref('livePreview').then(on => { if (on) startLive() })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraReady])
-  const importPhoto = async () => {
-    if (live) { userStopped.current = true; liveSession.current?.stop() }
-    if (locked.current || !session) return
-    setError(null)
-    try {
-      const selected = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 1 })
-      if (selected.canceled) return
-      const controller = new AbortController(); requestController.current = controller
-      const asset = selected.assets[0]
-      const image = { uri: asset.uri, width: asset.width, height: asset.height }
-      locked.current = true; setBusy(true); setResult(null); setMessage(READING_PAGE); setReading(image)
-      try {
-        const value = await recognizeImage(image, session.token, { signal: controller.signal, read: true })
-        if (controller.signal.aborted) return
-        present(value)
-        if (value.text) openReader(value)
-      } finally { locked.current = false; setReading(null); if (!controller.signal.aborted) setBusy(false) }
-    } catch (failure) { if (!requestController.current?.signal.aborted) setError((failure as Error).message) }
+      const { texts } = await request<{ texts?: TextDoc[] }>('texts', { token: session.token })
+      const doc = texts?.find(item => item.id === lastRead.id)
+      if (!doc) { setPref('lastRead', ''); setLastRead(null); setOpenError('That passage is no longer in your library.'); return }
+      const recognition = textFromDocument(doc)
+      const startAt = lastRead.segment < (recognition.segments?.length ?? 0) ? lastRead.segment : undefined
+      setRecognition({ ...recognition, startAt })
+      router.push('/reader')
+    } catch (failure) { setOpenError((failure as Error).message) } finally { setOpening(false) }
   }
 
   if (!session) return <Page>
     <Text style={styles.eyebrow}>FROM SEEING TO UNDERSTANDING</Text><Text style={styles.title}>Hebrew, in focus.</Text>
     <AccountGate />
+    <Button secondary title="Read a page" onPress={() => router.push('/camera')} />
   </Page>
 
-  if (!permission?.granted) return <Page>
-    <Text style={styles.eyebrow}>FROM SEEING TO UNDERSTANDING</Text><Text style={styles.title}>Hebrew, in focus.</Text>
-    <View style={styles.card}><Text style={styles.heading}>Look at the world in Hebrew</Text><Text style={styles.copy}>Allow camera access to point at text. You can also choose a photo.</Text><Button title={permission?.canAskAgain === false ? 'Open camera settings' : 'Enable camera'} onPress={() => { void (permission?.canAskAgain === false ? Linking.openSettings() : askPermission()) }} /></View>
-    <Button secondary title="Choose a photo" onPress={() => void importPhoto()} />
-    <Button secondary title="Paste Hebrew text" onPress={() => router.push('/compose')} />
-  </Page>
-
-  // Full-bleed viewfinder: the shutter and live-preview controls float over the
-  // camera feed so they stay reachable without scrolling the page out of frame.
-  return <View style={cameraStyles.page}>
-    {focused && foreground && !reading && <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="back" onCameraReady={() => setCameraReady(true)} onMountError={() => { setCameraReady(false); setError('The camera could not start. Try reopening this screen.') }} />}
-    {reading ? <>
-      <Image source={{ uri: reading.uri }} style={StyleSheet.absoluteFill} resizeMode="cover" accessibilityIgnoresInvertColors />
-      <View style={cameraStyles.readingScrim} accessible accessibilityLabel="Reading the page">
-        <ScanShimmer />
-        <Pressable accessibilityRole="button" accessibilityLabel="Cancel" onPress={cancelReading} hitSlop={10} style={cameraStyles.cancel}>
-          <Ionicons name="close" size={22} color={colors.white} />
-        </Pressable>
-      </View>
-    </> : <View pointerEvents="none" style={cameraStyles.guide} />}
-
-    {!reading && <>
-    <Pressable accessibilityRole="switch" accessibilityLabel="Live preview" accessibilityState={{ checked: live }} disabled={!cameraReady || (!live && busy)} onPress={toggleLive} style={[cameraStyles.livePill, live && cameraStyles.livePillOn]}>
-      <View style={[cameraStyles.liveDot, live && { backgroundColor: colors.lime }]} />
-      <Text style={cameraStyles.livePillText}>{live ? 'Live on' : 'Live off'}</Text>
-    </Pressable>
-    <View style={cameraStyles.topRight}>
-      <FeedbackButton variant="overlay" screen="camera" context={() => ({ message, error, live, result: result && { raw: result.raw, segments: result.segments } })} />
-      <Pressable accessibilityRole="button" accessibilityLabel="About camera translation" onPress={() => setInfo(value => !value)} style={cameraStyles.infoButton}>
-        <Ionicons name="information-circle-outline" size={22} color={colors.white} />
-      </Pressable>
+  return <Page onRefresh={reload}>
+    <View style={{ gap: 4 }}>
+      <Text style={styles.eyebrow}>{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase()}</Text>
+      <Text style={[styles.title, today.greeting]}>{greeting(new Date().getHours())}</Text>
     </View>
-    {info && <View style={cameraStyles.infoCard}>
-      <Text style={cameraStyles.infoText}>Photos you translate are sent to Google for recognition and are not stored by Mila. Live preview is off until you turn it on. It reads up to 6 images over 30 seconds, then pauses to save battery.</Text>
-      <Button secondary title="Got it" onPress={() => setInfo(false)} />
+    <ErrorNotice message={error} />
+    {!loaded ? <Loading /> : <View style={styles.card}>
+      {entries.length === 0
+        ? <><Text style={styles.heading}>Nothing to study yet</Text><Text style={styles.copy}>Read a page and save the words you want to keep. They come back here to study.</Text></>
+        : <>
+          <Text style={styles.heading}>{counts.due ? `${counts.due} ${counts.due === 1 ? 'card' : 'cards'} due · about ${minutesFor(counts.due)} min` : 'All caught up'}</Text>
+          <Button title={counts.due ? 'Study now' : 'Study ahead'} secondary={!counts.due} onPress={() => router.push('/practice')} />
+          {ready.map(item => <Text key={`${item.entry.id}${item.label}`} style={today.ready}>New to learn: <Text style={today.hebrew}>{isolateHebrew(v(item.entry.lemma))}</Text> · {item.label}</Text>)}
+        </>}
+      <Week dots={dots} />
     </View>}
-
-    <View style={cameraStyles.bottomBar}>
-      <ErrorNotice message={error} />
-      <View style={[styles.row, { gap: 8, flexWrap: 'nowrap' }]}>
-        {busy && <ActivityIndicator size="small" color={colors.white} />}
-        <Text accessibilityLiveRegion="polite" numberOfLines={2} style={[cameraStyles.message, { flex: 1 }]}>{message}</Text>
+    {lastRead && <Pressy accessibilityRole="button" accessibilityLabel={`Continue reading ${lastRead.title}`} disabled={opening} onPress={() => void continueReading()} style={[styles.card, { gap: 6, opacity: opening ? 0.6 : 1 }]}>
+      <Text style={today.label}>CONTINUE READING</Text>
+      <Text style={today.passage} numberOfLines={1}>{lastRead.title}</Text>
+      <View style={[styles.row, { gap: 6 }]}>
+        <Text style={styles.copy}>Sentence {lastRead.segment + 1} · {new Date(lastRead.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</Text>
+        <Ionicons name="arrow-forward" size={16} color={colors.green} />
       </View>
-      {result && <Animated.View entering={APPEAR} style={cameraStyles.resultCard}>
-        <Text style={cameraStyles.hebrewCompact} numberOfLines={2}>{result.text}</Text>
-        <Text style={cameraStyles.translationCompact} numberOfLines={2}>{result.translation}</Text>
-        <Button title="Read this passage" busy={busy && !live} onPress={() => void readPassage(result)} />
-      </Animated.View>}
-      <View style={cameraStyles.controls}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Choose a photo" disabled={busy && !live} onPress={() => void importPhoto()} style={cameraStyles.sideButton}>
-          <Ionicons name="images-outline" size={24} color={colors.white} /><Text style={cameraStyles.sideLabel}>Photo</Text>
-        </Pressable>
-        <Pressy moment="shutter" depth={0.88} accessibilityRole="button" accessibilityLabel="Capture" accessibilityState={{ disabled: !cameraReady || capturing, busy: capturing }} disabled={!cameraReady || capturing} onPress={() => void capture()} style={[cameraStyles.shutter, !cameraReady && { opacity: 0.6 }]}>
-          {capturing ? <ActivityIndicator color={colors.green} /> : <View style={cameraStyles.shutterInner} />}
-        </Pressy>
-        <Pressable accessibilityRole="button" accessibilityLabel="Paste Hebrew text" onPress={() => router.push('/compose')} style={cameraStyles.sideButton}>
-          <Ionicons name="clipboard-outline" size={24} color={colors.white} /><Text style={cameraStyles.sideLabel}>Paste</Text>
-        </Pressable>
-      </View>
+    </Pressy>}
+    <ErrorNotice message={openError} />
+    <View style={{ gap: 8 }}>
+      <Button title="Read a page" onPress={() => router.push('/camera')} />
+      <TextButton title="Or paste Hebrew text" onPress={() => router.push('/compose')} />
     </View>
-    </>}
+    {recent.length > 0 && <View style={{ gap: 10 }}>
+      <Text style={today.label}>RECENTLY SAVED</Text>
+      <View style={[styles.row, { gap: 8 }]}>
+        {recent.map(entry => <Pressy key={entry.id} moment="tick" accessibilityRole="button" accessibilityLabel={`${entry.lemma}, ${entry.gloss}`}
+          onPress={() => router.push({ pathname: '/word', params: { id: entry.id } })} style={today.chip}>
+          <Text style={today.chipText}>{v(entry.lemma)}</Text>
+        </Pressy>)}
+      </View>
+    </View>}
+  </Page>
+}
+
+// The last seven days as dots: filled for a day studied, today ringed.
+function Week({ dots }: { dots: ReturnType<typeof weekDots> }) {
+  const studied = dots.filter(dot => dot.studied).length
+  return <View accessible accessibilityLabel={`Studied ${studied} of the last 7 days`} style={{ gap: 6 }}>
+    <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
+      {dots.map(dot => <View key={dot.day} style={{ alignItems: 'center', gap: 4 }}>
+        <View style={[today.dot, dot.studied && today.dotOn, dot.today && today.dotToday]} />
+        <Text style={[today.letter, dot.today && { color: colors.ink, fontWeight: '700' }]}>{dot.letter}</Text>
+      </View>)}
+    </View>
   </View>
 }
-const cameraStyles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: '#142621' },
-  readingScrim: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: '#0E1E1A80', alignItems: 'center', justifyContent: 'center' },
-  cancel: { position: 'absolute', top: 16, left: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: '#00000066', alignItems: 'center', justifyContent: 'center' },
-  guide: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, margin: 16, borderWidth: 1, borderColor: '#FFFFFF66', borderRadius: 16 },
-  livePill: { position: 'absolute', top: 16, left: 16, flexDirection: 'row', alignItems: 'center', gap: 8, height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: '#00000066' },
-  livePillOn: { backgroundColor: '#145C4BDD' },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FFFFFF88' },
-  livePillText: { color: colors.white, fontSize: 13, fontWeight: '700' },
-  topRight: { position: 'absolute', top: 16, right: 16, flexDirection: 'row', gap: 10 },
-  infoButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#00000066', alignItems: 'center', justifyContent: 'center' },
-  infoCard: { position: 'absolute', top: 60, right: 16, left: 16, backgroundColor: colors.white, borderRadius: 16, padding: 16, gap: 12 },
-  infoText: { fontSize: 14, lineHeight: 21, color: colors.muted },
-  bottomBar: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 16, paddingBottom: 20, gap: 12, backgroundColor: '#0E1E1AB3', borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
-  shutter: { width: 76, height: 76, borderRadius: 38, borderWidth: 4, borderColor: colors.white, alignItems: 'center', justifyContent: 'center' },
-  shutterInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: colors.white },
-  sideButton: { width: 64, alignItems: 'center', gap: 4, paddingVertical: 6 },
-  sideLabel: { color: colors.white, fontSize: 12, fontWeight: '600' },
-  message: { color: colors.white, fontSize: 14, lineHeight: 20 },
-  resultCard: { padding: 14, borderRadius: 16, backgroundColor: colors.white, gap: 8 },
-  hebrewCompact: { fontSize: 20, lineHeight: 28, textAlign: 'right', writingDirection: 'rtl', color: colors.ink },
-  translationCompact: { fontSize: 14, lineHeight: 20, color: colors.muted },
+
+// Hebrew for the time of day.
+function greeting(hour: number) {
+  if (hour >= 5 && hour < 12) return 'בוקר טוב'
+  if (hour >= 12 && hour < 17) return 'צהריים טובים'
+  if (hour >= 17 && hour < 22) return 'ערב טוב'
+  return 'לילה טוב'
+}
+
+const today = StyleSheet.create({
+  greeting: { writingDirection: 'rtl', textAlign: 'left' },
+  label: { color: colors.muted, fontSize: 12, fontWeight: '700', letterSpacing: 1.5 },
+  passage: { fontSize: 20, lineHeight: 30, color: colors.ink, writingDirection: 'rtl', textAlign: 'right' },
+  ready: { fontSize: 14, color: colors.muted },
+  hebrew: { color: colors.ink, fontWeight: '600' },
+  dot: { width: 14, height: 14, borderRadius: 7, borderWidth: 1.5, borderColor: colors.line, backgroundColor: colors.white },
+  dotOn: { backgroundColor: colors.green, borderColor: colors.green },
+  dotToday: { borderColor: colors.green, borderWidth: 2 },
+  letter: { fontSize: 11, color: colors.muted },
+  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
+  chipText: { fontSize: 18, color: colors.ink },
 })
