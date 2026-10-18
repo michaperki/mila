@@ -4,6 +4,7 @@ import { getPref, setPref } from './prefs'
 
 // The app's feel, in one vocabulary of named moments. Each is a haptic and, for a few, a short
 // sound. Screens call `feel('right')` and never pick haptics or sounds themselves.
+// One action is one moment: a grade that also moves on plays the grade, not the move as well.
 // Reading stays quiet: reader moments are touch only, except a soft sound on saving a word.
 // Sounds: Kenney "Interface Sounds" (CC0), assets/sounds; Account → Sounds / Haptics.
 export type Moment =
@@ -12,6 +13,7 @@ export type Moment =
   | 'tick' // a selection moving: a word added to a drag, the next sentence
   | 'select' // a word or sentence picked
   | 'reveal' // Show answer
+  | 'advance' // the next or previous study card, by swipe, arrow or Next
   | 'right' | 'wrong' // a choice answered
   | 'graded' // Again / Hard
   | 'gotIt' // Got it
@@ -20,6 +22,7 @@ export type Moment =
   | 'complete' // a practice session done
 
 const SOUNDS = {
+  advance: require('../../assets/sounds/advance.wav'),
   reveal: require('../../assets/sounds/reveal.wav'),
   right: require('../../assets/sounds/right.wav'),
   wrong: require('../../assets/sounds/wrong.wav'),
@@ -30,7 +33,7 @@ const SOUNDS = {
 } as const
 type Sound = keyof typeof SOUNDS
 const SOUND_OF: Partial<Record<Moment, Sound>> = {
-  reveal: 'reveal', right: 'right', gotIt: 'right', wrong: 'wrong', graded: 'graded', saved: 'saved', unlock: 'unlock', complete: 'complete',
+  advance: 'advance', reveal: 'reveal', right: 'right', gotIt: 'right', wrong: 'wrong', graded: 'graded', saved: 'saved', unlock: 'unlock', complete: 'complete',
 }
 const HAPTIC: Record<Moment, () => Promise<void>> = {
   press: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),
@@ -38,6 +41,7 @@ const HAPTIC: Record<Moment, () => Promise<void>> = {
   tick: () => Haptics.selectionAsync(),
   select: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft),
   reveal: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),
+  advance: () => Haptics.selectionAsync(),
   right: () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
   gotIt: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium),
   wrong: () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error),

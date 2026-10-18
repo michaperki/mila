@@ -1,4 +1,4 @@
-import { type ComponentProps, type ReactNode, useEffect, useState } from 'react'
+import { type ComponentProps, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import Animated, { Easing, interpolate, ReduceMotion, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated'
@@ -19,24 +19,48 @@ export function ProgressBar({ value }: { value: number }) {
 const SWIPE = 110
 // A study card that is swiped to move through the deck: left for the next card, right for the
 // one before (when there is one). While dragging it tilts; crossing the line gives a tick.
-// Short of the line, or right on the first card, it slides back.
-export function SwipeCard({ canGoBack, onSwipe, children, style }: { canGoBack: boolean; onSwipe: (way: 'next' | 'previous') => void; children: ReactNode; style?: StyleProp<ViewStyle> }) {
+// Short of the line, or right on the first card, it slides back. `onDrag` says when a drag
+// starts and ends: the card moves with the finger, so a press inside it would otherwise count
+// the release as a tap.
+// It stays mounted for the whole deck: only its content changes, and `card` (which card it
+// holds) brings it back to the middle once the next one is in. The gesture is made once and
+// reads the latest callbacks, so a re-render during a swipe never swaps it mid-flight, and a
+// view with a gesture on it is never unmounted while it is animating. `onSwipe` returns false
+// when there was nowhere to go, and the card slides back.
+export function SwipeCard({ card, canGoBack, onSwipe, onDrag, children, style }: {
+  card: string | number; canGoBack: boolean; onSwipe: (way: 'next' | 'previous') => boolean | void; onDrag?: (dragging: boolean) => void
+  children: ReactNode; style?: StyleProp<ViewStyle>
+}) {
   const x = useSharedValue(0)
   const past = useSharedValue(0)
-  const pan = Gesture.Pan().activeOffsetX([-14, 14]).failOffsetY([-16, 16])
-    .onUpdate(event => {
-      x.set(event.translationX)
-      const side = event.translationX < -SWIPE ? -1 : event.translationX > SWIPE && canGoBack ? 1 : 0
-      if (side !== past.get()) { past.set(side); if (side) scheduleOnRN(feel, 'tick') }
-    })
-    .onEnd(event => {
-      const back = event.translationX > 0
-      const far = Math.abs(event.translationX) > SWIPE || Math.abs(event.velocityX) > 900
-      if (!far || (back && !canGoBack)) { x.set(settle(0)); past.set(0); return }
-      x.set(withTiming(back ? 520 : -520, { duration: DURATION.quick, easing: Easing.out(Easing.quad), reduceMotion: ReduceMotion.System }, done => {
-        if (done) scheduleOnRN(onSwipe, back ? 'previous' : 'next')
-      }))
-    })
+  const back = useSharedValue(canGoBack)
+  useEffect(() => { back.set(canGoBack) }, [canGoBack, back])
+  useEffect(() => { x.set(0); past.set(0) }, [card, x, past])
+  const latest = useRef({ onSwipe, onDrag })
+  useEffect(() => { latest.current = { onSwipe, onDrag } })
+  // The gesture's callbacks read `latest` only when a swipe happens, never while rendering.
+  /* eslint-disable react-hooks/refs */
+  const pan = useMemo(() => {
+    const swiped = (way: 'next' | 'previous') => { if (latest.current.onSwipe(way) === false) { x.set(settle(0)); past.set(0) } }
+    const dragging = (on: boolean) => latest.current.onDrag?.(on)
+    return Gesture.Pan().activeOffsetX([-14, 14]).failOffsetY([-16, 16])
+      .onStart(() => { scheduleOnRN(dragging, true) })
+      .onFinalize((_event, activated) => { if (activated) scheduleOnRN(dragging, false) })
+      .onUpdate(event => {
+        x.set(event.translationX)
+        const side = event.translationX < -SWIPE ? -1 : event.translationX > SWIPE && back.get() ? 1 : 0
+        if (side !== past.get()) { past.set(side); if (side) scheduleOnRN(feel, 'tick') }
+      })
+      .onEnd(event => {
+        const toBack = event.translationX > 0
+        const far = Math.abs(event.translationX) > SWIPE || Math.abs(event.velocityX) > 900
+        if (!far || (toBack && !back.get())) { x.set(settle(0)); past.set(0); return }
+        x.set(withTiming(toBack ? 520 : -520, { duration: DURATION.quick, easing: Easing.out(Easing.quad), reduceMotion: ReduceMotion.System }, done => {
+          if (done) scheduleOnRN(swiped, toBack ? 'previous' : 'next')
+        }))
+      })
+  }, [x, past, back])
+  /* eslint-enable react-hooks/refs */
   const moving = useAnimatedStyle(() => ({ transform: [{ translateX: x.get() }, { rotate: `${x.get() / 28}deg` }] }))
   return <GestureDetector gesture={pan}><Animated.View style={[style, moving]}>{children}</Animated.View></GestureDetector>
 }

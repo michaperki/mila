@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Animated from 'react-native-reanimated'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { router } from 'expo-router'
@@ -8,7 +8,7 @@ import { stop as stopSpeaking } from '../lib/speech'
 import { ListenButton } from '../components/Listen'
 import { Button, colors, ErrorNotice, Page, Pill, Pressy, styles } from '../components/ui'
 import { FlipCard, Shake, SwipeCard } from '../components/Motion'
-import { APPEAR, CARD_BACK_IN, CARD_IN, DISAPPEAR } from '../lib/motion'
+import { CARD_BACK_IN, CARD_IN } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { answer, type Card, cardKey, choicesFor, deckOf, type Include, missingStages, type Order, type Result, stagesOf, unlockedStages } from '../lib/forms'
@@ -55,6 +55,10 @@ export default function Practice() {
   const [error, setError] = useState<string | null>(null)
   // The latest copy of each word, so results and unlocks build on each other within a session.
   const [words, setWords] = useState<Record<string, VocabEntry>>({})
+  // A drag in progress, or when the last one ended: the release of a swipe is not a tap.
+  const drag = useRef<{ on: boolean; ended: number }>({ on: false, ended: 0 })
+  const tapped = () => !drag.current.on && Date.now() - drag.current.ended > 300
+  const onDrag = (dragging: boolean) => { drag.current = { on: dragging, ended: dragging ? drag.current.ended : Date.now() } }
   const keep = (ready: VocabEntry) => setWords(current => ({ ...current, [ready.id]: withNewForms(current[ready.id], ready) }))
 
   useEffect(() => {
@@ -96,19 +100,24 @@ export default function Practice() {
     onMore={() => setDone(false)} />
 
   // Moving through the deck. Past the end, the deck goes round again from the latest copy of
-  // each word (its order reflects what was just studied); a graded card shows its answer.
-  // `cards`: the deck as just changed by a grade, if it was.
-  const go = (step: 1 | -1, cards = deck) => {
+  // each word (its order reflects what was just studied). Every card comes back to its question
+  // side, a quiz card to its choices; a grade it was given stays and shows once it is turned.
+  // `cards`: the deck as just changed by a grade, if it was; `quiet` when the grade already
+  // made its sound. False when there was nowhere to go.
+  const go = (step: 1 | -1, cards = deck, quiet = false) => {
     const to = position + step
-    if (to < 0) return
+    if (to < 0) return false
     if (to >= cards.length) {
       const again = deckOf(Object.values(words), settings, Date.now(), `${Date.now()}`)
-      if (!again.length) return
+      if (!again.length) return false
       // Don't show the card just studied twice in a row.
       if (again.length > 1 && cardKey(again[0]) === cardKey(cards[position])) again.push(again.shift()!)
       setDeck([...cards, ...again])
     }
-    feel('tick'); setWay(step === 1 ? 'next' : 'previous'); setPosition(to); setFlipped(grades[to] !== undefined)
+    if (!quiet) feel('advance')
+    setWay(step === 1 ? 'next' : 'previous'); setPosition(to); setFlipped(false)
+    setPicks(current => { const { [to]: _gone, ...rest } = current; return rest })
+    return true
   }
   const stopStudying = () => { stopSpeaking(); if (graded.length) setDone(true); else router.back() }
 
@@ -172,7 +181,7 @@ export default function Practice() {
       setDeck(cards)
     }
     setBefore(current => ({ ...current, [position]: start })); setGrades(current => ({ ...current, [position]: rating }))
-    if (advance) go(1, cards)
+    if (advance) go(1, cards, true)
   }
 
   const listen = form ? form.sentence : entry.lemma
@@ -184,20 +193,23 @@ export default function Practice() {
     <TopBar settings={settings} change={change} position={position} canGoBack={position > 0} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} />
     <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: 'center' }]}>
       <ErrorNotice message={error} />
-      <Animated.View key={position} entering={way === 'next' ? CARD_IN : CARD_BACK_IN} exiting={DISAPPEAR}>
-        <SwipeCard canGoBack={position > 0} onSwipe={direction => go(direction === 'next' ? 1 : -1)}>
+      {/* One swipe card for the whole deck; only what is on it changes (see SwipeCard). No exit
+          animation: a swiped card has already left. */}
+      <SwipeCard card={position} canGoBack={position > 0} onSwipe={direction => go(direction === 'next' ? 1 : -1)} onDrag={onDrag}>
+        <Animated.View key={position} entering={way === 'next' ? CARD_IN : CARD_BACK_IN}>
           {choices
             ? <View style={[styles.card, practice.card]}>
               <CardHead label={stage?.label} lemma={v(entry.lemma)} listen={picked !== null ? listen : undefined} />
               {side(false, picked !== null)}
               <Choices choices={choices} answer={form!.he} picked={picked} v={v} onPick={option => {
+                if (!tapped()) return
                 const isRight = bare(option) === bare(form!.he)
                 setPicks(current => ({ ...current, [position]: option })); feel(isRight ? 'right' : 'wrong')
                 grade(isRight ? 'good' : 'again', { felt: true, advance: false })
               }} />
               {picked !== null && <Text style={[practice.verdict, { color: right ? colors.green : colors.red }]}>{right ? 'Right' : 'Not quite'}</Text>}
             </View>
-            : <FlipCard flipped={flipped} onPress={() => { feel('reveal'); setFlipped(value => !value) }} style={[styles.card, practice.card]}
+            : <FlipCard flipped={flipped} onPress={() => { if (tapped()) { feel('reveal'); setFlipped(value => !value) } }} style={[styles.card, practice.card]}
               accessibilityLabel={flipped ? 'Answer side' : 'Question side'}
               front={<>
                 <CardHead label={form ? stage?.label : 'Word'} />
@@ -207,14 +219,15 @@ export default function Practice() {
                 <CardHead label={form ? stage?.label : 'Word'} lemma={form ? v(entry.lemma) : undefined} listen={listen} />
                 {side(englishFirst, true)}
               </>} />}
-        </SwipeCard>
-      </Animated.View>
+        </Animated.View>
+      </SwipeCard>
     </ScrollView>
-    <View style={[practice.actions, { paddingBottom: 12 + insets.bottom }]}>
+    {/* Room for the buttons is kept while there are none, so the card doesn't move when they appear. */}
+    <View style={[practice.actions, { paddingBottom: 12 + insets.bottom }, !(choices ? picked !== null : flipped) && { borderTopColor: 'transparent' }]}>
       {choices
-        ? (picked !== null ? <Button title="Next" onPress={() => go(1)} style={{ flex: 1 }} />
-          : <Text style={[practice.hint, practice.waiting]}>Choose the form</Text>)
-        : !flipped ? <Text style={[practice.hint, practice.waiting]}>Tap the card to turn it over</Text>
+        ? (picked !== null ? <Button title="Next" moment={null} onPress={() => go(1)} style={{ flex: 1 }} />
+          : null)
+        : !flipped ? null
           : RATINGS.map(({ rating, label }) => <Button key={rating} moment={null} secondary={grades[position] !== undefined ? grades[position] !== rating : rating !== 'good'}
             title={label} detail={waitOf(before[position]?.review ?? record.review, rating)} onPress={() => grade(rating)} style={{ flex: 1, paddingHorizontal: 8 }} />)}
     </View>
@@ -261,12 +274,12 @@ function CardHead({ label, lemma, listen }: { label?: string; lemma?: string; li
 function WordSide({ entry, english, answer: answerSide, v }: { entry: VocabEntry; english: boolean; answer: boolean; v: (text: string) => string }) {
   const hebrew = <Text style={practice.word}>{v(entry.lemma)}</Text>
   const meaning = <Text style={practice.meaning}>{entry.gloss}</Text>
-  if (!answerSide) return <>{english ? meaning : hebrew}<Text style={practice.hint}>{english ? 'How do you say it in Hebrew?' : 'What does it mean?'}</Text></>
+  if (!answerSide) return english ? meaning : hebrew
   const grammar = [entry.partOfSpeech, entry.binyan, entry.root && `root ${entry.root}`].filter(Boolean).join(' · ')
-  return <Animated.View entering={APPEAR} style={{ gap: 8, alignItems: 'center', alignSelf: 'stretch' }}>
+  return <View style={{ gap: 8, alignItems: 'center', alignSelf: 'stretch' }}>
     {english ? <>{meaning}{hebrew}</> : <>{hebrew}{meaning}</>}
     {!!grammar && <Text style={practice.detail}>{grammar}</Text>}
-  </Animated.View>
+  </View>
 }
 
 // One form in its sentence: the Hebrew sentence with the form marked, or its English with the
@@ -275,14 +288,14 @@ function SentenceSide({ form, english, answer: answerSide, hideMark, v }: { form
   const hebrew = <Text style={practice.sentence}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} /></Text>
   if (!answerSide) return <>
     {english ? <Text style={practice.english}><Marked text={form.translation} mark={form.enMark} /></Text> : hebrew}
-    <Text style={practice.hint}>{hideMark ? `Fill in: ${form.en}` : english ? 'How do you say the marked words in Hebrew?' : 'What does the marked word mean?'}</Text>
+    {hideMark && <Text style={practice.hint}>{form.en}</Text>}
   </>
-  return <Animated.View entering={APPEAR} style={{ gap: 8, alignSelf: 'stretch' }}>
+  return <View style={{ gap: 8, alignSelf: 'stretch' }}>
     {hebrew}
     <Text style={practice.meaning}>{form.en}</Text>
     <Text style={[practice.detail, { textAlign: 'center' }]}>{v(form.he)}</Text>
     {!!form.translation && <Text style={practice.detail}>{form.translation}</Text>}
-  </Animated.View>
+  </View>
 }
 
 // The sentence with the form marked, or blanked for a quiz (an attached prefix such as ו or ש stays).
@@ -371,7 +384,6 @@ const practice = StyleSheet.create({
   english: { fontSize: 20, lineHeight: 30, color: colors.ink, textAlign: 'center' },
   blank: { textDecorationLine: 'underline', textDecorationColor: colors.green, color: colors.green },
   hint: { fontSize: 15, color: colors.muted, textAlign: 'center' },
-  waiting: { flex: 1, paddingVertical: 14 },
   option: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   optionRight: { borderColor: colors.green, backgroundColor: colors.lime },
   optionWrong: { borderColor: colors.red, backgroundColor: '#FBE7E6' },
