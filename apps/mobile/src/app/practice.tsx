@@ -11,7 +11,7 @@ import { FlipCard, Shake, SwipeCard } from '../components/Motion'
 import { CARD_BACK_IN, CARD_IN } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
-import { answer, type Card, cardKey, choicesFor, deckOf, type Include, missingStages, type Order, type Result, stagesOf, unlockedStages } from '../lib/forms'
+import { answer, type Card, cardKey, deckOf, type Include, missingStages, type Order, quizOf, type Result, stagesOf, unlockedStages } from '../lib/forms'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, setPref } from '../lib/prefs'
 import { waitOf, type Rating } from '../lib/review'
@@ -152,9 +152,11 @@ export default function Practice() {
   // Mixed: each card shows one side or the other first, settled per card and position.
   const front: 'he' | 'en' = settings.front === 'mixed' ? ([...`${cardKey(card)}${position}`].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 ? 'en' : 'he') : settings.front
   const englishFirst = front === 'en' && (!form || !!form.translation)
-  const choices = settings.quiz && form && form.stage !== 'meanings' ? choicesFor(entry, form, `${form.key}-${form.review?.reps ?? 0}`) : null
+  // Quiz mode: a word card shown in Hebrew asks for its meaning, shown in English for the word.
+  const quiz = settings.quiz ? quizOf(Object.values(words), { entry, form }, !englishFirst, `${cardKey(card)}-${record.review?.reps ?? 0}`) : null
+  const choices = quiz?.options ?? null
   const picked = picks[position] ?? null
-  const right = !!choices && picked !== null && bare(picked) === bare(form!.he)
+  const right = !!quiz && picked !== null && bare(picked) === bare(quiz.answer)
 
   // A grade records the card's result (from its record before this session's grade, so changing
   // a grade replaces it) and moves on; a quiz choice grades without moving on.
@@ -200,10 +202,10 @@ export default function Practice() {
           {choices
             ? <View style={[styles.card, practice.card]}>
               <CardHead label={stage?.label} lemma={v(entry.lemma)} listen={picked !== null ? listen : undefined} />
-              {side(false, picked !== null)}
-              <Choices choices={choices} answer={form!.he} picked={picked} v={v} onPick={option => {
+              {side(!form && englishFirst, picked !== null)}
+              <Choices choices={choices} answer={quiz!.answer} picked={picked} v={v} onPick={option => {
                 if (!tapped()) return
-                const isRight = bare(option) === bare(form!.he)
+                const isRight = bare(option) === bare(quiz!.answer)
                 setPicks(current => ({ ...current, [position]: option })); feel(isRight ? 'right' : 'wrong')
                 grade(isRight ? 'good' : 'again', { felt: true, advance: false })
               }} />
@@ -227,7 +229,7 @@ export default function Practice() {
       {choices
         ? (picked !== null ? <Button title="Next" moment={null} onPress={() => go(1)} style={{ flex: 1 }} />
           : null)
-        : !flipped ? null
+        : !flipped ? (settings.quiz ? <Text style={[practice.hint, { flex: 1, paddingVertical: 14 }]}>Not enough options to quiz this card yet, so tap it to turn it over</Text> : null)
           : RATINGS.map(({ rating, label }) => <Button key={rating} moment={null} secondary={grades[position] !== undefined ? grades[position] !== rating : rating !== 'good'}
             title={label} detail={waitOf(before[position]?.review ?? record.review, rating)} onPress={() => grade(rating)} style={{ flex: 1, paddingHorizontal: 8 }} />)}
     </View>

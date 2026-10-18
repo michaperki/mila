@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { answer, cardKey, choicesFor, countsOf, deckOf, missingStages, newCards, spread, stageState, statusOf, unlockedStages } from '../src/lib/forms.ts'
+import { answer, cardKey, choicesFor, countsOf, deckOf, missingStages, newCards, quizOf, spread, stageState, statusOf, unlockedStages } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -90,4 +90,27 @@ test('studying ahead keeps the schedule on Got it; Hard brings it to tomorrow, A
   assert.equal(answer(form('present:m.sg', later), 'again', now).review!.due, now)
   // A word card is answered with the entry's own review.
   assert.equal(answer({ review: undefined }, 'good', now).review!.interval, 1)
+})
+
+test('word and meanings cards are quizzed with the learner\'s other saved words', () => {
+  const open = verb([form('meanings:sense1', { he: 'לִפְתֹּחַ' })])
+  const others = [
+    verb([], { id: 'close', lemma: 'לִסְגֹּר', gloss: 'to close, to shut' }),
+    verb([], { id: 'write', lemma: 'לִכְתֹּב', gloss: 'to write' }),
+    verb([], { id: 'book', lemma: 'סֵפֶר', gloss: 'book', partOfSpeech: 'noun' }),
+    verb([], { id: 'idiom', lemma: 'בְּעֶצֶם', gloss: 'actually', partOfSpeech: 'phrase' }),
+  ]
+  const all = [open, ...others]
+  // A word card in Hebrew asks for its meaning (first senses only); in English, for the word.
+  const english = quizOf(all, { entry: open, form: null }, true, 'seed')!
+  assert.equal(english.answer, 'to open')
+  assert.deepEqual([...english.options].sort(), ['book', 'to close', 'to open', 'to write'])
+  const hebrew = quizOf(all, { entry: open, form: null }, false, 'seed')!
+  assert.equal(hebrew.answer, 'לִפְתֹּחַ')
+  assert.ok(!hebrew.options.includes('בְּעֶצֶם'))
+  assert.deepEqual(quizOf(all, { entry: open, form: null }, false, 'seed'), hebrew)
+  // A meanings card chooses the word for its sentence.
+  assert.equal(quizOf(all, { entry: open, form: open.forms![0] }, true, 'seed')!.answer, 'לִפְתֹּחַ')
+  // Too few other words: no quiz.
+  assert.equal(quizOf([open, others[0]], { entry: open, form: null }, true, 'seed'), null)
 })

@@ -156,6 +156,36 @@ export function choicesFor(entry: VocabEntry, form: FormCard, seed: string): str
   if (picked.length < 2) return null
   return shuffle([form.he, ...picked], seed)
 }
+
+// Any card as a quiz: the right answer among three or four options, or null when there aren't
+// enough to make a real choice (the card is then flipped as usual). A later stage's form chooses
+// among the word's other forms (choicesFor). A meanings card (the word blanked in its sentence)
+// and a word card have no other forms, so they choose among the learner's other saved words,
+// same part of speech first: the Hebrew word, or for a word card shown in Hebrew its English
+// meaning (the first sense only, so the length of a list doesn't give it away).
+export type Quiz = { options: string[]; answer: string }
+export const firstSense = (gloss: string) => gloss.split(/[,;]/)[0].trim()
+export function quizOf(entries: VocabEntry[], { entry, form }: Card, english: boolean, seed: string): Quiz | null {
+  if (form && form.stage !== 'meanings') {
+    const options = choicesFor(entry, form, seed)
+    return options && { options, answer: form.he }
+  }
+  const inEnglish = !form && english
+  const valueOf = (item: VocabEntry) => (inEnglish ? firstSense(item.gloss || '') : item.lemma || '')
+  const key = (text: string) => stripNiqqud(text).trim().toLowerCase()
+  const answer = form ? form.he : valueOf(entry)
+  if (!answer) return null
+  const others = shuffle(entries.filter(item => item.id !== entry.id && item.partOfSpeech !== 'phrase'), seed)
+    .sort((a, b) => Number(b.partOfSpeech === entry.partOfSpeech) - Number(a.partOfSpeech === entry.partOfSpeech))
+  const picked: string[] = []
+  for (const other of others) {
+    const value = valueOf(other)
+    if (picked.length < 3 && value && key(value) !== key(answer) && !picked.some(item => key(item) === key(value))) picked.push(value)
+  }
+  if (picked.length < 2) return null
+  return { options: shuffle([answer, ...picked], seed), answer }
+}
+
 function shuffle<T>(items: T[], seed: string): T[] {
   let state = [...seed].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7)
   const random = () => { state = (state * 1664525 + 1013904223) >>> 0; return state / 2 ** 32 }
