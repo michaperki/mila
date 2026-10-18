@@ -2,15 +2,17 @@ import { useCallback, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 import { Alert, Linking, Switch, Text, View } from 'react-native'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles, TextButton } from '../../components/ui'
-import { request } from '../../lib/api'
-import { applyLatestUpdate, describeVersion } from '../../lib/app-info'
-import { useSession } from '../../state/session'
-import { clearVocab } from '../../state/vocab'
-import { useVowels } from '../../state/vowels'
-import { feedbackSettings, setFeedback } from '../../lib/feedback'
-import { setVoice, speak, useSpeech, VOICES, type Voice } from '../../lib/speech'
-import { ListenButton } from '../../components/Listen'
+import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles, TextButton } from '../components/ui'
+import { request } from '../lib/api'
+import { applyLatestUpdate, describeVersion } from '../lib/app-info'
+import { useSession } from '../state/session'
+import { clearVocab } from '../state/vocab'
+import { useVowels } from '../state/vowels'
+import { feedbackSettings, setFeedback } from '../lib/feedback'
+import { setVoice, speak, useSpeech, VOICES, type Voice } from '../lib/speech'
+import { ListenButton } from '../components/Listen'
+import { getPref, setPref } from '../lib/prefs'
+import { lastTree, plantedOn, type Tree } from '../lib/tree'
 // Account → AI usage: the `ai-usage` function's summary of this month's paid calls, and how
 // many answers came from the cache instead (free).
 type Usage = { since: string; cost: number; requests: number; features: { feature: string; requests: number; cacheHits?: number; cost: number }[] }
@@ -36,6 +38,13 @@ export default function Account() {
   const { voice } = useSpeech()
   const chooseVoice = (id: Voice) => { setVoice(id); void speak(SAMPLE, session?.token, `sample-${id}`) }
   const [usage, setUsage] = useState<Usage | null>(null)
+  const [tree, setTree] = useState<Tree | null>(null)
+  const [sway, setSway] = useState(true)
+  useFocusEffect(useCallback(() => {
+    void lastTree(session).then(setTree)
+    void getPref('treeMotion').then(setSway)
+  }, [session]))
+  const chooseSway = (value: boolean) => { setSway(value); setPref('treeMotion', value) }
   useFocusEffect(useCallback(() => {
     if (!session) return
     const controller = new AbortController()
@@ -54,6 +63,9 @@ export default function Account() {
   return <Page>
     <ErrorNotice message={error || restoreError} />
     {session ? <View style={styles.card}><Text style={styles.heading}>{session.user.email}</Text><Text style={styles.copy}>{session.user.tier === 'premium' ? 'Premium' : 'Free'} account · shared with Mila on the web</Text></View> : <AccountGate />}
+    <View style={styles.card}>
+      <SwitchRow title="Tree in the wind" detail={`${tree && plantedOn(tree) ? `${plantedOn(tree)}. ` : ''}Your tree sways gently on Home. It stays still when Reduce Motion is on.`} value={sway} onChange={chooseSway} />
+    </View>
     <View style={styles.card}>
       <Text style={styles.heading}>Camera privacy</Text>
       <Text style={styles.copy}>Images are sent to Google for text recognition and are not stored by Mila.</Text>

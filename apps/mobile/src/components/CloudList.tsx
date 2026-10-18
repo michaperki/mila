@@ -12,7 +12,7 @@ import { isHebrew, type LibrarySort, matchesDoc, previewOf, progressOf, sortDocs
 import { getPref, setPref } from '../lib/prefs'
 import { parseLastRead } from '../lib/today'
 
-// The Library tab: saved passages as compact rows (title, a line of preview, when, how long and
+// The Library (opened from Home, under Read): saved passages as compact rows (title, a line of preview, when, how long and
 // how far read), searchable and sorted by recently read or date added. "…" or a long press on a
 // row renames or deletes it. (Vocabulary has its own screen.)
 export default function CloudList({ kind }: { kind: 'texts' }) {

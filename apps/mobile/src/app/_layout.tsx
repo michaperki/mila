@@ -12,7 +12,11 @@ function Navigator() {
   const { ready } = useSession()
   if (!ready) return <View style={{ flex: 1, justifyContent: 'center', backgroundColor: colors.paper }}><ActivityIndicator color={colors.green} /></View>
   return <><StatusBar style="dark" /><Stack screenOptions={{ headerTintColor: colors.ink, headerStyle: { backgroundColor: colors.paper }, headerShadowVisible: false, headerBackButtonDisplayMode: 'minimal', contentStyle: { backgroundColor: colors.paper }, orientation: 'portrait_up' }}>
-    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+    {/* Home is the tree with Read and Study; everything else opens from it. */}
+    <Stack.Screen name="index" options={{ headerShown: false, title: 'Home' }} />
+    <Stack.Screen name="library" options={{ title: 'Library' }} />
+    <Stack.Screen name="vocabulary" options={{ title: 'Your words' }} />
+    <Stack.Screen name="account" options={{ title: 'Account' }} />
     <Stack.Screen name="login" options={{ title: 'Sign in' }} />
     <Stack.Screen name="signup" options={{ title: 'Create account' }} />
     <Stack.Screen name="camera" options={{ title: 'Read a page' }} />

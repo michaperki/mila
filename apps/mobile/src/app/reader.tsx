@@ -19,6 +19,7 @@ import { documentFromRecognition, segmentsOf } from '../lib/documents'
 import { bareWord, stripNiqqud, titleFrom } from '../lib/ocr-cleanup'
 import { paragraphsOf, runsOf } from '../lib/page'
 import { type EnglishMode, getPref, rememberRead, setPref, TEXT_SIZES } from '../lib/prefs'
+import { noteActivity } from '../lib/tree'
 import { explainWord, quickMeanings } from '../lib/recognition'
 import type { Encounter, VocabEntry, WordAnalysis } from '../lib/types'
 import { encountersOf, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
@@ -92,6 +93,12 @@ export default function Reader() {
   const selection = useRef(0)
   const docId = useRef(recognition?.id ?? Crypto.randomUUID())
   useFocusEffect(useCallback(() => () => { selection.current++; stopSpeaking() }, []))
+  // Each sentence read for the first time here feeds the tree (lib/tree.ts).
+  const readSentences = useRef(new Set<number>())
+  useEffect(() => {
+    if (active === null || readSentences.current.has(active)) return
+    readSentences.current.add(active); noteActivity('sentences')
+  }, [active])
   useEffect(() => { void getPref('english').then(setEnglish) }, [])
   // Text size (A− / A+), remembered on this device; the passage's Hebrew and English scale together.
   const [size, setSize] = useState(1)
@@ -303,6 +310,7 @@ export default function Reader() {
       const savedId = item?.id ?? id
       // Undone while it was on its way: take it back out now that it has landed.
       if (undoAfterSave.current.delete(key)) { await removeSave(savedId, segment.he, key); return }
+      noteActivity('saved')
       // The saved words as the server now has them: this entry, with this sentence's encounter
       // in place of any earlier one from the same sentence.
       const { encounter: _added, createdAt: _created, ...rest } = entry
@@ -539,7 +547,7 @@ const reader = StyleSheet.create({
   paragraph: { paddingVertical: 7, gap: 2 },
   run: { gap: 2, paddingVertical: 2 },
   // The active sentence: a quiet band behind it; the selected word stands out on top.
-  activeRun: { backgroundColor: '#EEF3E4', borderRadius: 10, marginHorizontal: -8, paddingHorizontal: 8, paddingVertical: 6, marginVertical: 2 },
+  activeRun: { backgroundColor: '#EFEBDA', borderRadius: 10, marginHorizontal: -8, paddingHorizontal: 8, paddingVertical: 6, marginVertical: 2 },
   selectedWord: { backgroundColor: colors.lime, borderWidth: 1, borderColor: colors.green, borderRadius: 6 },
   edge: { fontSize: 12, color: colors.muted, fontStyle: 'italic' },
   phrase: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: colors.paper },

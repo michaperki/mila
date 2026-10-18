@@ -3,6 +3,7 @@ import { KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-nat
 import { Redirect, router } from 'expo-router'
 import { Button, ErrorNotice, Page, styles } from './ui'
 import { useSession } from '../state/session'
+import { Bonsai } from '../bonsai/Bonsai'
 export default function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
   const { session, authenticate } = useSession()
   const [email, setEmail] = useState('')
@@ -18,6 +19,8 @@ export default function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
     try { await authenticate(mode, email, password); router.replace('/') } catch (failure) { setError((failure as Error).message) } finally { setBusy(false) }
   }
   return <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={96}><Page>
+    {/* The sapling every learner starts with; it grows as they read and study. */}
+    <Bonsai growth={8} overgrowth={0} vitality={92} interactive={false} haptics={false} style={{ height: 210, marginHorizontal: -22, marginTop: -22 }} />
     <Text style={styles.eyebrow}>HEBREW, IN YOUR EVERYDAY</Text>
     <Text style={styles.title}>{mode === 'signup' ? 'Make it yours.' : 'Welcome back.'}</Text>
     <Text style={styles.copy}>Your Mila account works here and on the web. Keep every passage and word together.</Text>

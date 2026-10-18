@@ -11,6 +11,7 @@ import { feel } from '../lib/feedback'
 import type { VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
 import { ensureForms } from '../lib/word-forms'
+import { noteActivity } from '../lib/tree'
 import { vocabId } from '../lib/words'
 import { useSession } from '../state/session'
 import { cachedVocab, putEntry, useVocab } from '../state/vocab'
@@ -51,6 +52,7 @@ export default function RootScreen() {
       const { item } = await request<{ item?: VocabEntry }>('vocab', { token: session.token, body: entry })
       const stored = { ...entry, ...item, id: item?.id ?? entry.id }
       putEntry(session, cachedVocab(session)?.find(existing => existing.id === stored.id) ?? stored)
+      noteActivity('saved')
       // Its first practice cards, ready by the next practice.
       void ensureForms(stored, session.token).then(ready => {
         const latest = cachedVocab(session)?.find(existing => existing.id === stored.id)

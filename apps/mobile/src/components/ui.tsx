@@ -5,7 +5,8 @@ import { feel } from '../lib/feedback'
 import { DURATION, settle } from '../lib/motion'
 import { router } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
-export const colors = { paper: '#F6F5F1', ink: '#172B29', muted: '#65736E', green: '#145C4B', lime: '#DCECBA', line: '#DBE2DA', white: '#FFFFFF', red: '#A52D35' }
+// Taken from the bonsai on Home: warm paper, bark-dark ink, moss green. Calm, with no bright accents.
+export const colors = { paper: '#F7F1E6', ink: '#2A2520', muted: '#776B5F', green: '#3D6B45', lime: '#E5EBCF', line: '#E6DCCB', white: '#FFFCF6', red: '#A52D35' }
 export const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.paper }, content: { padding: 22, gap: 20, paddingBottom: 36 },
   title: { fontSize: 32, lineHeight: 39, fontWeight: '700', color: colors.ink },

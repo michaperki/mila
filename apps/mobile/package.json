@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
+    "@shopify/react-native-skia": "2.6.2",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~57.0.2",
     "expo": "~57.0.30",

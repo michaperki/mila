@@ -123,7 +123,7 @@ export function ScanShimmer() {
   const band = useAnimatedStyle(() => ({ transform: [{ translateY: interpolate(t.get(), [0, 1], [-160, height]) }] }))
   return <View pointerEvents="none" style={StyleSheet.absoluteFill} onLayout={event => setHeight(event.nativeEvent.layout.height)}>
     <Animated.View style={[motion.band, band]}>
-      <LinearGradient colors={['#DCECBA00', '#DCECBA55', '#DCECBA00']} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={['#E5EBCF00', '#E5EBCF55', '#E5EBCF00']} style={StyleSheet.absoluteFill} />
     </Animated.View>
   </View>
 }

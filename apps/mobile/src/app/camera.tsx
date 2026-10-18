@@ -229,7 +229,7 @@ const cameraStyles = StyleSheet.create({
   cancel: { position: 'absolute', top: 16, left: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: '#00000066', alignItems: 'center', justifyContent: 'center' },
   guide: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, margin: 16, borderWidth: 1, borderColor: '#FFFFFF66', borderRadius: 16 },
   livePill: { position: 'absolute', top: 16, left: 16, flexDirection: 'row', alignItems: 'center', gap: 8, height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: '#00000066' },
-  livePillOn: { backgroundColor: '#145C4BDD' },
+  livePillOn: { backgroundColor: '#3D6B45DD' },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FFFFFF88' },
   livePillText: { color: colors.white, fontSize: 13, fontWeight: '700' },
   topRight: { position: 'absolute', top: 16, right: 16, flexDirection: 'row', gap: 10 },

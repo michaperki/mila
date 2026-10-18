@@ -10,17 +10,21 @@ export type EnglishMode = 'tap' | 'all' | 'off'
 // Studying (practice.tsx): which side a card shows first, the order, which cards, and quiz mode.
 // Today (lib/today.ts): studyDays, the days studied on this phone (comma-separated); lastRead,
 // where reading stopped (JSON). tableEnglish: English shown beside a table of forms (table.tsx).
+// The bonsai (lib/tree.ts): tree, the tree last shown on Home (JSON, with whose it is);
+// treePending, activity not yet sent (JSON); treeMotion, whether it sways in the wind.
 export type Front = 'he' | 'en' | 'mixed'
 export const TEXT_SIZES = [0.85, 1, 1.15, 1.3, 1.5]
 type Prefs = {
   livePreview: boolean; english: EnglishMode; showNiqqud: boolean; sounds: boolean; haptics: boolean; voice: 'sarah' | 'charon'; speechRate: string; textSize: string; readerHint: boolean
   studyFront: Front; studyOrder: Order; studyCards: Include; studyQuiz: boolean
   studyDays: string; lastRead: string; tableEnglish: boolean
+  tree: string; treePending: string; treeMotion: boolean
 }
 const defaults: Prefs = {
   livePreview: false, english: 'tap', showNiqqud: true, sounds: true, haptics: true, voice: 'sarah', speechRate: '1', textSize: '1', readerHint: true,
   studyFront: 'he', studyOrder: 'smart', studyCards: 'both', studyQuiz: false,
   studyDays: '', lastRead: '', tableEnglish: true,
+  tree: '', treePending: '', treeMotion: true,
 }
 const key = (name: keyof Prefs) => `mila.pref.${name}`
 export async function getPref<K extends keyof Prefs>(name: K): Promise<Prefs[K]> {

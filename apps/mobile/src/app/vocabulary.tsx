@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { router } from 'expo-router'
-import { AccountGate, Button, colors, ErrorNotice, Loading, Page, Pill, Pressy, styles } from '../../components/ui'
-import { countsOf, formsIn, isDue, isSolid, statusOf, type Status, unlockedStages } from '../../lib/forms'
-import { matches } from '../../lib/review'
-import type { VocabEntry } from '../../lib/types'
-import { withVowels } from '../../lib/vowels'
-import { useSession } from '../../state/session'
-import { useVocab } from '../../state/vocab'
-import { useVowels } from '../../state/vowels'
+import { AccountGate, Button, colors, ErrorNotice, Loading, Page, Pill, Pressy, styles } from '../components/ui'
+import { countsOf, formsIn, isDue, isSolid, statusOf, type Status, unlockedStages } from '../lib/forms'
+import { matches } from '../lib/review'
+import type { VocabEntry } from '../lib/types'
+import { withVowels } from '../lib/vowels'
+import { useSession } from '../state/session'
+import { useVocab } from '../state/vocab'
+import { useVowels } from '../state/vowels'
 
 type Filter = 'all' | 'due' | Status
 const FILTERS: { key: Filter; label: string }[] = [
@@ -16,7 +16,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'learning', label: 'Learning' }, { key: 'mastered', label: 'Mastered' },
 ]
 
-// Vocabulary home: a way into studying (with what's due), and a compact, searchable list of
+// Your words (opened from Home, under Study): a way into studying (with what's due), and a compact, searchable list of
 // saved words. A row opens the word's own screen (its forms, progress and where it was met).
 export default function Vocabulary() {
   const { session } = useSession()

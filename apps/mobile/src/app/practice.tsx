@@ -15,6 +15,7 @@ import { answer, type Card, cardKey, deckOf, type Include, kindLabel, missingSta
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
 import { waitOf, type Rating } from '../lib/review'
+import { noteActivity } from '../lib/tree'
 import type { FormCard, Session, VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
 import { ensureForms } from '../lib/word-forms'
@@ -93,7 +94,7 @@ export default function Practice() {
   if (!Object.keys(words).length) return <Page>
     <Text style={styles.title}>Nothing to study yet.</Text>
     <Text style={styles.copy}>Save words as you read and they will show up here.</Text>
-    <Button title="Back to vocabulary" onPress={() => router.back()} />
+    <Button title="Back" onPress={() => router.back()} />
   </Page>
   const graded = Object.values(grades)
   if (done) return <Summary grades={graded} words={new Set(Object.keys(grades).map(i => deck[Number(i)].entry.id)).size} unlocked={unlocked} error={error}
@@ -163,6 +164,8 @@ export default function Practice() {
   const grade = (rating: Rating, { felt = false, advance = true } = {}) => {
     if (!felt) feel(rating === 'good' ? 'gotIt' : 'graded')
     void noteStudyDay()
+    // Only a card's first grade here counts toward the tree; changing it on going back doesn't.
+    if (before[position] === undefined) noteActivity('cards')
     const start = before[position] ?? record
     const result = answer(start, rating)
     void request('vocab', { token: session.token, method: 'PATCH', body: form ? { id: entry.id, form: { key: form.key, ...result } } : { id: entry.id, review: result.review } })
@@ -352,23 +355,19 @@ function withNewForms(current: VocabEntry | undefined, ready: VocabEntry): Vocab
 
 // After Done: how it went, and which stages opened. A card graded twice (missed, then seen again)
 // counts twice, so cards can outnumber words.
+// The end of a session: one calm line, any stage that opened, and back to the tree, which shows
+// the rest (lib/tree.ts).
 function Summary({ grades, words, unlocked, error, onMore }: { grades: Rating[]; words: number; unlocked: string[]; error: string | null; onMore: () => void }) {
   useEffect(() => { feel('complete') }, [])
-  const count = (rating: Rating) => grades.filter(item => item === rating).length
   return <Page>
-    <Text style={styles.title}>Nice work</Text>
-    <Text style={styles.copy}>{grades.length} {grades.length === 1 ? 'card' : 'cards'} from {words} {words === 1 ? 'word' : 'words'}</Text>
-    <View style={practice.tally}>
-      {RATINGS.slice().reverse().map(({ rating, label }) => <View key={rating} style={practice.count}>
-        <Text style={practice.countValue}>{count(rating)}</Text><Text style={practice.countLabel}>{label}</Text>
-      </View>)}
-    </View>
+    <Text style={styles.title}>Done</Text>
+    <Text style={styles.copy}>{grades.length} {grades.length === 1 ? 'card' : 'cards'} from {words} {words === 1 ? 'word' : 'words'}. The tree is tended.</Text>
     {unlocked.map(line => <View key={line} style={practice.unlocked}>
       <Ionicons name="lock-open-outline" size={18} color={colors.green} /><Text style={[styles.copy, { color: colors.ink, flexShrink: 1 }]}>Unlocked {line}</Text>
     </View>)}
     <ErrorNotice message={error} />
-    <Button title="Keep studying" onPress={onMore} />
-    <Button secondary title="Back to vocabulary" onPress={() => router.back()} />
+    <Button title="Back to your tree" onPress={() => router.dismissTo('/')} />
+    <Button secondary title="Keep studying" onPress={onMore} />
   </Page>
 }
 
@@ -395,8 +394,4 @@ const practice = StyleSheet.create({
   meaning: { fontSize: 22, fontWeight: '700', color: colors.ink, textAlign: 'center' },
   detail: { fontSize: 15, lineHeight: 22, color: colors.muted, writingDirection: 'ltr', textAlign: 'left' },
   actions: { flexDirection: 'row', gap: 10, paddingHorizontal: 22, paddingTop: 12, minHeight: 64, backgroundColor: colors.paper, borderTopWidth: 1, borderTopColor: colors.line },
-  tally: { flexDirection: 'row', gap: 10 },
-  countValue: { fontSize: 30, fontWeight: '700', color: colors.ink },
-  count: { flex: 1, paddingVertical: 16, borderRadius: 14, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, alignItems: 'center' },
-  countLabel: { fontSize: 13, color: colors.muted },
 })
