@@ -6,9 +6,11 @@ export const EASE_OUT = Easing.out(Easing.cubic)
 export const DURATION = { press: 90, quick: 150, base: 190 }
 
 // Moves a shared value to `value` (presses, the progress bar, snapping a card back).
-export const settle = (value: number, duration: number = DURATION.base) => {
+// No default parameter: on the UI thread a worklet's defaults are evaluated before its captured
+// variables exist, so `duration = DURATION.base` threw there and ended the app (the swipe crash).
+export const settle = (value: number, duration?: number) => {
   'worklet'
-  return withTiming(value, { duration, easing: EASE_OUT, reduceMotion: ReduceMotion.System })
+  return withTiming(value, { duration: duration ?? DURATION.base, easing: EASE_OUT, reduceMotion: ReduceMotion.System })
 }
 
 // Layout animations, for things that appear, leave or move because of a tap.
