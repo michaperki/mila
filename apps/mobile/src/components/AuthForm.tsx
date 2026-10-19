@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native'
+import { Alert, KeyboardAvoidingView, Linking, Platform, Text, TextInput, View } from 'react-native'
 import { Redirect, router } from 'expo-router'
-import { Button, ErrorNotice, Page, styles } from './ui'
+import { Button, ErrorNotice, Page, styles, TextButton } from './ui'
+import { PRIVACY_URL, SUPPORT_EMAIL } from '../lib/app-info'
 import { useSession } from '../state/session'
 import { Bonsai } from '../bonsai/Bonsai'
 export default function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
@@ -14,7 +15,7 @@ export default function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
   const submit = async () => {
     if (busy) return
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setError('Enter a valid email address.'); return }
-    if (!password || (mode === 'signup' && password.length < 4)) { setError(mode === 'signup' ? 'Use at least 4 characters for your password.' : 'Enter your password.'); return }
+    if (!password || (mode === 'signup' && password.length < 8)) { setError(mode === 'signup' ? 'Use at least 8 characters for your password.' : 'Enter your password.'); return }
     setBusy(true); setError(null)
     try { await authenticate(mode, email, password); router.replace('/') } catch (failure) { setError((failure as Error).message) } finally { setBusy(false) }
   }
@@ -28,5 +29,11 @@ export default function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
     <View><Text style={styles.label}>Password</Text><TextInput accessibilityLabel="Password" style={styles.input} value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} textContentType={mode === 'signup' ? 'newPassword' : 'password'} returnKeyType="go" onSubmitEditing={() => void submit()} /></View>
     <ErrorNotice message={error} /><Button title={mode === 'signup' ? 'Create account' : 'Sign in'} busy={busy} onPress={() => void submit()} />
     <Button secondary title={mode === 'signup' ? 'Already a member? Sign in' : 'New to Mila? Create account'} onPress={() => router.replace(mode === 'signup' ? '/login' : '/signup')} />
+    {/* There is no reset email yet: a developer makes a temporary password (Account) and sends it. */}
+    {mode === 'login' && <TextButton title="Forgot your password?" onPress={() => Alert.alert('Forgot your password?', `Write to ${SUPPORT_EMAIL} from the email you signed up with, and we'll send you a temporary password.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Write an email', onPress: () => { void Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Mila password reset')}`) } },
+    ])} />}
+    {mode === 'signup' && <TextButton title="Privacy policy" onPress={() => { void Linking.openURL(PRIVACY_URL) }} />}
   </Page></KeyboardAvoidingView>
 }

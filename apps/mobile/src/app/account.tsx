@@ -1,10 +1,11 @@
 import { useCallback, useState } from 'react'
 import { router, useFocusEffect } from 'expo-router'
-import { Alert, Switch, Text, View } from 'react-native'
+import { Alert, Linking, Switch, Text, View } from 'react-native'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles, TextButton } from '../components/ui'
 import { request } from '../lib/api'
-import { applyLatestUpdate, describeVersion } from '../lib/app-info'
+import { applyLatestUpdate, describeVersion, PRIVACY_URL } from '../lib/app-info'
+import { ChangePassword, ResetPassword } from '../components/Passwords'
 import { useSession } from '../state/session'
 import { clearVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
@@ -79,7 +80,7 @@ export default function Account() {
       <SwitchRow title="Tree in the wind" detail={`${tree && plantedOn(tree) ? `${plantedOn(tree)}. ` : ''}Your tree sways gently on Home. It stays still when Reduce Motion is on.`} value={sway} onChange={chooseSway} />
     </View>
     <View style={styles.card}>
-      <Text style={styles.heading}>Camera privacy</Text>
+      <Text style={styles.heading}>Privacy</Text>
       <Text style={styles.copy}>{'Photos are sent to Google to find the text and, when you read a page, to Anthropic\'s Claude to correct and translate it. Mila doesn\'t keep your photos.'}</Text>
       {privacyOpen ? <>
         <Text style={styles.copy}>Only passages you choose to save are added to your library.</Text>
@@ -87,6 +88,7 @@ export default function Account() {
         <Text style={styles.copy}>Live preview is off until you turn it on in the camera. It samples a few images instead of every video frame, needs internet, and pauses after a short session.</Text>
         <TextButton title="Show less" onPress={() => setPrivacyOpen(false)} />
       </> : <TextButton title="Learn more" onPress={() => setPrivacyOpen(true)} />}
+      <TextButton title="Privacy policy" onPress={() => { void Linking.openURL(PRIVACY_URL) }} />
     </View>
     <View style={styles.card}>
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
@@ -137,6 +139,9 @@ export default function Account() {
       </View>)}
       <Text style={[styles.copy, { fontSize: 13 }]}>Estimated at list prices, before free tiers.</Text>
     </View>}
+    {/* The spend summary answers only for the developers, so it also says who sees developer tools. */}
+    {session && !!usage && <ResetPassword session={session} />}
+    {session && <ChangePassword session={session} />}
     {session && <View style={styles.card}>
       <Text style={styles.heading}>Saved words</Text>
       {!!vocabStatus && <Text style={styles.copy}>{vocabStatus}</Text>}

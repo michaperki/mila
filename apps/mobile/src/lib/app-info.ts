@@ -25,3 +25,8 @@ export async function applyLatestUpdate() {
   await Updates.reloadAsync()
   return true
 }
+
+// Where testers write for help (a forgotten password, a question about their data), and the
+// privacy policy, served with the backend (apps/web/public/privacy.html).
+export const SUPPORT_EMAIL = 'mperkins1995@gmail.com'
+export const PRIVACY_URL = 'https://mila-hebrew.netlify.app/privacy.html'
