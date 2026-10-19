@@ -242,7 +242,9 @@ export default function Reader() {
   const sentence = word ? segments[word.segment].he : ''
   // Saved is known from the tap itself, so it shows at once rather than after the explanation.
   const wordSaved = !!word && (saving.has(tapKey(word.bare, sentence)) || savedTaps.has(tapKey(word.bare, sentence)) || savedWords.has(savedKey(vocabId(lemma), sentence)))
-  const phrase = !isPhrase && analysis?.phrase?.text ? analysis.phrase : null
+  // Selected words have one only when they are a use of a pattern or part of a larger expression,
+  // so saving נטולת דאגות adds it to נָטוּל + [שֵׁם עֶצֶם] rather than starting a phrase of its own.
+  const phrase = analysis?.phrase?.text ? analysis.phrase : null
   // An expression is saved under its dictionary form (לעבור דרך), so every way it is met is one
   // entry; older explanations only give it as written.
   const phraseId = phrase ? vocabId(phrase.lemmaPlain || phrase.lemma || phrase.text) : ''
@@ -255,18 +257,35 @@ export default function Reader() {
   // A pattern (נטול ינשופים: נָטוּל + [שֵׁם עֶצֶם]) is led by when its fixed words are tapped; the
   // word in its open place (ינשופים) is a word of its own, with the pattern offered alongside.
   const isPattern = phrase?.kind === 'pattern' && !!phrase.pattern
-  const fillsPattern = isPattern && !!word && !!phrase!.words?.length && !phrase!.words.some(item => lemmaKey(item) === lemmaKey(word.bare))
+  // Words joined with a maqaf are one tap (ונטול־ינשופים), so each piece is compared.
+  const tappedPieces = word ? lemmaKey(word.bare).split(' ') : []
+  const fillsPattern = isPattern && !!phrase!.words?.length && !phrase!.words.some(item => tappedPieces.includes(lemmaKey(item)))
+  // A pattern being saved leads the drawer: what it is and how else it is used come before
+  // what these words mean here.
+  const patternFirst = isPattern && !fillsPattern
   const leadPhrase = !!phrase && !fillsPattern
   // A pattern on one word (נָטוּל + …) is saved as that word, so it has no "Save just" of its own.
   const phraseIsWord = !!phrase && !!analysis && lemmaKey(phrase.lemmaPlain || phrase.lemma || '') === lemmaKey(lemma)
   const inYourWords = leadPhrase ? phraseEntry : savedEntry
-  // How the tapped word was read: its pieces, its form and the dictionary form it comes from
-  // (וְ + צָעַק · past, he · from לִצְעֹק), so each occurrence is seen as a form of one word.
+  // How the tapped word was read: its pieces with their meanings, its form and the dictionary
+  // form it comes from (וְ and + צָעַק yelled · past, he · from לִצְעֹק), so each occurrence is
+  // seen as a form of one word.
   const reading = !isPhrase && analysis ? [
-    analysis.parts.length > 1 ? analysis.parts.map(part => part.text).join(' + ') : '',
+    analysis.parts.length > 1 ? analysis.parts.map(part => `${part.text} ${part.meaning}`).join(' + ') : '',
     analysis.form,
     analysis.lemma && stripNiqqud(analysis.lemma) !== stripNiqqud(analysis.vocalized || analysis.word) ? `from ${analysis.lemma}` : '',
   ].filter(Boolean).join(' · ') : ''
+  // A word that belongs to an expression (להעמיד פנים) is taught as the expression: its own
+  // meaning can be misleading on its own, so the expression leads and is what Save keeps. A
+  // pattern shows how it is built, what it means, and two more uses of it.
+  const unitBox = phrase && !wordBusy ? <Animated.View entering={APPEAR} style={[reader.phrase, { flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingRight: 10, paddingVertical: 8 }]}>
+    <Text style={reader.label}>{!isPattern ? 'Part of an expression' : fillsPattern ? 'Used here in a pattern' : 'A pattern'}</Text>
+    {patternFirst
+      ? <><Text style={reader.pattern}>{v(phrase.pattern!)}</Text><Text style={reader.fact}>{isolateHebrew(v(phrase.meaning))}</Text></>
+      : <Text style={reader.fact}><Text style={reader.factHebrew}>{isolateHebrew(v((isPattern && phrase.pattern) || phrase.lemma || phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>}
+    {isPattern && phrase.examples?.map(example => <Text key={example.text} style={reader.fact}><Text style={reader.factHebrew}>{isolateHebrew(v(example.text))}</Text> · {isolateHebrew(v(example.meaning))}</Text>)}
+    {isPattern && !!phrase.textMeaning && <Text style={reader.fact}>Here <Text style={reader.factHebrew}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.textMeaning))}</Text>}
+  </Animated.View> : null
   // Saved ✓ tapped again undoes the save from this sentence. The server drops the encounter, and
   // the whole entry if that was its only one and it was never practised; a save still on its way
   // is undone when it lands.
@@ -513,6 +532,7 @@ export default function Reader() {
           <Text style={reader.sheetWord}>{v(analysis?.vocalized || word.bare)}</Text>
         </View>
       </View>}>
+      {patternFirst && unitBox}
       {wordBusy && !quickMeaning ? <View style={[styles.row, { gap: 8 }]}><ActivityIndicator color={colors.green} /><Text style={styles.copy}>Reading it in context…</Text></View>
         : <View style={[styles.row, { gap: 8, flexWrap: 'nowrap' }]}>
           {!!(gloss || quickMeaning) && <Animated.Text key={gloss ? 'full' : 'quick'} entering={APPEAR} style={[reader.meaning, { flexShrink: 1 }]}>{isolateHebrew(v(gloss || quickMeaning))}</Animated.Text>}
@@ -520,13 +540,7 @@ export default function Reader() {
         </View>}
       {!wordBusy && !analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation.</Text>}
       {!!reading && !wordBusy && <Text style={reader.reading}>{isolateHebrew(v(reading))}</Text>}
-      {/* A word that belongs to an expression (להעמיד פנים) is taught as the expression: its own
-          meaning can be misleading on its own, so the expression leads and is what Save keeps. */}
-      {phrase && !wordBusy && <Animated.View entering={APPEAR} style={[reader.phrase, { flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingRight: 10, paddingVertical: 8 }]}>
-        <Text style={reader.label}>{!isPattern ? 'Part of an expression' : fillsPattern ? 'Used here in a pattern' : 'A pattern'}</Text>
-        <Text style={reader.fact}><Text style={reader.factHebrew}>{isolateHebrew(v((isPattern && phrase.pattern) || phrase.lemma || phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>
-        {isPattern && !!phrase.textMeaning && <Text style={reader.fact}>Here <Text style={reader.factHebrew}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.textMeaning))}</Text>}
-      </Animated.View>}
+      {!patternFirst && unitBox}
       {inYourWords && !wordBusy && <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/word', params: { id: inYourWords.id } })} hitSlop={6} style={[styles.row, { gap: 4 }]}>
         <Ionicons name="bookmark" size={14} color={colors.green} />
         <Text style={reader.saved}>In your words · <Text style={reader.factHebrew}>{isolateHebrew(v(inYourWords.lemma))}</Text></Text>
@@ -619,6 +633,7 @@ const reader = StyleSheet.create({
   activeRun: { backgroundColor: '#EFEBDA', borderRadius: 10, marginHorizontal: -8, paddingHorizontal: 8, paddingVertical: 6, marginVertical: 2 },
   selectedWord: { backgroundColor: colors.lime, borderWidth: 1, borderColor: colors.green, borderRadius: 6 },
   edge: { fontSize: 12, color: colors.muted, fontStyle: 'italic' },
+  pattern: { fontSize: 22, lineHeight: 32, fontWeight: '600', color: colors.ink, writingDirection: 'rtl' },
   reading: { fontSize: 14, lineHeight: 20, color: colors.muted },
   saved: { fontSize: 14, fontWeight: '600', color: colors.green },
   phrase: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: colors.paper },

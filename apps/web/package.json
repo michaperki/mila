@@ -14,7 +14,8 @@
     "postbuild": "cp -r public/ocr-models dist/",
     "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "test": "vitest",
-    "feedback": "node scripts/feedback.mjs"
+    "feedback": "node scripts/feedback.mjs",
+    "eval:phrases": "vitest run --config vitest.eval.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

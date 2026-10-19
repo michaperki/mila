@@ -54,7 +54,7 @@ describe('word analysis endpoint', () => {
     expect(recordCacheHit).toHaveBeenCalledWith('user', 'word', expect.any(Number))
     await invoke({ word: 'בחשבון', sentence: 'משפט חדש בחשבון' })
     expect(create).toHaveBeenCalledTimes(1)
-    expect(rememberAnswer).toHaveBeenCalledWith('word-analysis-v1', 'בחשבון\u0000משפט חדש בחשבון', analysis)
+    expect(rememberAnswer).toHaveBeenCalledWith(expect.stringMatching(/^word-analysis-v\d+$/), 'בחשבון\u0000משפט חדש בחשבון', analysis)
   })
   it('reports missing configuration so the app can fall back to plain translation', async () => {
     delete process.env.ANTHROPIC_API_KEY

@@ -35,8 +35,8 @@ export type WordAnalysis = {
 // and `partOfSpeech` what the whole behaves as (a verb for להעמיד פנים). A `kind` 'pattern' has an
 // open place other words fill (נטול ינשופים is `pattern` נָטוּל + [שֵׁם עֶצֶם], "free of [noun]"):
 // its `lemma` and `words` are the fixed words only, and `textMeaning` is what it means here
-// ("owl-free"). Older explanations have only `text` and `meaning`.
-export type Phrase = { text: string; meaning: string; textMeaning?: string; kind?: string; pattern?: string; words?: string[]; lemma?: string; lemmaPlain?: string; head?: string; headPlain?: string; partOfSpeech?: string; binyan?: string }
+// ("owl-free"), with `examples` of other uses. Older explanations have only `text` and `meaning`.
+export type Phrase = { text: string; meaning: string; textMeaning?: string; kind?: string; pattern?: string; examples?: { text: string; meaning: string }[]; words?: string[]; lemma?: string; lemmaPlain?: string; head?: string; headPlain?: string; partOfSpeech?: string; binyan?: string }
 // A saved word is its dictionary form (להדביק, not the הדביק that was tapped): `lemma`, `gloss`
 // (the dictionary form's meanings), part of speech, root and binyan describe it. Each place it
 // was met is an `Encounter`, so the same word met in several books stays one entry with one

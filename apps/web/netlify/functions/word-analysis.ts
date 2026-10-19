@@ -23,7 +23,7 @@ export type WordAnalysis = {
   form: string
   note: string
   readAs: string
-  phrase: { text: string; meaning: string; textMeaning: string; kind: string; pattern: string; words: string[]; lemma: string; lemmaPlain: string; head: string; headPlain: string; partOfSpeech: string; binyan: string }
+  phrase: { text: string; meaning: string; textMeaning: string; kind: string; pattern: string; examples: { text: string; meaning: string }[]; words: string[]; lemma: string; lemmaPlain: string; head: string; headPlain: string; partOfSpeech: string; binyan: string }
   excerpt: { text: string; meaning: string }
 }
 
@@ -34,7 +34,7 @@ const schema = {
   properties: {
     word: { type: 'string', description: 'The word exactly as given.' },
     vocalized: { type: 'string', description: 'The word with full niqqud as read in this sentence.' },
-    meaning: { type: 'string', description: 'Short English meaning of this word in this sentence, including prefixes (e.g. "in math"). Read the word inside the construction it is part of: ראיתי in "ראיתי את עצמי כותב" is "I could see (myself)", not just "I saw". This is the main answer; other fields should not repeat it.' },
+    meaning: { type: 'string', description: 'Short English meaning of this word in this sentence, including prefixes (e.g. "in math"). Read the word inside the construction it is part of: ראיתי in "ראיתי את עצמי כותב" is "I could see (myself)", not just "I saw". If the word is part of a pattern (see "phrase"), translate so the pattern shows through, keeping its open place visible: ונטול־ינשופים is "and free of owls", not "and owl-free". This is the main answer; other fields should not repeat it.' },
     parts: {
       type: 'array',
       description: 'Morphological pieces in reading order: attached prefixes (ו, ה, ב, כ, ל, מ, ש), the stem, any pronoun suffix. One item if the word has no affixes.',
@@ -53,18 +53,22 @@ const schema = {
     partOfSpeech: { type: 'string', description: 'noun, verb, adjective, adverb, preposition, pronoun, number, name, or phrase.' },
     gender: { type: 'string', description: 'Nouns only: the lemma\'s grammatical gender, "masculine" or "feminine" (also for nouns whose form misleads, like שֻׁלְחָן masculine or עִיר feminine); otherwise empty.' },
     binyan: { type: 'string', description: 'Verbs only: binyan in Latin letters (pa\'al, nif\'al, pi\'el, pu\'al, hif\'il, huf\'al, hitpa\'el); otherwise empty.' },
-    form: { type: 'string', description: 'Concise grammatical form, e.g. "past, 1st person singular" or "masculine singular, construct"; empty if trivial.' },
+    form: { type: 'string', description: 'Concise grammatical form of the word\'s main piece (not its prefixes, and for words joined with a maqaf, the tapped word\'s own), e.g. "past, 1st person singular" or "masculine singular, construct"; empty if trivial.' },
     note: { type: 'string', description: 'Only if it matters for understanding this sentence (an idiom, register, an irregular form): one short sentence that adds something no other field says. Do not restate the meaning, breakdown, lemma or grammar, and do not describe forms or vowel patterns that are not in the sentence. Usually empty.' },
     readAs: { type: 'string', description: 'If the tapped text is an OCR misreading (e.g. a dropped first letter), the word you believe is printed, without niqqud; otherwise empty. Analyze that word.' },
     phrase: {
-      type: 'object', additionalProperties: false, required: ['text', 'meaning', 'textMeaning', 'kind', 'pattern', 'words', 'lemma', 'lemmaPlain', 'head', 'headPlain', 'partOfSpeech', 'binyan'],
-      description: 'If the word belongs to a multi-word unit in this sentence that a learner has to learn as a unit, that unit; otherwise every field empty. A unit is an idiom or fixed expression, a multi-word name, a verb with the preposition or object it always takes (עוברים דרך, מעמיד פנים), a construct chain (סמיכות) only if it has a meaning of its own (בית ספר, עורך דין; not one whose meaning just adds up its words, like מבחן בחשבון or ספר המורה), or a pattern: a word that is used with an open place any word of a kind can fill (נטול ינשופים is נטול + a noun, as in נטול סוכר, נטולת דאגות).',
+      type: 'object', additionalProperties: false, required: ['text', 'meaning', 'textMeaning', 'kind', 'pattern', 'examples', 'words', 'lemma', 'lemmaPlain', 'head', 'headPlain', 'partOfSpeech', 'binyan'],
+      description: 'If the word belongs to a unit in this sentence that a learner has to learn as a unit, that unit; otherwise every field empty. Most words belong to none: when unsure, leave it empty. There are two kinds. Fixed: an idiom or fixed expression whose words all belong to it and whose meaning is more than its words (להעמיד פנים, לשבור את הראש, בסופו של דבר, אין לי מושג), a multi-word name, or a construct chain (סמיכות) with a meaning of its own (בית ספר, עורך דין, ארוחת בוקר). A pattern: a word that, in this use, opens a frame with a place other words fill, and that a learner has to learn together with that frame, because its meaning or its grammar here depends on it: נטול + a noun ("free of"), חסר + a noun ("lacking"), בעל + a noun ("having"), כדי + an infinitive ("in order to"), a verb with the preposition it takes for this meaning (לחשוב על, "to think about"). Not a unit: words that only combine as usual, whatever their grammar: an adjective with its noun (ילד גדול, שמלה אדומה), a construct chain whose meaning adds up its words (ספר המורה, מבחן בחשבון), a verb with an ordinary object or place.',
       properties: {
         text: { type: 'string', description: 'The stretch of the sentence from the unit\'s first word to its last, exactly as written.' },
         kind: { type: 'string', description: '"pattern" if the unit has an open place that other words fill in other sentences (נטול ינשופים: נטול + a noun); "fixed" if every word of it belongs to it (להעמיד פנים, בית ספר).' },
         pattern: { type: 'string', description: 'For a pattern: its fixed words in dictionary form, vocalized, with the open place as a bracketed Hebrew name of what fills it: נָטוּל + [שֵׁם עֶצֶם]. Otherwise empty.' },
         meaning: { type: 'string', description: 'The unit\'s English meaning as a dictionary gives it (verb expressions as "to …": "to go through", "to pretend"); for a pattern, with its open place in brackets ("free of [noun]").' },
-        textMeaning: { type: 'string', description: 'What the unit means as written in this sentence, briefly ("owl-free", "we went through").' },
+        textMeaning: { type: 'string', description: 'What the unit means as written in this sentence, in natural English, briefly ("owl-free", "we went through").' },
+        examples: {
+          type: 'array', description: 'For a pattern: two short everyday examples, not from this sentence, each with a different word in the open place, at least one in another form of the word that inflects (נטול סוכר "sugar-free", נטולת דאגות "free of worries"). Otherwise empty.',
+          items: { type: 'object', additionalProperties: false, required: ['text', 'meaning'], properties: { text: { type: 'string' }, meaning: { type: 'string' } } },
+        },
         words: { type: 'array', items: { type: 'string' }, description: 'Only the unit\'s own words, each exactly as written in the sentence (with prefixes), in order, leaving out any words that come between them: ["מעמיד", "פנים"] in "מעמיד את עצמו פנים". For a pattern, only its fixed words, not the word in its open place: ["נטול"] in "נטול ינשופים".' },
         lemma: { type: 'string', description: 'The unit\'s dictionary form, vocalized, with its inflecting word in dictionary form: לַעֲבֹר דֶּרֶךְ for עוברים דרך, לְהַעֲמִיד פָּנִים for מעמידה פנים. For a pattern, its fixed words only: נָטוּל for נטולת דאגות.' },
         lemmaPlain: { type: 'string', description: 'The same without niqqud, in standard full spelling (כתיב מלא): לעבור דרך, נטול.' },
@@ -84,10 +88,25 @@ const schema = {
 
 const SYSTEM = `You are a Hebrew tutor inside a reading app for English-speaking learners. The learner tapped one word in a sentence they photographed. Analyze that word as it is used in that sentence. Text comes from OCR and may have recognition errors or missing niqqud. If the tapped word is misread, say what you read it as in readAs and analyze that word. Grammar claims must be ones you are certain of; leave a field empty rather than guess. Keep every English field short and write it in plain English; quote a Hebrew word only when the point is about that word, and never translate the same thing twice across fields. If the tapped text is not Hebrew, return it unchanged with your best short meaning and empty grammar fields.
 
-The learner may select several words instead of one. Then explain them as one unit: "meaning" is what the words mean together here; "parts" lists each word (with its prefixes) and its meaning here; "lemma" and "lemmaMeaning" are the expression's dictionary form and senses only if it is a fixed expression, otherwise empty; root, binyan and form apply only if one word carries the meaning, otherwise empty; "partOfSpeech" is "phrase"; "phrase" and "readAs" are empty; "excerpt" is as for one word. If the words don't form a unit, still give their combined meaning and say so in "note".`
+The learner may select several words instead of one. Then explain them as one unit: "meaning" is what the words mean together here; "parts" lists each word (with its prefixes) and its meaning here; "lemma" and "lemmaMeaning" are the expression's dictionary form and senses only if it is a fixed expression, otherwise empty; root, binyan and form apply only if one word carries the meaning, otherwise empty; "partOfSpeech" is "phrase"; "readAs" is empty; "phrase" is empty unless the selected words are a use of a pattern or part of a larger fixed expression, and then it is that unit, as for one word; "excerpt" is as for one word. If the words don't form a unit, still give their combined meaning and say so in "note".`
+
+// The model request for one tapped word (or selected words) in its sentence; also used by the
+// phrase evaluation (tests/eval/phrases.eval.ts), so it measures exactly what the app asks.
+export const analysisRequest = (word: string, sentence: string) => ({
+  model: 'claude-opus-5-5',
+  max_tokens: 4000,
+  // A tap should feel instant; this is a short, well-specified lookup.
+  output_config: { effort: 'low' as const, format: { type: 'json_schema' as const, schema } },
+  betas: ['server-side-fallback-2026-07-01'],
+  fallbacks: 'default' as const,
+  // The instructions and schema are the same on every call; caching them makes a tap
+  // cheaper and a little faster.
+  system: [{ type: 'text' as const, text: SYSTEM, cache_control: { type: 'ephemeral' as const } }],
+  messages: [{ role: 'user' as const, content: `Sentence: ${sentence || word}\n${word.split(/\s+/).length > 1 ? 'Selected words' : 'Tapped word'}: ${word}` }],
+})
 
 // The cache name for this prompt and schema: bump the version when either changes.
-const CACHE_KIND = 'word-analysis-v5'
+const CACHE_KIND = 'word-analysis-v6'
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, WordAnalysis>()
 let client: Anthropic | null = null
@@ -117,18 +136,7 @@ export const handler: Handler = async (event) => {
     }
 
     client ??= new Anthropic()
-    const response = await client.beta.messages.create({
-      model: 'claude-opus-5-5',
-      max_tokens: 4000,
-      // A tap should feel instant; this is a short, well-specified lookup.
-      output_config: { effort: 'low', format: { type: 'json_schema', schema } },
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      // The instructions and schema are the same on every call; caching them makes a tap
-      // cheaper and a little faster.
-      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
-      messages: [{ role: 'user', content: `Sentence: ${sentence || word}\n${words > 1 ? 'Selected words' : 'Tapped word'}: ${word}` }],
-    }, { timeout: 15000, maxRetries: 1 })
+    const response = await client.beta.messages.create(analysisRequest(word, sentence), { timeout: 15000, maxRetries: 1 })
     await recordClaude(auth.userId, 'word', response, Date.now() - started)
 
     if (response.stop_reason === 'refusal') return reply(422, { message: 'This word could not be explained.', code: 'ANALYSIS_REFUSED', requestId })
