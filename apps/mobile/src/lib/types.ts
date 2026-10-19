@@ -32,9 +32,11 @@ export type WordAnalysis = {
 // The expression a tapped word belongs to: `text` as it stands in the sentence, `words` the
 // expression's own words as written there, in order (other words may come between them),
 // `lemma` its dictionary form (לַעֲבֹר דֶּרֶךְ for עוברים דרך), `head` the word in it that inflects
-// and `partOfSpeech` what the whole behaves as (a verb for להעמיד פנים). Older explanations
-// have only `text` and `meaning`.
-export type Phrase = { text: string; meaning: string; words?: string[]; lemma?: string; lemmaPlain?: string; head?: string; headPlain?: string; partOfSpeech?: string; binyan?: string }
+// and `partOfSpeech` what the whole behaves as (a verb for להעמיד פנים). A `kind` 'pattern' has an
+// open place other words fill (נטול ינשופים is `pattern` נָטוּל + [שֵׁם עֶצֶם], "free of [noun]"):
+// its `lemma` and `words` are the fixed words only, and `textMeaning` is what it means here
+// ("owl-free"). Older explanations have only `text` and `meaning`.
+export type Phrase = { text: string; meaning: string; textMeaning?: string; kind?: string; pattern?: string; words?: string[]; lemma?: string; lemmaPlain?: string; head?: string; headPlain?: string; partOfSpeech?: string; binyan?: string }
 // A saved word is its dictionary form (להדביק, not the הדביק that was tapped): `lemma`, `gloss`
 // (the dictionary form's meanings), part of speech, root and binyan describe it. Each place it
 // was met is an `Encounter`, so the same word met in several books stays one entry with one
@@ -56,6 +58,9 @@ export type VocabEntry = StarredItem & {
   // An expression (partOfSpeech 'expression'): the word in it that inflects, which decides its
   // stages (a verb's tenses for לעבור דרך), and its plain spelling, which links the two.
   head?: { lemma: string; lemmaPlain?: string; partOfSpeech?: string; binyan?: string }
+  // A word or expression learned as a pattern with an open place (נָטוּל + [שֵׁם עֶצֶם]); `gloss`
+  // is then the pattern's meaning ("free of [noun]") and each encounter one example of it.
+  pattern?: string
   vocalized?: string; context?: string; contextTranslation?: string; surface?: string
   senses?: string; form?: string; excerpt?: string; excerptTranslation?: string
 }

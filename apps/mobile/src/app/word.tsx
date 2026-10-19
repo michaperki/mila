@@ -104,6 +104,8 @@ export default function Word() {
         <ListenButton text={entry.lemma} accessibilityLabel="Hear this word" size={24} />
         <Text style={word.lemma}>{v(entry.lemma)}</Text>
       </View>
+      {/* Learned as a pattern: how the word is used (נָטוּל + [שֵׁם עֶצֶם]), its meaning below. */}
+      {!!entry.pattern && <Text style={word.pattern}>{v(entry.pattern)}</Text>}
       <Text style={word.gloss}>{isolateHebrew(v(entry.gloss))}</Text>
       {!!grammar && <Text style={word.meta}>{isolateHebrew(grammar)}</Text>}
     </View>
@@ -170,7 +172,7 @@ export default function Word() {
     </View>}
 
     {encountersOf(entry).length > 0 && <View style={[styles.card, { gap: 4 }]}>
-      <Text style={word.stage}>Where you met it</Text>
+      <Text style={word.stage}>{entry.pattern ? 'Examples you met' : 'Where you met it'}</Text>
       {encountersOf(entry).map(encounter => <EncounterView key={`${encounter.context}-${encounter.at}`} encounter={encounter} showVowels={showVowels}
         footer={encounter.sourceRef ? <TextButton title="Open passage" color={colors.green} onPress={() => void openPassage(encounter.sourceRef!.textId)} /> : undefined} />)}
     </View>}
@@ -210,6 +212,7 @@ function FormRow({ label, form, v }: { label: string; form: FormCard; v: (text: 
 const word = StyleSheet.create({
   lemma: { fontSize: 34, lineHeight: 48, fontWeight: '600', color: colors.ink, writingDirection: 'rtl', flexShrink: 1 },
   gloss: { fontSize: 18, fontWeight: '600', color: colors.ink },
+  pattern: { fontSize: 22, color: colors.ink, writingDirection: 'rtl', textAlign: 'right' },
   meta: { fontSize: 13, lineHeight: 19, color: colors.muted },
   pill: { fontSize: 12, fontWeight: '700', color: colors.muted, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, overflow: 'hidden' },
   pillDone: { color: colors.green, borderColor: colors.green },

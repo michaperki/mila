@@ -40,6 +40,13 @@ export const tapKey = (surface: string, sentence: string) => `${surface}\u0000${
 export const savedTapsOf = (entries: VocabEntry[]) =>
   new Map<string, SavedTap>(entries.flatMap(entry => encountersOf(entry).map(encounter => [tapKey(encounter.surface, encounter.context), { id: entry.id, encounter }] as const)))
 
+// A word already saved, however it is met: by its dictionary form once the explanation gives
+// it (וצעק and צעק are both לצעוק), and before that by the form tapped, if it was saved from
+// any sentence as written.
+export const savedByLemma = (entries: VocabEntry[]) => new Map(entries.map(entry => [lemmaKey(entry.lemmaPlain || entry.lemma), entry] as const))
+export const savedBySurface = (entries: VocabEntry[]) =>
+  new Map(entries.flatMap(entry => encountersOf(entry).map(encounter => [lemmaKey(encounter.surface), entry] as const)))
+
 // Search matches Hebrew with or without vowels, and the English meanings.
 export function matches(entry: VocabEntry, query: string) {
   const needle = stripNiqqud(query.trim().toLowerCase())

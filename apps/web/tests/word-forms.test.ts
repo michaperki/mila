@@ -66,6 +66,16 @@ describe('word forms', () => {
     expect(result.forms[0]).toMatchObject({ key: 'present:m.sg', mark: 'מעמיד פנים', said: 'מַעֲמִיד פָּנִים', enMark: 'pretending' })
     expect(create.mock.calls[0][0].messages[0].content).toContain('every card uses the whole expression')
   })
+  it('writes a word learned as a pattern with a different word in its open place, marking only the pattern\'s own words', async () => {
+    const pattern = { ...entry, lemma: 'נָטוּל', gloss: 'free of [noun]', partOfSpeech: 'adjective', binyan: undefined, pattern: 'נָטוּל + [שֵׁם עֶצֶם]', forms: [] }
+    findOne.mockResolvedValueOnce(pattern).mockResolvedValueOnce(null)
+    create.mockResolvedValue(generated([
+      { slot: 'f.sg', form: 'נְטוּלַת', english: 'free of worries (f.)', sentence: 'היא חזרה מהחופשה נטולת דאגות', inSentence: ['נטולת'], said: 'נְטוּלַת', translation: 'She came back from vacation free of worries', inTranslation: ['free of'] },
+    ]))
+    const result = await invoke({ id: 'native-x', stage: 'inflected' })
+    expect(result.forms[0]).toMatchObject({ mark: 'נטולת', enMark: 'free of' })
+    expect(create.mock.calls[0][0].messages[0].content).toContain('Learned as the pattern נָטוּל + [שֵׁם עֶצֶם]')
+  })
   it('asks for a word\'s meanings as its first stage, one card per meaning', async () => {
     findOne.mockResolvedValueOnce({ ...entry, forms: [] }).mockResolvedValueOnce(null)
     create.mockResolvedValue(generated([

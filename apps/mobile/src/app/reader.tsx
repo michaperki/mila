@@ -22,7 +22,7 @@ import { type EnglishMode, getPref, rememberRead, setPref, TEXT_SIZES } from '..
 import { noteActivity } from '../lib/tree'
 import { explainWord, quickMeanings } from '../lib/recognition'
 import type { Encounter, Phrase, VocabEntry, WordAnalysis } from '../lib/types'
-import { encountersOf, lemmaKey, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
+import { encountersOf, lemmaKey, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
 import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
@@ -31,6 +31,8 @@ import { isVowelled, withVowels } from '../lib/vowels'
 
 // Runs reflow (REFLOW) when a sentence is selected and its English opens beneath it.
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
+// When a save is written (read in the save handler, never while drawing).
+const now = () => Date.now()
 const without = (set: Set<string>, key: string) => { const next = new Set(set); next.delete(key); return next }
 
 export default function Reader() {
@@ -79,6 +81,8 @@ export default function Reader() {
   const { entries: vocab } = useVocab(session)
   const savedWords = useMemo(() => savedKeysOf(vocab), [vocab])
   const savedTaps = useMemo(() => savedTapsOf(vocab), [vocab])
+  const byLemma = useMemo(() => savedByLemma(vocab), [vocab])
+  const bySurface = useMemo(() => savedBySurface(vocab), [vocab])
   const [english, setEnglish] = useState<EnglishMode>('tap')
   // Three states: reading (nothing active), a sentence active (highlighted, English under it,
   // sentence bar), and a word or phrase selected in it (drawer). Closing the drawer goes back
@@ -243,6 +247,26 @@ export default function Reader() {
   // entry; older explanations only give it as written.
   const phraseId = phrase ? vocabId(phrase.lemmaPlain || phrase.lemma || phrase.text) : ''
   const phraseSaved = !!phrase && (saving.has(tapKey(phrase.text, sentence)) || savedWords.has(savedKey(phraseId, sentence)))
+  // Already in your words from another sentence, or met here in another form (וצעק is the
+  // לצעוק saved from צעק): Save then adds this sentence to that entry as one more example.
+  // Before the explanation arrives it is known only if this form itself was saved somewhere.
+  const savedEntry = !word ? undefined : analysis || isPhrase ? byLemma.get(lemmaKey(lemma)) : bySurface.get(lemmaKey(word.bare))
+  const phraseEntry = phrase ? byLemma.get(lemmaKey(phrase.lemmaPlain || phrase.lemma || phrase.text)) : undefined
+  // A pattern (נטול ינשופים: נָטוּל + [שֵׁם עֶצֶם]) is led by when its fixed words are tapped; the
+  // word in its open place (ינשופים) is a word of its own, with the pattern offered alongside.
+  const isPattern = phrase?.kind === 'pattern' && !!phrase.pattern
+  const fillsPattern = isPattern && !!word && !!phrase!.words?.length && !phrase!.words.some(item => lemmaKey(item) === lemmaKey(word.bare))
+  const leadPhrase = !!phrase && !fillsPattern
+  // A pattern on one word (נָטוּל + …) is saved as that word, so it has no "Save just" of its own.
+  const phraseIsWord = !!phrase && !!analysis && lemmaKey(phrase.lemmaPlain || phrase.lemma || '') === lemmaKey(lemma)
+  const inYourWords = leadPhrase ? phraseEntry : savedEntry
+  // How the tapped word was read: its pieces, its form and the dictionary form it comes from
+  // (וְ + צָעַק · past, he · from לִצְעֹק), so each occurrence is seen as a form of one word.
+  const reading = !isPhrase && analysis ? [
+    analysis.parts.length > 1 ? analysis.parts.map(part => part.text).join(' + ') : '',
+    analysis.form,
+    analysis.lemma && stripNiqqud(analysis.lemma) !== stripNiqqud(analysis.vocalized || analysis.word) ? `from ${analysis.lemma}` : '',
+  ].filter(Boolean).join(' · ') : ''
   // Saved ✓ tapped again undoes the save from this sentence. The server drops the encounter, and
   // the whole entry if that was its only one and it was never practised; a save still on its way
   // is undone when it lands.
@@ -288,9 +312,11 @@ export default function Reader() {
       const id = vocabId(asPhrase ? unit!.lemmaPlain || unit!.lemma || unit!.text : dragged ? lemmaNow : found?.lemmaPlain || lemmaNow)
       // The entry is the dictionary form; this sentence is added to it as one encounter.
       const encounter: Encounter = {
-        surface: asPhrase ? unit!.text : tapped.bare, meaning: asPhrase ? unit!.meaning : meaning, context: segment.he, at: Date.now(),
+        surface: asPhrase ? unit!.text : tapped.bare, meaning: asPhrase ? unit!.meaning : meaning, context: segment.he, at: now(),
         // An expression's own words, which may stand apart in the sentence (lib/marks.ts).
         ...(asPhrase && unit!.words?.length ? { mark: unit!.words.join(' ') } : {}),
+        // A pattern's example means what it says here ("owl-free"), not the pattern's meaning.
+        ...(asPhrase && unit!.kind === 'pattern' && unit!.textMeaning ? { meaning: unit!.textMeaning } : {}),
         ...(segment.en ? { contextTranslation: segment.en } : {}),
         ...(!asPhrase && found?.vocalized ? { vocalized: found.vocalized } : {}),
         ...(!asPhrase && !dragged && found?.form ? { form: found.form } : {}),
@@ -299,7 +325,7 @@ export default function Reader() {
         ...(!asPhrase && found ? { analysis: found } : {}),
       }
       const entry: VocabEntry & { encounter: Encounter } = {
-        id, createdAt: Date.now(), frequency: 1, encounter,
+        id, createdAt: now(), frequency: 1, encounter,
         ...(asPhrase ? expressionEntry(unit!, found)
           : dragged ? { lemma: lemmaNow, gloss: found?.lemmaMeaning || meaning, partOfSpeech: 'phrase' } : {
             lemma: lemmaNow, gloss: found?.lemmaMeaning || meaning,
@@ -493,12 +519,19 @@ export default function Reader() {
           {wordBusy && <ActivityIndicator color={colors.green} />}
         </View>}
       {!wordBusy && !analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation.</Text>}
+      {!!reading && !wordBusy && <Text style={reader.reading}>{isolateHebrew(v(reading))}</Text>}
       {/* A word that belongs to an expression (להעמיד פנים) is taught as the expression: its own
           meaning can be misleading on its own, so the expression leads and is what Save keeps. */}
       {phrase && !wordBusy && <Animated.View entering={APPEAR} style={[reader.phrase, { flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingRight: 10, paddingVertical: 8 }]}>
-        <Text style={reader.label}>Part of an expression</Text>
-        <Text style={reader.fact}><Text style={reader.factHebrew}>{isolateHebrew(v(phrase.lemma || phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>
+        <Text style={reader.label}>{!isPattern ? 'Part of an expression' : fillsPattern ? 'Used here in a pattern' : 'A pattern'}</Text>
+        <Text style={reader.fact}><Text style={reader.factHebrew}>{isolateHebrew(v((isPattern && phrase.pattern) || phrase.lemma || phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>
+        {isPattern && !!phrase.textMeaning && <Text style={reader.fact}>Here <Text style={reader.factHebrew}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.textMeaning))}</Text>}
       </Animated.View>}
+      {inYourWords && !wordBusy && <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/word', params: { id: inYourWords.id } })} hitSlop={6} style={[styles.row, { gap: 4 }]}>
+        <Ionicons name="bookmark" size={14} color={colors.green} />
+        <Text style={reader.saved}>In your words · <Text style={reader.factHebrew}>{isolateHebrew(v(inYourWords.lemma))}</Text></Text>
+        <Ionicons name="chevron-forward" size={14} color={colors.green} />
+      </Pressable>}
       {details && !wordBusy && analysis && <Animated.View entering={APPEAR}>
         <ScrollView style={{ maxHeight: detailsHeight }} contentContainerStyle={{ gap: 12, paddingBottom: 4 }} scrollEventThrottle={64}
           onScroll={event => measureMore(event.nativeEvent)}
@@ -516,14 +549,16 @@ export default function Reader() {
         {hasDetails && !wordBusy && <Pressable accessibilityRole="button" onPress={() => setDetails(value => !value)} style={reader.detailsToggle} hitSlop={6}>
           <Text style={reader.barLabel}>{details ? 'Less' : 'Details'}</Text><Ionicons name={details ? 'chevron-down' : 'chevron-up'} size={16} color={colors.green} />
         </Pressable>}
-        {phrase
-          ? <Button secondary={phraseSaved} title={phraseSaved ? 'Expression saved ✓' : 'Save expression'} detail={phraseSaved ? 'Tap to undo' : undefined}
+        {leadPhrase
+          ? <Button secondary={phraseSaved} title={phraseSaved ? `${isPattern ? 'Pattern' : 'Expression'} saved ✓` : phraseEntry ? 'Add this example' : isPattern ? 'Save pattern' : 'Save expression'} detail={phraseSaved ? 'Tap to undo' : undefined}
             busy={unsaving.has(tapKey(phrase.text, sentence))} moment={phraseSaved ? null : undefined} onPress={() => (phraseSaved ? unsave(true) : void saveWord(true))} style={{ flex: 1 }} />
-          : <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : isPhrase ? 'Save phrase' : 'Save word'} detail={wordSaved ? 'Tap to undo' : undefined}
+          : <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : savedEntry ? 'Add this example' : isPhrase ? 'Save phrase' : 'Save word'} detail={wordSaved ? 'Tap to undo' : undefined}
             busy={unsaving.has(tapKey(word.bare, sentence))} moment={wordSaved ? null : undefined} onPress={() => (wordSaved ? unsave() : void saveWord())} style={{ flex: 1 }} />}
       </View>
-      {phrase && <TextButton title={unsaving.has(tapKey(word.bare, sentence)) ? 'Undoing…' : wordSaved ? `${isolateHebrew(word.bare)} saved on its own ✓ · Undo` : `Save just ${isolateHebrew(word.bare)}`}
+      {leadPhrase && !phraseIsWord && <TextButton title={unsaving.has(tapKey(word.bare, sentence)) ? 'Undoing…' : wordSaved ? `${isolateHebrew(word.bare)} saved on its own ✓ · Undo` : `Save just ${isolateHebrew(word.bare)}`}
         onPress={() => (wordSaved ? unsave() : void saveWord())} />}
+      {fillsPattern && <TextButton title={unsaving.has(tapKey(phrase!.text, sentence)) ? 'Undoing…' : phraseSaved ? 'Pattern saved ✓ · Undo' : `Save the pattern ${isolateHebrew(stripNiqqud(phrase!.pattern!))}`}
+        onPress={() => (phraseSaved ? unsave(true) : void saveWord(true))} />}
     </DraggableSheet>}
   </View>
 }
@@ -550,12 +585,27 @@ function WordFacts({ analysis, gloss, v }: { analysis: WordAnalysis; gloss: stri
 
 // An expression as a saved word: its dictionary form, and the word in it that inflects, which
 // gives it that word's stages (lib/forms.ts). The root comes along when the tapped word is that
-// word. An older explanation has the expression only as written: then it is a plain phrase.
+// word. A pattern keeps its pattern (נָטוּל + [שֵׁם עֶצֶם]). An older explanation has the
+// expression only as written: then it is a plain phrase.
 function expressionEntry(unit: Phrase, found: WordAnalysis | undefined): Pick<VocabEntry, 'lemma' | 'gloss'> & Partial<VocabEntry> {
   if (!unit.lemma) return { lemma: unit.text, gloss: unit.meaning, partOfSpeech: 'phrase' }
   const headIsTapped = !!found && !!unit.headPlain && lemmaKey(found.lemmaPlain || found.lemma) === lemmaKey(unit.headPlain)
+  const pattern = unit.kind === 'pattern' && unit.pattern ? { pattern: unit.pattern } : {}
+  // A pattern on one word (נָטוּל + [שֵׁם עֶצֶם]) is that word, learned with its pattern: it has
+  // the word's own stages (נטול, נטולה, נטולים, נטולות) and is the entry the word alone is saved as.
+  if (pattern.pattern && !lemmaKey(unit.lemmaPlain || unit.lemma).includes(' ')) {
+    const partOfSpeech = unit.partOfSpeech && unit.partOfSpeech !== 'other' ? unit.partOfSpeech : headIsTapped ? found?.partOfSpeech : undefined
+    return {
+      lemma: unit.lemma, gloss: unit.meaning, ...pattern,
+      ...(unit.lemmaPlain ? { lemmaPlain: unit.lemmaPlain } : {}),
+      ...(partOfSpeech ? { partOfSpeech } : {}),
+      ...(unit.binyan ? { binyan: unit.binyan } : {}),
+      ...(headIsTapped && found?.root ? { root: found.root } : {}),
+      ...(headIsTapped && found?.gender ? { gender: found.gender } : {}),
+    }
+  }
   return {
-    lemma: unit.lemma, gloss: unit.meaning, partOfSpeech: 'expression',
+    lemma: unit.lemma, gloss: unit.meaning, partOfSpeech: 'expression', ...pattern,
     ...(unit.lemmaPlain ? { lemmaPlain: unit.lemmaPlain } : {}),
     ...(unit.head ? { head: { lemma: unit.head, ...(unit.headPlain ? { lemmaPlain: unit.headPlain } : {}), ...(unit.partOfSpeech ? { partOfSpeech: unit.partOfSpeech } : {}), ...(unit.binyan ? { binyan: unit.binyan } : {}) } } : {}),
     ...(headIsTapped && found?.root ? { root: found.root } : {}),
@@ -569,6 +619,8 @@ const reader = StyleSheet.create({
   activeRun: { backgroundColor: '#EFEBDA', borderRadius: 10, marginHorizontal: -8, paddingHorizontal: 8, paddingVertical: 6, marginVertical: 2 },
   selectedWord: { backgroundColor: colors.lime, borderWidth: 1, borderColor: colors.green, borderRadius: 6 },
   edge: { fontSize: 12, color: colors.muted, fontStyle: 'italic' },
+  reading: { fontSize: 14, lineHeight: 20, color: colors.muted },
+  saved: { fontSize: 14, fontWeight: '600', color: colors.green },
   phrase: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: colors.paper },
   divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   line: { flexDirection: 'row-reverse', flexWrap: 'wrap', columnGap: 2 },

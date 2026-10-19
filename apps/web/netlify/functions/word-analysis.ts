@@ -23,7 +23,7 @@ export type WordAnalysis = {
   form: string
   note: string
   readAs: string
-  phrase: { text: string; meaning: string; words: string[]; lemma: string; lemmaPlain: string; head: string; headPlain: string; partOfSpeech: string; binyan: string }
+  phrase: { text: string; meaning: string; textMeaning: string; kind: string; pattern: string; words: string[]; lemma: string; lemmaPlain: string; head: string; headPlain: string; partOfSpeech: string; binyan: string }
   excerpt: { text: string; meaning: string }
 }
 
@@ -57,14 +57,17 @@ const schema = {
     note: { type: 'string', description: 'Only if it matters for understanding this sentence (an idiom, register, an irregular form): one short sentence that adds something no other field says. Do not restate the meaning, breakdown, lemma or grammar, and do not describe forms or vowel patterns that are not in the sentence. Usually empty.' },
     readAs: { type: 'string', description: 'If the tapped text is an OCR misreading (e.g. a dropped first letter), the word you believe is printed, without niqqud; otherwise empty. Analyze that word.' },
     phrase: {
-      type: 'object', additionalProperties: false, required: ['text', 'meaning', 'words', 'lemma', 'lemmaPlain', 'head', 'headPlain', 'partOfSpeech', 'binyan'],
-      description: 'If the word belongs to a multi-word unit in this sentence whose meaning is more than its words (idiom, construct chain/סמיכות, fixed expression, multi-word name, verb with its fixed preposition or object, like עוברים דרך or מעמיד פנים), that unit; otherwise every field empty.',
+      type: 'object', additionalProperties: false, required: ['text', 'meaning', 'textMeaning', 'kind', 'pattern', 'words', 'lemma', 'lemmaPlain', 'head', 'headPlain', 'partOfSpeech', 'binyan'],
+      description: 'If the word belongs to a multi-word unit in this sentence that a learner has to learn as a unit, that unit; otherwise every field empty. A unit is an idiom or fixed expression, a multi-word name, a verb with the preposition or object it always takes (עוברים דרך, מעמיד פנים), a construct chain (סמיכות) only if it has a meaning of its own (בית ספר, עורך דין; not one whose meaning just adds up its words, like מבחן בחשבון or ספר המורה), or a pattern: a word that is used with an open place any word of a kind can fill (נטול ינשופים is נטול + a noun, as in נטול סוכר, נטולת דאגות).',
       properties: {
         text: { type: 'string', description: 'The stretch of the sentence from the unit\'s first word to its last, exactly as written.' },
-        meaning: { type: 'string', description: 'The unit\'s English meaning as a dictionary gives it (verb expressions as "to …": "to go through", "to pretend").' },
-        words: { type: 'array', items: { type: 'string' }, description: 'Only the unit\'s own words, each exactly as written in the sentence (with prefixes), in order, leaving out any words that come between them: ["מעמיד", "פנים"] in "מעמיד את עצמו פנים".' },
-        lemma: { type: 'string', description: 'The unit\'s dictionary form, vocalized, with its inflecting word in dictionary form: לַעֲבֹר דֶּרֶךְ for עוברים דרך, לְהַעֲמִיד פָּנִים for מעמידה פנים.' },
-        lemmaPlain: { type: 'string', description: 'The same without niqqud, in standard full spelling (כתיב מלא): לעבור דרך.' },
+        kind: { type: 'string', description: '"pattern" if the unit has an open place that other words fill in other sentences (נטול ינשופים: נטול + a noun); "fixed" if every word of it belongs to it (להעמיד פנים, בית ספר).' },
+        pattern: { type: 'string', description: 'For a pattern: its fixed words in dictionary form, vocalized, with the open place as a bracketed Hebrew name of what fills it: נָטוּל + [שֵׁם עֶצֶם]. Otherwise empty.' },
+        meaning: { type: 'string', description: 'The unit\'s English meaning as a dictionary gives it (verb expressions as "to …": "to go through", "to pretend"); for a pattern, with its open place in brackets ("free of [noun]").' },
+        textMeaning: { type: 'string', description: 'What the unit means as written in this sentence, briefly ("owl-free", "we went through").' },
+        words: { type: 'array', items: { type: 'string' }, description: 'Only the unit\'s own words, each exactly as written in the sentence (with prefixes), in order, leaving out any words that come between them: ["מעמיד", "פנים"] in "מעמיד את עצמו פנים". For a pattern, only its fixed words, not the word in its open place: ["נטול"] in "נטול ינשופים".' },
+        lemma: { type: 'string', description: 'The unit\'s dictionary form, vocalized, with its inflecting word in dictionary form: לַעֲבֹר דֶּרֶךְ for עוברים דרך, לְהַעֲמִיד פָּנִים for מעמידה פנים. For a pattern, its fixed words only: נָטוּל for נטולת דאגות.' },
+        lemmaPlain: { type: 'string', description: 'The same without niqqud, in standard full spelling (כתיב מלא): לעבור דרך, נטול.' },
         head: { type: 'string', description: 'The dictionary form, vocalized, of the word in the unit that inflects (לַעֲבֹר), or empty if none does.' },
         headPlain: { type: 'string', description: 'The same without niqqud, in full spelling (לעבור), or empty.' },
         partOfSpeech: { type: 'string', description: 'What the whole unit inflects as: verb, noun or adjective, or "other" if it is fixed.' },
@@ -84,7 +87,7 @@ const SYSTEM = `You are a Hebrew tutor inside a reading app for English-speaking
 The learner may select several words instead of one. Then explain them as one unit: "meaning" is what the words mean together here; "parts" lists each word (with its prefixes) and its meaning here; "lemma" and "lemmaMeaning" are the expression's dictionary form and senses only if it is a fixed expression, otherwise empty; root, binyan and form apply only if one word carries the meaning, otherwise empty; "partOfSpeech" is "phrase"; "phrase" and "readAs" are empty; "excerpt" is as for one word. If the words don't form a unit, still give their combined meaning and say so in "note".`
 
 // The cache name for this prompt and schema: bump the version when either changes.
-const CACHE_KIND = 'word-analysis-v4'
+const CACHE_KIND = 'word-analysis-v5'
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, WordAnalysis>()
 let client: Anthropic | null = null
