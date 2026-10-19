@@ -7,7 +7,7 @@ import type { Session, VocabEntry } from '../lib/types'
 // practice shows what is already known at once and refreshes it in the background. Changes made
 // in the app (a result, a stage marked known, a deletion) are applied here as well as sent.
 // Kept per account: another sign-in starts empty.
-// `at`: when the words were last loaded, the moment due dates are judged against.
+// `at`: when the words were last loaded.
 type Store = { owner: string | null; entries: VocabEntry[] | null; at: number }
 let store: Store = { owner: null, entries: null, at: 0 }
 let loading: { owner: string; promise: Promise<VocabEntry[]> } | null = null

@@ -68,46 +68,45 @@ const handler: Handler = async (event) => {
       }
     }
 
-    // Records practice without touching the rest of the entry (POST replaces it):
-    // `form` is one form card's result, `known` the stages the learner marked as known,
-    // `review` a whole-word result (entries from before form cards).
+    // Records practice without touching the rest of the entry (POST replaces it): `form` is one
+    // form card's results, `checkpoint` one stage's checkpoint results, `results` the word card's
+    // own, `known` the stages the learner marked as known and `opened` those they chose to study
+    // before Mila brought them in. Results are what was answered, never a date to come back.
     if (event.httpMethod === 'PATCH') {
       const payload = JSON.parse(event.body || '{}')
+      const id = payload.id
+      if (typeof id !== 'string') return { statusCode: 400, body: JSON.stringify({ message: 'Missing vocab id' }) }
       // Undoing a save: `unsave` is the sentence it was saved from. That encounter goes; an entry
       // left with no encounters and never practised goes with it, so undoing the first save of a
       // word leaves nothing behind while undoing a later one keeps the word and its history.
-      if (typeof payload.id === 'string' && typeof payload.unsave === 'string') {
-        await vocab.updateOne({ userId: auth.userId, id: payload.id }, { $pull: { encounters: { context: payload.unsave } }, $set: { updatedAt: Date.now() } } as never)
+      if (typeof payload.unsave === 'string') {
+        await vocab.updateOne({ userId: auth.userId, id }, { $pull: { encounters: { context: payload.unsave } }, $set: { updatedAt: Date.now() } } as never)
         const { deletedCount } = await vocab.deleteOne({
-          userId: auth.userId, id: payload.id, encounters: { $size: 0 }, review: { $exists: false }, 'forms.review': { $exists: false },
+          userId: auth.userId, id, encounters: { $size: 0 }, results: { $exists: false }, 'forms.results': { $exists: false }, checkpoints: { $exists: false },
         })
         return { statusCode: 200, body: JSON.stringify({ deleted: deletedCount > 0 }) }
       }
-      if (typeof payload.id === 'string' && Array.isArray(payload.known)) {
-        if (!payload.known.every((stage: unknown) => typeof stage === 'string')) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid stages' }) }
-        const result = await vocab.updateOne({ userId: auth.userId, id: payload.id }, { $set: { known: payload.known, updatedAt: Date.now() } })
-        if (!result.matchedCount) return { statusCode: 404, body: JSON.stringify({ message: 'This word is no longer saved.' }) }
-        return { statusCode: 204, body: '' }
-      }
-      if (typeof payload.id === 'string' && payload.form) {
-        const { key, review, correct, goodDays } = payload.form
-        const valid = typeof key === 'string' && isReview(review) && typeof correct === 'number'
-          && Array.isArray(goodDays) && goodDays.every((day: unknown) => typeof day === 'string')
-        if (!valid) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
-        const result = await vocab.updateOne(
-          { userId: auth.userId, id: payload.id, 'forms.key': key },
-          { $set: { 'forms.$[card].review': cleanReview(review), 'forms.$[card].correct': correct, 'forms.$[card].goodDays': goodDays.slice(-5), updatedAt: Date.now() } },
-          { arrayFilters: [{ 'card.key': key }] },
-        )
-        if (!result.matchedCount) return { statusCode: 404, body: JSON.stringify({ message: 'This word is no longer saved.' }) }
-        return { statusCode: 204, body: '' }
-      }
-      const review = payload.review
-      if (typeof payload.id !== 'string' || !isReview(review)) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid review' }) }
-      const result = await vocab.updateOne(
-        { userId: auth.userId, id: payload.id },
-        { $set: { review: cleanReview(review), updatedAt: Date.now() } },
-      )
+      let filter: Record<string, unknown> = { userId: auth.userId, id }
+      let set: Record<string, unknown>
+      let options: { arrayFilters: Record<string, unknown>[] } | undefined
+      if (Array.isArray(payload.known) || Array.isArray(payload.opened)) {
+        const field = Array.isArray(payload.known) ? 'known' : 'opened'
+        if (!payload[field].every((stage: unknown) => typeof stage === 'string')) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid stages' }) }
+        set = { [field]: payload[field] }
+      } else if (payload.form) {
+        const { key, results, last } = payload.form
+        if (typeof key !== 'string' || !isResults(results, last)) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
+        filter = { ...filter, 'forms.key': key }
+        set = { 'forms.$[card].results': results, 'forms.$[card].last': last }
+        options = { arrayFilters: [{ 'card.key': key }] }
+      } else if (payload.checkpoint) {
+        const { stage, results, last } = payload.checkpoint
+        if (typeof stage !== 'string' || !/^[a-z]+$/.test(stage) || !isResults(results, last)) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
+        set = { [`checkpoints.${stage}`]: { results, last } }
+      } else if (isResults(payload.results, payload.last)) {
+        set = { results: payload.results, last: payload.last }
+      } else return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
+      const result = await vocab.updateOne(filter, { $set: { ...set, updatedAt: Date.now() } }, options)
       if (!result.matchedCount) return { statusCode: 404, body: JSON.stringify({ message: 'This word is no longer saved.' }) }
       return { statusCode: 204, body: '' }
     }
@@ -145,10 +144,9 @@ export { handler }
 const lemmaKeyOf = (text: string) => text.normalize('NFC').replace(/[\u05BE\-–]/g, ' ').replace(/[\u0591-\u05C7]/g, '')
   .replace(/'/g, '׳').replace(/"/g, '״').replace(/[,،，.!?]/g, '').replace(/\s+/g, ' ').trim()
 
-const isReview = (review: any) => !!review && ['due', 'interval', 'reps', 'lapses'].every(key => typeof review[key] === 'number' && Number.isFinite(review[key]))
-const cleanReview = ({ due, interval, reps, lapses, last, first }: any) => ({
-  due, interval, reps, lapses, ...(typeof last === 'number' ? { last } : {}), ...(typeof first === 'number' ? { first } : {}),
-})
+// A card's last few results (true: knew it) and when it was answered.
+const isResults = (results: unknown, last: unknown) => Array.isArray(results) && results.length <= 10
+  && results.every(value => typeof value === 'boolean') && typeof last === 'number' && Number.isFinite(last)
 
 const normalizeItem = (item: any) => ({
   ...item,

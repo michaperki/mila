@@ -18,8 +18,9 @@ export function ProgressBar({ value }: { value: number }) {
 
 const SWIPE = 110
 // A study card that is swiped on to the next card, either way: it flies off the side it was
-// swiped to. (Going back is the arrow's job; a swipe that sometimes went back felt random.)
-// While dragging it tilts; crossing the line gives a tick. Short of it, the card slides back. `onDrag` says when a drag
+// swiped to, and `onSwipe` is told which (in practice, right: knew it, left: still learning).
+// Going back is the arrow's job. While dragging it tilts and the `hints` for that side fade in;
+// crossing the line gives a tick. Short of it, the card slides back. `onDrag` says when a drag
 // starts and ends: the card moves with the finger, so a press inside it would otherwise count
 // the release as a tap.
 // It stays mounted for the whole deck: only its content changes, and `card` (which card it
@@ -27,9 +28,10 @@ const SWIPE = 110
 // reads the latest callbacks, so a re-render during a swipe never swaps it mid-flight, and a
 // view with a gesture on it is never unmounted while it is animating. `onSwipe` returns false
 // when there was nowhere to go, and the card slides back.
-export function SwipeCard({ card, onSwipe, onDrag, children, style }: {
-  card: string | number; onSwipe: () => boolean | void; onDrag?: (dragging: boolean) => void
-  children: ReactNode; style?: StyleProp<ViewStyle>
+export type Side = 'left' | 'right'
+export function SwipeCard({ card, onSwipe, onDrag, hints, children, style }: {
+  card: string | number; onSwipe: (side: Side) => boolean | void; onDrag?: (dragging: boolean) => void
+  hints?: Record<Side, ReactNode>; children: ReactNode; style?: StyleProp<ViewStyle>
 }) {
   const x = useSharedValue(0)
   const past = useSharedValue(0)
@@ -39,7 +41,7 @@ export function SwipeCard({ card, onSwipe, onDrag, children, style }: {
   // The gesture's callbacks read `latest` only when a swipe happens, never while rendering.
   /* eslint-disable react-hooks/refs */
   const pan = useMemo(() => {
-    const swiped = () => { if (latest.current.onSwipe() === false) { x.set(settle(0)); past.set(0) } }
+    const swiped = (side: Side) => { if (latest.current.onSwipe(side) === false) { x.set(settle(0)); past.set(0) } }
     const dragging = (on: boolean) => latest.current.onDrag?.(on)
     return Gesture.Pan().activeOffsetX([-14, 14]).failOffsetY([-16, 16])
       .onStart(() => { scheduleOnRN(dragging, true) })
@@ -52,14 +54,23 @@ export function SwipeCard({ card, onSwipe, onDrag, children, style }: {
       .onEnd(event => {
         const far = Math.abs(event.translationX) > SWIPE || Math.abs(event.velocityX) > 900
         if (!far) { x.set(settle(0)); past.set(0); return }
-        x.set(withTiming(event.translationX > 0 ? 520 : -520, { duration: DURATION.quick, easing: Easing.out(Easing.quad), reduceMotion: ReduceMotion.System }, done => {
-          if (done) scheduleOnRN(swiped)
+        const side: Side = event.translationX > 0 ? 'right' : 'left'
+        x.set(withTiming(side === 'right' ? 520 : -520, { duration: DURATION.quick, easing: Easing.out(Easing.quad), reduceMotion: ReduceMotion.System }, done => {
+          if (done) scheduleOnRN(swiped, side)
         }))
       })
   }, [x, past])
   /* eslint-enable react-hooks/refs */
   const moving = useAnimatedStyle(() => ({ transform: [{ translateX: x.get() }, { rotate: `${x.get() / 28}deg` }] }))
-  return <GestureDetector gesture={pan}><Animated.View style={[style, moving]}>{children}</Animated.View></GestureDetector>
+  const right = useAnimatedStyle(() => ({ opacity: interpolate(x.get(), [20, SWIPE], [0, 1], 'clamp') }))
+  const left = useAnimatedStyle(() => ({ opacity: interpolate(x.get(), [-SWIPE, -20], [1, 0], 'clamp') }))
+  return <GestureDetector gesture={pan}><Animated.View style={[style, moving]}>
+    {children}
+    {hints && <>
+      <Animated.View pointerEvents="none" style={[motion.hint, { left: 14 }, right]}>{hints.right}</Animated.View>
+      <Animated.View pointerEvents="none" style={[motion.hint, { right: 14 }, left]}>{hints.left}</Animated.View>
+    </>}
+  </Animated.View></GestureDetector>
 }
 
 // A card that turns over when tapped: it narrows to an edge, shows its other side and widens
@@ -133,4 +144,5 @@ const motion = StyleSheet.create({
   fill: { height: 4, borderRadius: 2, backgroundColor: colors.green },
   grabber: { alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: colors.line, marginBottom: 8 },
   band: { position: 'absolute', left: 0, right: 0, height: 160 },
+  hint: { position: 'absolute', top: 12 },
 })

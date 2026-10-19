@@ -6,7 +6,7 @@ import { Button, colors, ErrorNotice, Loading, Page, Pill, styles } from '../com
 import { feel } from '../lib/feedback'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { isSolid } from '../lib/forms'
+import { isFamiliar } from '../lib/forms'
 import { stripNiqqud } from '../lib/ocr-cleanup'
 import { getPref, setPref } from '../lib/prefs'
 import { stop as stopSpeaking } from '../lib/speech'
@@ -20,7 +20,7 @@ import { useVowels } from '../state/vowels'
 // A saved word's whole table of forms, to look at rather than study: every person and tense of a
 // verb, an adjective's four forms, a noun's plural and construct forms. English can be hidden to
 // test yourself; a row then shows its English when tapped. A form the learner practises has its
-// dot (lime: learning, green: solid), as on the word page.
+// dot (lime: practised, green: familiar), as on the word page.
 export default function TableScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { session } = useSession()
@@ -72,7 +72,7 @@ export default function TableScreen() {
             const card = cardOf(row.he)
             return <Pressable key={key} accessibilityRole={shown ? undefined : 'button'} accessibilityLabel={`${row.label}: ${row.he}${shown ? `, ${row.en}` : ''}`}
               accessibilityHint={shown ? undefined : 'Shows the English'} disabled={shown} onPress={() => reveal(key)} style={[table_.row, i > 0 && table_.divider]}>
-              <View style={[table_.dot, card?.review && { backgroundColor: colors.lime, borderColor: colors.green }, card && isSolid(card) && { backgroundColor: colors.green, borderColor: colors.green }, !card && { borderColor: 'transparent' }]} />
+              <View style={[table_.dot, !!card?.results?.length && { backgroundColor: colors.lime, borderColor: colors.green }, card && isFamiliar(card) && { backgroundColor: colors.green, borderColor: colors.green }, !card && { borderColor: 'transparent' }]} />
               <View style={{ flex: 1 }}>
                 <Text style={table_.label}>{row.label}</Text>
                 <Text style={[table_.english, !shown && table_.hidden]} numberOfLines={2}>{shown ? row.en : 'Tap to show'}</Text>

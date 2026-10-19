@@ -18,7 +18,7 @@ export type TreeState = {
 export const TreeRules = {
   // A full day's credit, which is all a day can earn: more than this grows nothing more, so
   // steady days count and cramming doesn't.
-  studyFull: 15, // cards graded
+  studyFull: 15, // cards answered
   readFull: 12, // sentences read
   savedWorth: 0.1, // each saved word, as a share of a reading day
   // A day with at least this much credit was a day the tree was tended.
@@ -36,11 +36,9 @@ export const TreeRules = {
   studyWeight: 1,
   // A new tree arrives healthy: its planting day counts like a few good days, fading as usual.
   plantedBoost: 2.4,
-  // Overgrowth: days away beyond a short grace, and cards waiting to be reviewed.
+  // Overgrowth: days away beyond a short grace. Nothing is ever due, so nothing else counts.
   graceDays: 2,
   wildPace: 5,
-  wildShare: 0.65,
-  backlogPace: 50,
 }
 
 export const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
@@ -59,7 +57,7 @@ export function seedOf(userId: string) {
   return 1 + ((h >>> 0) % 9973)
 }
 
-export function treeState({ days, planted, today, due, userId }: { days: DayActivity[]; planted: string; today: string; due: number; userId: string }): TreeState {
+export function treeState({ days, planted, today, userId }: { days: DayActivity[]; planted: string; today: string; userId: string }): TreeState {
   const R = TreeRules
   const now = dayNumber(today)
   const past = days.filter(d => DAY_PATTERN.test(d.day) && dayNumber(d.day) <= now)
@@ -80,8 +78,7 @@ export function treeState({ days, planted, today, due, userId }: { days: DayActi
   let lastTended = dayNumber(planted)
   for (const d of past) if (creditOf(d) >= R.tended) lastTended = Math.max(lastTended, dayNumber(d.day))
   const wild = Math.max(0, now - lastTended - R.graceDays)
-  const backlog = Math.max(0, due)
-  const overgrowth = 100 * (R.wildShare * (1 - Math.exp(-wild / R.wildPace)) + (1 - R.wildShare) * (1 - Math.exp(-backlog / R.backlogPace)))
+  const overgrowth = 100 * (1 - Math.exp(-wild / R.wildPace))
 
   const todays = past.find(d => d.day === today)
   return {

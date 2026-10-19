@@ -1,4 +1,4 @@
-import { firstSense } from './forms.ts'
+import { firstSense, kindOfEntry } from './forms.ts'
 import type { VocabEntry } from './types'
 import { lemmaKey } from './words.ts'
 
@@ -12,8 +12,9 @@ export type Table = { groups: { key: string; label: string; rows: { slot: string
 export type FamilyWord = { lemma: string; lemmaPlain: string; partOfSpeech: string; binyan: string; gender: string; meaning: string }
 export type Family = { root: string; idea: string; words: FamilyWord[] }
 
-// Verbs, adjectives and nouns have a table of forms.
-export const hasTable = (entry: VocabEntry) => ['verb', 'adjective', 'noun'].includes(entry.partOfSpeech || '')
+// Verbs, adjectives and nouns have a table of forms, and so do expressions built on one
+// (every form of לעבור דרך).
+export const hasTable = (entry: VocabEntry) => kindOfEntry(entry) !== 'other'
 // The root's letters, without vowels or separators, joined with ־: כ־ת־ב (as the server keys it).
 export const rootOf = (value: string) => (value.match(/[א-ת]/g) || []).join('־')
 export const hasRoot = (entry: VocabEntry) => { const letters = rootOf(entry.root || '').split('־').length; return letters >= 2 && letters <= 5 }

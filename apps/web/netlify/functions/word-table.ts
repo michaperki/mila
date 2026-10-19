@@ -7,7 +7,8 @@ import { cachedAnswer, rememberAnswer } from './lib/ai-cache'
 
 // A word's whole table of forms to look at: a verb's infinitive, present, past, future,
 // imperative and verbal noun, an adjective's four forms, a noun's singular, plural and construct
-// forms. Unlike practice cards (word-forms.ts) there are no sentences, so the table is one cheap
+// forms; an expression's table is the whole expression in each form of the word that inflects
+// in it. Unlike practice cards (word-forms.ts) there are no sentences, so the table is one cheap
 // request, and it is the same for every learner, so it is cached by the word and the meaning it
 // is written in. The groups and their labels are defined here and sent with the table.
 type Row = { slot: string; label: string; means: string }
@@ -81,7 +82,7 @@ const schema = {
   },
 } as const
 
-const SYSTEM = `You write the table of forms of one modern Hebrew word for an English-speaking learner to look up. Give the correct standard modern Hebrew form for each requested slot, fully vocalized as an Israeli dictionary or grammar book prints it. A form that is not in real use (an imperative or verbal noun a verb doesn't have, a plural a noun doesn't have) is left empty rather than invented. The forms are one word, not different meanings: every form's "english" uses the main meaning you are given, changing only for person, tense, number and gender ("he guesses", "they guessed", "guess! (to one woman)"), never to a synonym.`
+const SYSTEM = `You write the table of forms of one modern Hebrew word for an English-speaking learner to look up. Give the correct standard modern Hebrew form for each requested slot, fully vocalized as an Israeli dictionary or grammar book prints it. A form that is not in real use (an imperative or verbal noun a verb doesn't have, a plural a noun doesn't have) is left empty rather than invented. The forms are one word, not different meanings: every form's "english" uses the main meaning you are given, changing only for person, tense, number and gender ("he guesses", "they guessed", "guess! (to one woman)"), never to a synonym. If the word is a multi-word expression (לַעֲבֹר דֶּרֶךְ, לְהַעֲמִיד פָּנִים), every form is the whole expression: inflect the words of it that inflect and keep the rest ("עָבַרְנוּ דֶּרֶךְ"), and its "english" is the expression's meaning in that form ("we went through").`
 
 // The cache name for this prompt and schema: bump the version when either changes.
 const CACHE_KIND = 'word-table-v1'
@@ -97,7 +98,7 @@ export const handler: Handler = async (event) => {
     const auth = verifyAuth(event)
     let payload: Record<string, unknown>
     try { payload = JSON.parse(event.body || '{}') } catch { return reply(400, { message: 'Invalid request.' }) }
-    const lemma = text(payload.lemma, 60)
+    const lemma = text(payload.lemma, 80)
     const kind = kindOf(text(payload.partOfSpeech, 20))
     const binyan = text(payload.binyan, 20)
     const meaning = text(payload.meaning, 120)

@@ -8,20 +8,20 @@ import { handler } from '../netlify/functions/vocab'
 const patch = async (body: unknown) => (await handler({ httpMethod: 'PATCH', body: JSON.stringify(body) } as any, {} as any, () => {}) as any)
 beforeEach(() => { vi.clearAllMocks(); updateOne.mockResolvedValue({ matchedCount: 1 }) })
 
-describe('vocab review updates', () => {
-  it('sets only the review fields on the user\'s own entry', async () => {
-    const response = await patch({ id: 'native-x', review: { due: 10, interval: 3, reps: 2, lapses: 0, last: 5, extra: 'dropped' }, gloss: 'ignored' })
+describe('word card results', () => {
+  it('sets only the results on the user\'s own entry', async () => {
+    const response = await patch({ id: 'native-x', results: [false, true], last: 5, gloss: 'ignored' })
     expect(response.statusCode).toBe(204)
     const [filter, update] = updateOne.mock.calls[0]
     expect(filter).toEqual({ userId: 'user', id: 'native-x' })
-    expect(update.$set.review).toEqual({ due: 10, interval: 3, reps: 2, lapses: 0, last: 5 })
-    expect(Object.keys(update.$set)).toEqual(['review', 'updatedAt'])
+    expect(update.$set).toEqual({ results: [false, true], last: 5, updatedAt: expect.any(Number) })
     expect(updateOne.mock.calls[0][2]).toBeUndefined() // never upserts
   })
-  it('rejects malformed reviews and reports deleted words', async () => {
-    expect((await patch({ id: 'native-x', review: { due: 'soon' } })).statusCode).toBe(400)
+  it('rejects malformed results and reports deleted words', async () => {
+    expect((await patch({ id: 'native-x', results: ['yes'], last: 1 })).statusCode).toBe(400)
+    expect((await patch({ id: 'native-x', review: { due: 1, interval: 1, reps: 1, lapses: 0 } })).statusCode).toBe(400)
     updateOne.mockResolvedValueOnce({ matchedCount: 0 })
-    expect((await patch({ id: 'gone', review: { due: 1, interval: 1, reps: 1, lapses: 0 } })).statusCode).toBe(404)
+    expect((await patch({ id: 'gone', results: [true], last: 1 })).statusCode).toBe(404)
   })
 })
 
@@ -59,16 +59,20 @@ describe('saving a word', () => {
 })
 
 describe('form results', () => {
-  it('updates one form card in place and the stages marked known', async () => {
-    const review = { due: 10, interval: 1, reps: 1, lapses: 0, first: 9 }
-    expect((await patch({ id: 'native-x', form: { key: 'past:3pl', review, correct: 1, goodDays: ['2026-10-16'] } })).statusCode).toBe(204)
+  it('updates one form card in place, a checkpoint, and the stages marked known or opened', async () => {
+    expect((await patch({ id: 'native-x', form: { key: 'past:3pl', results: [true, true], last: 9 } })).statusCode).toBe(204)
     const [filter, update, options] = updateOne.mock.calls[0]
     expect(filter).toEqual({ userId: 'user', id: 'native-x', 'forms.key': 'past:3pl' })
-    expect(update.$set['forms.$[card].review']).toEqual(review)
-    expect(update.$set['forms.$[card].goodDays']).toEqual(['2026-10-16'])
+    expect(update.$set['forms.$[card].results']).toEqual([true, true])
+    expect(update.$set['forms.$[card].last']).toBe(9)
     expect(options).toEqual({ arrayFilters: [{ 'card.key': 'past:3pl' }] })
+    expect((await patch({ id: 'native-x', checkpoint: { stage: 'present', results: [true], last: 3 } })).statusCode).toBe(204)
+    expect(updateOne.mock.calls[1][1].$set['checkpoints.present']).toEqual({ results: [true], last: 3 })
     expect((await patch({ id: 'native-x', known: ['present'] })).statusCode).toBe(204)
-    expect(updateOne.mock.calls[1][1].$set.known).toEqual(['present'])
-    expect((await patch({ id: 'native-x', form: { key: 'past:3pl', review: { due: 'x' }, correct: 1, goodDays: [] } })).statusCode).toBe(400)
+    expect(updateOne.mock.calls[2][1].$set.known).toEqual(['present'])
+    expect((await patch({ id: 'native-x', opened: ['past'] })).statusCode).toBe(204)
+    expect(updateOne.mock.calls[3][1].$set.opened).toEqual(['past'])
+    expect((await patch({ id: 'native-x', form: { key: 'past:3pl', results: 'x', last: 1 } })).statusCode).toBe(400)
+    expect((await patch({ id: 'native-x', checkpoint: { stage: '$where', results: [true], last: 1 } })).statusCode).toBe(400)
   })
 })

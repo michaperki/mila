@@ -23,7 +23,7 @@ export type WordAnalysis = {
   form: string
   note: string
   readAs: string
-  phrase: { text: string; meaning: string }
+  phrase: { text: string; meaning: string; words: string[]; lemma: string; lemmaPlain: string; head: string; headPlain: string; partOfSpeech: string; binyan: string }
   excerpt: { text: string; meaning: string }
 }
 
@@ -48,7 +48,7 @@ const schema = {
     },
     lemma: { type: 'string', description: 'Dictionary form, vocalized: verbs always as the infinitive with ל (לְהַדְבִּיק for הִדְבִּיק, never a past-tense form); adjectives masculine singular (יָפֶה for יָפוֹת); nouns singular without prefixes or possessive suffixes, unless the word only exists in the plural. A word that is a dictionary entry in its own right, such as an adverb or fixed expression written as one word (לְמַעֲשֶׂה, בְּעֶצֶם, לְפָחוֹת), is its own lemma; do not reduce it to the noun it came from. partOfSpeech, lemmaMeaning and root describe this lemma.' },
     lemmaPlain: { type: 'string', description: 'The same lemma without niqqud, in standard full spelling (כתיב מלא) as an Israeli newspaper prints it: לכתוב, not לכתב; it identifies the word, so always spell the same lemma the same way.' },
-    lemmaMeaning: { type: 'string', description: 'The lemma\'s common English senses, comma-separated, most common first; at most five. Verbs as "to …" ("to stick, to attach").' },
+    lemmaMeaning: { type: 'string', description: 'The lemma\'s common English senses on its own, comma-separated, most common first; at most five. Verbs as "to …" ("to stick, to attach"). Leave out senses that only exist together with other words (those belong to the expression in "phrase"): להעמיד is "to stand (something) up, to set up", never "to pretend", which is להעמיד פנים.' },
     root: { type: 'string', description: 'Root letters joined with ־ (e.g. ח־ש־ב), or empty if none applies.' },
     partOfSpeech: { type: 'string', description: 'noun, verb, adjective, adverb, preposition, pronoun, number, name, or phrase.' },
     gender: { type: 'string', description: 'Nouns only: the lemma\'s grammatical gender, "masculine" or "feminine" (also for nouns whose form misleads, like שֻׁלְחָן masculine or עִיר feminine); otherwise empty.' },
@@ -57,9 +57,19 @@ const schema = {
     note: { type: 'string', description: 'Only if it matters for understanding this sentence (an idiom, register, an irregular form): one short sentence that adds something no other field says. Do not restate the meaning, breakdown, lemma or grammar, and do not describe forms or vowel patterns that are not in the sentence. Usually empty.' },
     readAs: { type: 'string', description: 'If the tapped text is an OCR misreading (e.g. a dropped first letter), the word you believe is printed, without niqqud; otherwise empty. Analyze that word.' },
     phrase: {
-      type: 'object', additionalProperties: false, required: ['text', 'meaning'],
-      description: 'If the word belongs to a multi-word unit in this sentence (idiom, construct chain/סמיכות, fixed expression, multi-word name, verb with its fixed preposition), the whole unit exactly as written in the sentence and its English meaning; otherwise both empty.',
-      properties: { text: { type: 'string' }, meaning: { type: 'string' } },
+      type: 'object', additionalProperties: false, required: ['text', 'meaning', 'words', 'lemma', 'lemmaPlain', 'head', 'headPlain', 'partOfSpeech', 'binyan'],
+      description: 'If the word belongs to a multi-word unit in this sentence whose meaning is more than its words (idiom, construct chain/סמיכות, fixed expression, multi-word name, verb with its fixed preposition or object, like עוברים דרך or מעמיד פנים), that unit; otherwise every field empty.',
+      properties: {
+        text: { type: 'string', description: 'The stretch of the sentence from the unit\'s first word to its last, exactly as written.' },
+        meaning: { type: 'string', description: 'The unit\'s English meaning as a dictionary gives it (verb expressions as "to …": "to go through", "to pretend").' },
+        words: { type: 'array', items: { type: 'string' }, description: 'Only the unit\'s own words, each exactly as written in the sentence (with prefixes), in order, leaving out any words that come between them: ["מעמיד", "פנים"] in "מעמיד את עצמו פנים".' },
+        lemma: { type: 'string', description: 'The unit\'s dictionary form, vocalized, with its inflecting word in dictionary form: לַעֲבֹר דֶּרֶךְ for עוברים דרך, לְהַעֲמִיד פָּנִים for מעמידה פנים.' },
+        lemmaPlain: { type: 'string', description: 'The same without niqqud, in standard full spelling (כתיב מלא): לעבור דרך.' },
+        head: { type: 'string', description: 'The dictionary form, vocalized, of the word in the unit that inflects (לַעֲבֹר), or empty if none does.' },
+        headPlain: { type: 'string', description: 'The same without niqqud, in full spelling (לעבור), or empty.' },
+        partOfSpeech: { type: 'string', description: 'What the whole unit inflects as: verb, noun or adjective, or "other" if it is fixed.' },
+        binyan: { type: 'string', description: 'If the inflecting word is a verb: its binyan in Latin letters; otherwise empty.' },
+      },
     },
     excerpt: {
       type: 'object', additionalProperties: false, required: ['text', 'meaning'],
@@ -74,7 +84,7 @@ const SYSTEM = `You are a Hebrew tutor inside a reading app for English-speaking
 The learner may select several words instead of one. Then explain them as one unit: "meaning" is what the words mean together here; "parts" lists each word (with its prefixes) and its meaning here; "lemma" and "lemmaMeaning" are the expression's dictionary form and senses only if it is a fixed expression, otherwise empty; root, binyan and form apply only if one word carries the meaning, otherwise empty; "partOfSpeech" is "phrase"; "phrase" and "readAs" are empty; "excerpt" is as for one word. If the words don't form a unit, still give their combined meaning and say so in "note".`
 
 // The cache name for this prompt and schema: bump the version when either changes.
-const CACHE_KIND = 'word-analysis-v3'
+const CACHE_KIND = 'word-analysis-v4'
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, WordAnalysis>()
 let client: Anthropic | null = null

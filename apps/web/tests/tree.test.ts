@@ -12,8 +12,8 @@ import { handler } from '../netlify/functions/tree'
 const day = (offset: number) => new Date(Date.UTC(2026, 9, 18 + offset)).toISOString().slice(0, 10)
 const today = day(0)
 const studied = (offset: number, cards = 20): DayActivity => ({ day: day(offset), cards })
-const state = (days: DayActivity[], extra: { planted?: string; due?: number } = {}) =>
-  treeState({ days, planted: extra.planted ?? day(-200), today, due: extra.due ?? 0, userId: 'user' })
+const state = (days: DayActivity[], extra: { planted?: string } = {}) =>
+  treeState({ days, planted: extra.planted ?? day(-200), today, userId: 'user' })
 
 describe('the tree', () => {
   it('starts young and healthy on planting day', () => {
@@ -31,15 +31,15 @@ describe('the tree', () => {
     const month = Array.from({ length: 30 }, (_, i) => studied(-40 - i))
     const later = state(month).growth
     expect(later).toBeGreaterThan(35)
-    expect(state(month.map(d => ({ ...d })), { due: 0 }).growth).toBe(later)
+    expect(state(month.map(d => ({ ...d }))).growth).toBe(later)
     const year = Array.from({ length: 150 }, (_, i) => studied(-i))
     expect(state(year).growth).toBeGreaterThan(90)
   })
   it('grows wild after the grace days and is pruned by studying today', () => {
-    const away = state([studied(-10)], { due: 40 })
+    const away = state([studied(-10)])
     expect(away.overgrowth).toBeGreaterThan(50)
-    expect(state([studied(-1)], { due: 0 }).overgrowth).toBe(0)
-    const back = state([studied(-10), studied(0)], { due: 0 })
+    expect(state([studied(-1)]).overgrowth).toBe(0)
+    const back = state([studied(-10), studied(0)])
     expect(back.overgrowth).toBe(0)
     expect(back.tendedToday).toBe(true)
   })
@@ -64,7 +64,7 @@ describe('tree function', () => {
     (httpMethod === 'GET' ? { httpMethod, queryStringParameters: input } : { httpMethod, body: JSON.stringify(input) }) as any, {} as any, () => {}) as any)
 
   it('plants on first visit and returns the tree', async () => {
-    const response = await call('GET', { day: today, due: '3' })
+    const response = await call('GET', { day: today })
     expect(response.statusCode).toBe(200)
     expect(updateOne).toHaveBeenCalledWith({ userId: 'user' }, expect.objectContaining({ $setOnInsert: expect.objectContaining({ planted: today }) }), { upsert: true })
     expect(JSON.parse(response.body).tree.planted).toBe(day(-3))

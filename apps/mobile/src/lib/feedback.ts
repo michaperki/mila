@@ -15,8 +15,8 @@ export type Moment =
   | 'reveal' // Show answer
   | 'advance' // the next or previous study card, by swipe, arrow or Next
   | 'right' | 'wrong' // a choice answered
-  | 'graded' // Again / Hard
-  | 'gotIt' // Got it
+  | 'graded' // a card answered as still learning
+  | 'gotIt' // a card answered as known
   | 'saved' // a word saved
   | 'unlock' // a stage opened
   | 'complete' // a practice session done

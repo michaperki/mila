@@ -39,3 +39,25 @@ export type SavedTap = { id: string; encounter: Encounter }
 export const tapKey = (surface: string, sentence: string) => `${surface}\u0000${sentence}`
 export const savedTapsOf = (entries: VocabEntry[]) =>
   new Map<string, SavedTap>(entries.flatMap(entry => encountersOf(entry).map(encounter => [tapKey(encounter.surface, encounter.context), { id: entry.id, encounter }] as const)))
+
+// Search matches Hebrew with or without vowels, and the English meanings.
+export function matches(entry: VocabEntry, query: string) {
+  const needle = stripNiqqud(query.trim().toLowerCase())
+  if (!needle) return true
+  return [entry.lemma, entry.surface, entry.vocalized, entry.gloss, entry.senses,
+    ...(entry.encounters || []).flatMap(item => [item.surface, item.meaning]), ...(entry.forms || []).flatMap(form => [form.he, form.en])]
+    .some(field => !!field && stripNiqqud(field.toLowerCase()).includes(needle))
+}
+
+// Saved expressions built on a word (לעבור דרך for לעבור), matched by the plain spelling of the
+// word that inflects in them.
+export const expressionsWith = (entries: VocabEntry[], entry: VocabEntry) => {
+  const key = lemmaKey(entry.lemmaPlain || entry.lemma)
+  return entries.filter(item => item.partOfSpeech === 'expression' && item.id !== entry.id && !!item.head && lemmaKey(item.head.lemmaPlain || item.head.lemma) === key)
+}
+// The saved word an expression is built on, if it is saved.
+export const headOf = (entries: VocabEntry[], entry: VocabEntry) => {
+  if (!entry.head) return undefined
+  const key = lemmaKey(entry.head.lemmaPlain || entry.head.lemma)
+  return entries.find(item => item.id !== entry.id && item.partOfSpeech !== 'expression' && lemmaKey(item.lemmaPlain || item.lemma) === key)
+}

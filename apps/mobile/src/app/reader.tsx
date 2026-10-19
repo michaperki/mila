@@ -21,8 +21,8 @@ import { paragraphsOf, runsOf } from '../lib/page'
 import { type EnglishMode, getPref, rememberRead, setPref, TEXT_SIZES } from '../lib/prefs'
 import { noteActivity } from '../lib/tree'
 import { explainWord, quickMeanings } from '../lib/recognition'
-import type { Encounter, VocabEntry, WordAnalysis } from '../lib/types'
-import { encountersOf, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
+import type { Encounter, Phrase, VocabEntry, WordAnalysis } from '../lib/types'
+import { encountersOf, lemmaKey, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
 import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
@@ -239,7 +239,10 @@ export default function Reader() {
   // Saved is known from the tap itself, so it shows at once rather than after the explanation.
   const wordSaved = !!word && (saving.has(tapKey(word.bare, sentence)) || savedTaps.has(tapKey(word.bare, sentence)) || savedWords.has(savedKey(vocabId(lemma), sentence)))
   const phrase = !isPhrase && analysis?.phrase?.text ? analysis.phrase : null
-  const phraseSaved = !!phrase && (saving.has(tapKey(phrase.text, sentence)) || savedWords.has(savedKey(vocabId(phrase.text), sentence)))
+  // An expression is saved under its dictionary form (לעבור דרך), so every way it is met is one
+  // entry; older explanations only give it as written.
+  const phraseId = phrase ? vocabId(phrase.lemmaPlain || phrase.lemma || phrase.text) : ''
+  const phraseSaved = !!phrase && (saving.has(tapKey(phrase.text, sentence)) || savedWords.has(savedKey(phraseId, sentence)))
   // Saved ✓ tapped again undoes the save from this sentence. The server drops the encounter, and
   // the whole entry if that was its only one and it was never practised; a save still on its way
   // is undone when it lands.
@@ -249,7 +252,7 @@ export default function Reader() {
     if (unsaving.has(key)) return
     feel('tick'); setUnsaving(current => new Set(current).add(key))
     if (saving.has(key)) { undoAfterSave.current.add(key); return }
-    void removeSave(savedTaps.get(key)?.id ?? vocabId(asPhrase ? phrase!.text : lemma), sentence, key)
+    void removeSave(savedTaps.get(key)?.id ?? (asPhrase ? phraseId : vocabId(lemma)), sentence, key)
   }
   const removeSave = async (id: string, context: string, key: string) => {
     if (!session) return
@@ -282,10 +285,12 @@ export default function Reader() {
       if (!meaning) throw new Error('Its meaning could not be looked up.')
       if (!asPhrase && !dragged && !found) throw new Error('It could not be explained just now, so it wasn\'t saved. Try again.')
       const lemmaNow = dragged ? tapped.bare : found?.lemma || tapped.bare
-      const id = vocabId(asPhrase ? unit!.text : dragged ? lemmaNow : found?.lemmaPlain || lemmaNow)
+      const id = vocabId(asPhrase ? unit!.lemmaPlain || unit!.lemma || unit!.text : dragged ? lemmaNow : found?.lemmaPlain || lemmaNow)
       // The entry is the dictionary form; this sentence is added to it as one encounter.
       const encounter: Encounter = {
         surface: asPhrase ? unit!.text : tapped.bare, meaning: asPhrase ? unit!.meaning : meaning, context: segment.he, at: Date.now(),
+        // An expression's own words, which may stand apart in the sentence (lib/marks.ts).
+        ...(asPhrase && unit!.words?.length ? { mark: unit!.words.join(' ') } : {}),
         ...(segment.en ? { contextTranslation: segment.en } : {}),
         ...(!asPhrase && found?.vocalized ? { vocalized: found.vocalized } : {}),
         ...(!asPhrase && !dragged && found?.form ? { form: found.form } : {}),
@@ -295,7 +300,7 @@ export default function Reader() {
       }
       const entry: VocabEntry & { encounter: Encounter } = {
         id, createdAt: Date.now(), frequency: 1, encounter,
-        ...(asPhrase ? { lemma: unit!.text, gloss: unit!.meaning, partOfSpeech: 'phrase' }
+        ...(asPhrase ? expressionEntry(unit!, found)
           : dragged ? { lemma: lemmaNow, gloss: found?.lemmaMeaning || meaning, partOfSpeech: 'phrase' } : {
             lemma: lemmaNow, gloss: found?.lemmaMeaning || meaning,
             ...(found?.lemmaPlain ? { lemmaPlain: found.lemmaPlain } : {}),
@@ -492,7 +497,7 @@ export default function Reader() {
           meaning can be misleading on its own, so the expression leads and is what Save keeps. */}
       {phrase && !wordBusy && <Animated.View entering={APPEAR} style={[reader.phrase, { flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingRight: 10, paddingVertical: 8 }]}>
         <Text style={reader.label}>Part of an expression</Text>
-        <Text style={reader.fact}><Text style={reader.factHebrew}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>
+        <Text style={reader.fact}><Text style={reader.factHebrew}>{isolateHebrew(v(phrase.lemma || phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>
       </Animated.View>}
       {details && !wordBusy && analysis && <Animated.View entering={APPEAR}>
         <ScrollView style={{ maxHeight: detailsHeight }} contentContainerStyle={{ gap: 12, paddingBottom: 4 }} scrollEventThrottle={64}
@@ -541,6 +546,20 @@ function WordFacts({ analysis, gloss, v }: { analysis: WordAnalysis; gloss: stri
     </Section>}
     {!!analysis.note && <Section label="Note"><Text style={reader.fact}>{isolateHebrew(v(analysis.note))}</Text></Section>}
   </>
+}
+
+// An expression as a saved word: its dictionary form, and the word in it that inflects, which
+// gives it that word's stages (lib/forms.ts). The root comes along when the tapped word is that
+// word. An older explanation has the expression only as written: then it is a plain phrase.
+function expressionEntry(unit: Phrase, found: WordAnalysis | undefined): Pick<VocabEntry, 'lemma' | 'gloss'> & Partial<VocabEntry> {
+  if (!unit.lemma) return { lemma: unit.text, gloss: unit.meaning, partOfSpeech: 'phrase' }
+  const headIsTapped = !!found && !!unit.headPlain && lemmaKey(found.lemmaPlain || found.lemma) === lemmaKey(unit.headPlain)
+  return {
+    lemma: unit.lemma, gloss: unit.meaning, partOfSpeech: 'expression',
+    ...(unit.lemmaPlain ? { lemmaPlain: unit.lemmaPlain } : {}),
+    ...(unit.head ? { head: { lemma: unit.head, ...(unit.headPlain ? { lemmaPlain: unit.headPlain } : {}), ...(unit.partOfSpeech ? { partOfSpeech: unit.partOfSpeech } : {}), ...(unit.binyan ? { binyan: unit.binyan } : {}) } } : {}),
+    ...(headIsTapped && found?.root ? { root: found.root } : {}),
+  }
 }
 
 const reader = StyleSheet.create({

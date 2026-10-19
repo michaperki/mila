@@ -27,14 +27,20 @@ export type Recognition = {
 export type WordAnalysis = {
   word: string; vocalized: string; meaning: string; parts: { text: string; meaning: string }[]
   lemma: string; lemmaPlain?: string; lemmaMeaning: string; root: string; partOfSpeech: string; gender?: string; binyan: string; form: string; note: string
-  readAs?: string; phrase?: { text: string; meaning: string }; excerpt?: { text: string; meaning: string }
+  readAs?: string; phrase?: Phrase; excerpt?: { text: string; meaning: string }
 }
+// The expression a tapped word belongs to: `text` as it stands in the sentence, `words` the
+// expression's own words as written there, in order (other words may come between them),
+// `lemma` its dictionary form (לַעֲבֹר דֶּרֶךְ for עוברים דרך), `head` the word in it that inflects
+// and `partOfSpeech` what the whole behaves as (a verb for להעמיד פנים). Older explanations
+// have only `text` and `meaning`.
+export type Phrase = { text: string; meaning: string; words?: string[]; lemma?: string; lemmaPlain?: string; head?: string; headPlain?: string; partOfSpeech?: string; binyan?: string }
 // A saved word is its dictionary form (להדביק, not the הדביק that was tapped): `lemma`, `gloss`
 // (the dictionary form's meanings), part of speech, root and binyan describe it. Each place it
 // was met is an `Encounter`, so the same word met in several books stays one entry with one
 // practice history. Entries saved before encounters existed keep that data at the top level.
 export type VocabEntry = StarredItem & {
-  partOfSpeech?: string; binyan?: string; encounters?: Encounter[]; review?: Review
+  partOfSpeech?: string; binyan?: string; encounters?: Encounter[]
   // Nouns: 'masculine' or 'feminine'.
   gender?: string
   // The dictionary form without niqqud, in full spelling: what identifies the word (lib/words.ts).
@@ -42,6 +48,14 @@ export type VocabEntry = StarredItem & {
   // Practice cards, one per form, written stage by stage (see lib/forms.ts); `known` lists the
   // stages the learner marked as already known.
   forms?: FormCard[]; known?: string[]
+  // The word card's own results (see Results), and stages the learner chose to study before
+  // Mila brought them in.
+  results?: boolean[]; last?: number; opened?: string[]
+  // Conjugation checkpoints by stage: recalling a whole tense at once (lib/forms.ts).
+  checkpoints?: Record<string, { results: boolean[]; last: number }>
+  // An expression (partOfSpeech 'expression'): the word in it that inflects, which decides its
+  // stages (a verb's tenses for לעבור דרך), and its plain spelling, which links the two.
+  head?: { lemma: string; lemmaPlain?: string; partOfSpeech?: string; binyan?: string }
   vocalized?: string; context?: string; contextTranslation?: string; surface?: string
   senses?: string; form?: string; excerpt?: string; excerptTranslation?: string
 }
@@ -50,17 +64,20 @@ export type VocabEntry = StarredItem & {
 // with, so tapping it again in that sentence shows it without asking the model again.
 export type Encounter = {
   surface: string; vocalized?: string; form?: string; meaning: string; context: string; contextTranslation?: string
+  // The words of `context` that are the saved word, in order (see lib/marks.ts); else `surface`.
+  mark?: string
   excerpt?: string; excerptTranslation?: string; sourceRef?: { textId: string; chunkId: string }; at: number
   analysis?: WordAnalysis
 }
 // One card of a saved word: a meaning or a form (vocalized), its English, an example
-// sentence (`mark` is the form as written there) and the learner's record on it. `goodDays`
-// are the days it was answered right; two of them make the form solid (see lib/forms.ts).
+// sentence and the learner's results on it. `mark` is the target's words as written in the
+// sentence, in order and possibly apart (lib/marks.ts); `said` the same words vocalized, to be
+// heard on their own.
 export type FormCard = {
   key: string; stage: string; slot: string; he: string; en: string; sentence: string; mark: string; translation: string
   // The words of `translation` that render the card's word, marked on English → Hebrew cards.
-  enMark?: string
-  review?: Review; correct?: number; goodDays?: string[]
-}
-// Spaced-repetition state (see lib/review.ts). `first` is when the card was first practiced.
-export type Review = { due: number; interval: number; reps: number; lapses: number; last?: number; first?: number }
+  enMark?: string; said?: string
+} & Results
+// What studying has shown about a card, and nothing about when to see it again: its last few
+// results (true: knew it) and when it was last answered (lib/forms.ts).
+export type Results = { results?: boolean[]; last?: number }

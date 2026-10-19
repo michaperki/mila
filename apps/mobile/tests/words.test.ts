@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { encountersOf, lemmaKey, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../src/lib/words.ts'
+import { encountersOf, expressionsWith, headOf, lemmaKey, matches, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../src/lib/words.ts'
 
 const encounter = (surface: string, context: string, at: number) => ({ surface, meaning: 'm', context, at })
 
@@ -32,4 +32,24 @@ test('identifies a word by its plain dictionary form, whatever vowels it was giv
   assert.equal(lemmaKey('בֵּית־סֵפֶר'), 'בית ספר')
   assert.equal(lemmaKey(' בית  ספר, '), 'בית ספר')
   assert.equal(lemmaKey("צ'יפס"), 'צ׳יפס')
+})
+
+test('search ignores vowels and looks at English meanings and forms', () => {
+  const entry = { id: 'x', lemma: 'לְמַעֲשֶׂה', gloss: 'in fact', createdAt: 0, senses: 'actually' }
+  assert.equal(matches(entry, 'למעשה'), true)
+  assert.equal(matches(entry, 'Actual'), true)
+  assert.equal(matches(entry, 'house'), false)
+  assert.equal(matches(entry, ' '), true)
+  const verb = { id: 'v', lemma: 'לִפְתֹּחַ', gloss: 'to open', createdAt: 0, forms: [{ key: 'past:3pl', stage: 'past', slot: '3pl', he: 'פָּתְחוּ', en: 'they opened', sentence: '', mark: '', translation: '' }] }
+  assert.equal(matches(verb, 'פתחו'), true)
+  assert.equal(matches(verb, 'they opened'), true)
+})
+
+test('an expression and the word it is built on find each other', () => {
+  const word = { id: 'w', lemma: 'לַעֲבֹר', lemmaPlain: 'לעבור', gloss: 'to pass', createdAt: 0, partOfSpeech: 'verb' }
+  const expression = { id: 'e', lemma: 'לַעֲבֹר דֶּרֶךְ', gloss: 'to go through', createdAt: 0, partOfSpeech: 'expression', head: { lemma: 'לַעֲבֹר', lemmaPlain: 'לעבור', partOfSpeech: 'verb' } }
+  const other = { id: 'o', lemma: 'לִכְתֹּב', gloss: 'to write', createdAt: 0, partOfSpeech: 'verb' }
+  assert.deepEqual(expressionsWith([word, expression, other], word).map(item => item.id), ['e'])
+  assert.equal(headOf([word, expression, other], expression)?.id, 'w')
+  assert.equal(headOf([expression, other], expression), undefined)
 })

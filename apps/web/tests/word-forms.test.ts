@@ -28,9 +28,9 @@ describe('word forms', () => {
   it('writes a stage in slot order, drops unknown slots, and sends earlier sentences and encounters', async () => {
     findOne.mockResolvedValueOnce(entry).mockResolvedValueOnce(null)
     create.mockResolvedValue(generated([
-      { slot: '3sg.m', form: 'פָּתַח', english: 'he opened', sentence: 'הוא פתח את הדלת', inSentence: 'פתח', translation: 'He opened the door', inTranslation: 'opened' },
-      { slot: '1sg', form: 'פָּתַחְתִּי', english: 'I opened', sentence: 'פתחתי חשבון בבנק', inSentence: 'פתחתי', translation: 'I opened a bank account', inTranslation: 'I opened' },
-      { slot: 'made-up', form: 'x', english: 'x', sentence: 'x', inSentence: 'x', translation: 'x', inTranslation: 'x' },
+      { slot: '3sg.m', form: 'פָּתַח', english: 'he opened', sentence: 'הוא פתח את הדלת', inSentence: ['פתח'], said: '', translation: 'He opened the door', inTranslation: ['opened'] },
+      { slot: '1sg', form: 'פָּתַחְתִּי', english: 'I opened', sentence: 'פתחתי חשבון בבנק', inSentence: ['פתחתי'], said: '', translation: 'I opened a bank account', inTranslation: ['I opened'] },
+      { slot: 'made-up', form: 'x', english: 'x', sentence: 'x', inSentence: ['x'], said: '', translation: 'x', inTranslation: ['x'] },
     ]))
     const result = await invoke({ id: 'native-x', stage: 'past' })
     expect(result.status).toBe(200)
@@ -56,11 +56,21 @@ describe('word forms', () => {
     findOne.mockResolvedValueOnce(null)
     expect((await invoke({ id: 'gone', stage: 'past' })).status).toBe(404)
   })
+  it('writes an expression as a whole, in the stages of the word that inflects, marking words that are apart', async () => {
+    const expression = { ...entry, lemma: 'לְהַעֲמִיד פָּנִים', gloss: 'to pretend', partOfSpeech: 'expression', head: { lemma: 'לְהַעֲמִיד', partOfSpeech: 'verb', binyan: "hif'il" }, forms: [] }
+    findOne.mockResolvedValueOnce(expression).mockResolvedValueOnce(null)
+    create.mockResolvedValue(generated([
+      { slot: 'm.sg', form: 'מַעֲמִיד פָּנִים', english: 'pretends', sentence: 'הוא מעמיד את עצמו פנים', inSentence: ['מעמיד', 'פנים'], said: 'מַעֲמִיד פָּנִים', translation: 'He is pretending', inTranslation: ['pretending'] },
+    ]))
+    const result = await invoke({ id: 'native-x', stage: 'present' })
+    expect(result.forms[0]).toMatchObject({ key: 'present:m.sg', mark: 'מעמיד פנים', said: 'מַעֲמִיד פָּנִים', enMark: 'pretending' })
+    expect(create.mock.calls[0][0].messages[0].content).toContain('every card uses the whole expression')
+  })
   it('asks for a word\'s meanings as its first stage, one card per meaning', async () => {
     findOne.mockResolvedValueOnce({ ...entry, forms: [] }).mockResolvedValueOnce(null)
     create.mockResolvedValue(generated([
-      { slot: 'sense1', form: 'לְהַדְבִּיק', english: 'to stick', sentence: 'הוא הדביק בול על המכתב', inSentence: 'הדביק', translation: 'He stuck a stamp on the letter', inTranslation: 'stuck' },
-      { slot: 'sense2', form: 'לְהַדְבִּיק', english: 'to catch up with', sentence: 'רצתי כדי להדביק אותה', inSentence: 'להדביק', translation: 'I ran to catch up with her', inTranslation: 'catch up with' },
+      { slot: 'sense1', form: 'לְהַדְבִּיק', english: 'to stick', sentence: 'הוא הדביק בול על המכתב', inSentence: ['הדביק'], said: '', translation: 'He stuck a stamp on the letter', inTranslation: ['stuck'] },
+      { slot: 'sense2', form: 'לְהַדְבִּיק', english: 'to catch up with', sentence: 'רצתי כדי להדביק אותה', inSentence: ['להדביק'], said: '', translation: 'I ran to catch up with her', inTranslation: ['catch up with'] },
     ]))
     const result = await invoke({ id: 'native-x', stage: 'meanings' })
     expect(result.forms.map((form: any) => form.key)).toEqual(['meanings:sense1', 'meanings:sense2'])

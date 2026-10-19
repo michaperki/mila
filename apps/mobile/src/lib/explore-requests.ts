@@ -1,12 +1,13 @@
 import { request } from './api'
 import { type Family, rootOf, type Table, tableMeaning } from './explore'
+import { kindOfEntry } from './forms'
 import type { VocabEntry } from './types'
 
 // Asks for a word's table of forms and a root's family (see explore.ts). A visit is kept here so
 // going back and forth doesn't ask again.
 const tables = new Map<string, Promise<Table>>()
 export function tableFor(entry: VocabEntry, token: string): Promise<Table> {
-  const body = { lemma: entry.lemma, partOfSpeech: entry.partOfSpeech, binyan: entry.binyan || '', meaning: tableMeaning(entry) }
+  const body = { lemma: entry.lemma, partOfSpeech: kindOfEntry(entry), binyan: entry.binyan || entry.head?.binyan || '', meaning: tableMeaning(entry) }
   const key = JSON.stringify(body)
   return remembered(tables, key, () => request<Table>('word-table', { token, body, timeoutMs: 50000 }))
 }

@@ -3,10 +3,9 @@ import { getDb } from './lib/mongo'
 import { verifyAuth } from './lib/auth'
 import { DAY_PATTERN, type DayActivity, treeState } from './lib/tree'
 
-// The learner's bonsai (lib/tree.ts). `day` is the learner's own date, 'YYYY-MM-DD', and `due`
-// the cards waiting in their saved words, which the app already counts.
-// GET ?day=&due= : the tree as it stands (planting it on the first visit).
-// POST { day, due, cards?, sentences?, saved? } : adds what was just done today, then the tree.
+// The learner's bonsai (lib/tree.ts). `day` is the learner's own date, 'YYYY-MM-DD'.
+// GET ?day= : the tree as it stands (planting it on the first visit).
+// POST { day, cards?, sentences?, saved? } : adds what was just done today, then the tree.
 const LIMITS = { cards: 300, sentences: 500, saved: 100 }
 
 const handler: Handler = async (event) => {
@@ -15,7 +14,6 @@ const handler: Handler = async (event) => {
     const input = event.httpMethod === 'POST' ? JSON.parse(event.body || '{}') : event.queryStringParameters || {}
     const day = String(input.day ?? '')
     if (!DAY_PATTERN.test(day) || !nearToday(day)) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid day' }) }
-    const due = clampCount(input.due, 100000)
     if (event.httpMethod !== 'GET' && event.httpMethod !== 'POST') return { statusCode: 405, body: JSON.stringify({ message: 'Method not allowed' }) }
 
     const db = await getDb()
@@ -37,7 +35,7 @@ const handler: Handler = async (event) => {
     const tree = await trees.findOne<{ planted: string }>({ userId: auth.userId }, { projection: { planted: 1 } })
     const days = await activity.find<DayActivity>({ userId: auth.userId }, { projection: { _id: 0, day: 1, cards: 1, sentences: 1, saved: 1 } }).toArray()
     const planted = tree?.planted && DAY_PATTERN.test(tree.planted) ? tree.planted : day
-    return { statusCode: 200, body: JSON.stringify({ tree: treeState({ days, planted, today: day, due, userId: auth.userId }) }) }
+    return { statusCode: 200, body: JSON.stringify({ tree: treeState({ days, planted, today: day, userId: auth.userId }) }) }
   } catch (error) {
     const statusCode = (error as { statusCode?: number }).statusCode ?? 500
     return { statusCode, body: JSON.stringify({ message: (error as Error).message || 'Unexpected error' }) }

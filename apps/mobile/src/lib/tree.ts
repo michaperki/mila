@@ -4,7 +4,7 @@ import type { Session } from './types'
 
 // The learner's bonsai on Home. The server works it out from what was done each day
 // (apps/web/netlify/functions/lib/tree.ts); the app reports activity and draws what comes back.
-// Reading (sentences read, words saved) feeds its vitality, studying (cards graded) prunes it,
+// Reading (sentences read, words saved) feeds its vitality, studying (cards answered) prunes it,
 // and steady days grow it. Activity is counted here as it happens and sent when Home opens,
 // so a session never waits on the network; what isn't sent yet is kept on the phone.
 export type Tree = { growth: number; overgrowth: number; vitality: number; seed: number; planted: string; tendedToday: boolean }
@@ -31,7 +31,7 @@ const restored = getPref('treePending').then(value => {
 }).catch(() => {})
 const keepPending = () => setPref('treePending', JSON.stringify({ day: pendingDay, activity: pending }))
 
-// Set when a card is graded, so Home greets the tended tree with its quiet reaction once.
+// Set when a card is answered, so Home greets the tended tree with its quiet reaction once.
 let tended = false
 export const takeTended = () => { const was = tended; tended = false; return was }
 
@@ -54,8 +54,8 @@ export async function lastTree(session: Session | null): Promise<Tree | null> {
 }
 export const rememberTree = (session: Session, tree: Tree) => setPref('tree', JSON.stringify({ owner: session.user.id, tree }))
 
-// Sends what is waiting and returns the tree as it stands. `due`: the cards waiting now.
-export async function loadTree(session: Session, due: number): Promise<Tree> {
+// Sends what is waiting and returns the tree as it stands.
+export async function loadTree(session: Session): Promise<Tree> {
   await restored
   const day = localDay()
   const sending = pendingDay === day ? pending : { ...EMPTY }
@@ -63,8 +63,8 @@ export async function loadTree(session: Session, due: number): Promise<Tree> {
   pending = { ...EMPTY }; pendingDay = day
   try {
     const { tree } = any
-      ? await request<{ tree: Tree }>('tree', { token: session.token, body: { day, due, ...sending } })
-      : await request<{ tree: Tree }>(`tree?day=${day}&due=${due}`, { token: session.token })
+      ? await request<{ tree: Tree }>('tree', { token: session.token, body: { day, ...sending } })
+      : await request<{ tree: Tree }>(`tree?day=${day}`, { token: session.token })
     keepPending()
     return tree
   } catch (failure) {
@@ -76,11 +76,11 @@ export async function loadTree(session: Session, due: number): Promise<Tree> {
 }
 
 // One quiet line under the tree: its state in words (and for VoiceOver).
-export function treeLine(tree: Tree, due: number, hasWords: boolean, signedIn: boolean) {
+export function treeLine(tree: Tree, hasWords: boolean, signedIn: boolean) {
   if (!signedIn) return 'A young tree. Sign in to tend it day by day.'
   if (!hasWords && tree.growth < 12 && !tree.tendedToday) return 'A young tree. Read a page to begin.'
   if (tree.overgrowth >= 45) return 'It has grown wild. A short study will shape it.'
-  if (tree.overgrowth >= 15 && due > 0) return 'A few shoots need trimming.'
+  if (tree.overgrowth >= 15) return 'A few shoots need trimming.'
   if (tree.vitality < 45) return 'Quiet lately. A page of reading brings back its colour.'
   if (tree.tendedToday) return 'Tended today.'
   return 'Ready when you are.'

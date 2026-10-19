@@ -8,8 +8,10 @@ import { recordClaude } from './lib/ai-usage'
 // Writes one stage of a saved word's practice cards, each with its own short example sentence,
 // and adds them to the vocab entry. "meanings" is every word's first stage: one card per
 // distinct common meaning, using the dictionary form. Later stages are forms (the past tense
-// of לִפְתֹּחַ …). Stages are written when they open, so a word only costs what the learner
-// reaches. The stage/slot lists mirror apps/mobile/src/lib/forms.ts.
+// of לִפְתֹּחַ …). An expression (לַעֲבֹר דֶּרֶךְ, לְהַעֲמִיד פָּנִים) has the stages of the word in it that
+// inflects, and every card uses the whole expression. Stages are written when they open (by
+// progress or because the learner chose them), so a word only costs what the learner reaches.
+// The stage/slot lists mirror apps/mobile/src/lib/forms.ts.
 type Slot = { slot: string; means: string }
 const MEANINGS: Slot[] = [1, 2, 3].map(n => ({ slot: `sense${n}`, means: `meaning ${n}` }))
 const VERB: Record<string, Slot[]> = {
@@ -51,6 +53,8 @@ const mainMeaning = (entry: Entry) =>
   entry.forms?.find(form => form.stage === 'meanings' && form.slot === 'sense1')?.en || entry.gloss.split(/[,;]/)[0].trim()
 export const kindOf = (partOfSpeech?: string) =>
   partOfSpeech === 'verb' || partOfSpeech === 'adjective' || partOfSpeech === 'noun' ? partOfSpeech : 'other'
+// An expression is learned as the kind of word that inflects in it.
+export const kindOfEntry = (entry: Pick<Entry, 'partOfSpeech' | 'head'>) => kindOf(entry.partOfSpeech === 'expression' ? entry.head?.partOfSpeech : entry.partOfSpeech)
 
 const schema = {
   type: 'object', additionalProperties: false, required: ['forms'],
@@ -59,15 +63,16 @@ const schema = {
       type: 'array',
       items: {
         type: 'object', additionalProperties: false,
-        required: ['slot', 'form', 'english', 'sentence', 'inSentence', 'translation', 'inTranslation'],
+        required: ['slot', 'form', 'english', 'sentence', 'inSentence', 'said', 'translation', 'inTranslation'],
         properties: {
           slot: { type: 'string' },
           form: { type: 'string', description: 'The form, fully vocalized.' },
           english: { type: 'string', description: 'Short English for this form alone, e.g. "they opened", "to open", "open! (to one woman)", "beautiful (f. pl.)".' },
           sentence: { type: 'string', description: 'A short, natural, everyday Hebrew sentence (5 to 12 words, no niqqud) that uses exactly this form.' },
-          inSentence: { type: 'string', description: 'The form exactly as written in the sentence, with any attached prefix (e.g. ושפתחנו).' },
+          inSentence: { type: 'array', items: { type: 'string' }, description: 'Each word of the sentence that is this form, copied exactly as written there with any attached prefix (e.g. ["ושפתחנו"]), in order. For an expression, every word of the expression, even where other words come between them (e.g. ["מעמיד", "פנים"] in "הוא מעמיד את עצמו פנים").' },
+          said: { type: 'string', description: 'The same words as inSentence, fully vocalized as pronounced in this sentence, separated by spaces (e.g. "עוֹבְרִים דֶּרֶךְ").' },
           translation: { type: 'string', description: 'Natural English translation of the sentence.' },
-          inTranslation: { type: 'string', description: 'The words of the translation that render this form, copied exactly from it.' },
+          inTranslation: { type: 'array', items: { type: 'string' }, description: 'The words of the translation that render this form, each copied exactly from it, in order.' },
         },
       },
     },
@@ -80,13 +85,18 @@ Meanings: when asked for the word's meanings, give one card per genuinely distin
 
 Forms: for each requested form, give the correct standard modern Hebrew form and a sentence that uses exactly that form. Leave out a form that is not in real use (for example a verbal noun the verb doesn't have) rather than inventing one. The forms are one word, not different meanings: every form's "english" uses the main meaning you are given, changing only for person, tense, number and gender ("he guesses", "they guessed", "guess! (to one woman)"), never to a synonym, and each sentence uses the word in that meaning, rendered with that same English word in its translation.
 
+Expressions: a sense that only exists together with particular other words (a verb with its fixed preposition or object, an idiom: לעבור דרך "to go through", להעמיד פנים "to pretend") belongs to that expression, not to the word on its own. When writing a single word, leave such senses out. When the word you are given is itself an expression, every card is the whole expression: its meanings are the expression's, every form inflects the words of it that inflect and keeps the rest ("עברנו דרך", "תעמידי פנים"), and inSentence lists every one of its words in the sentence.
+
 Sentences must differ from each other and from the sentences already used for this word: vary who acts, the setting, the objects and the sentence shape, so no two read as the same sentence with the person changed. Keep the rest of each sentence simple, common vocabulary, so the target word is the only hard part and its meaning is clear from the sentence.`
 
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 let client: Anthropic | null = null
 
-type Generated = { slot: string; form: string; english: string; sentence: string; inSentence: string; translation: string; inTranslation: string }
-type Entry = { lemma: string; gloss: string; partOfSpeech?: string; binyan?: string; forms?: { stage: string; slot?: string; en?: string; sentence: string }[]; encounters?: { surface: string; context: string }[] }
+type Generated = { slot: string; form: string; english: string; sentence: string; inSentence: string[]; said: string; translation: string; inTranslation: string[] }
+type Entry = {
+  lemma: string; gloss: string; partOfSpeech?: string; binyan?: string; head?: { lemma: string; partOfSpeech?: string; binyan?: string }
+  forms?: { stage: string; slot?: string; en?: string; sentence: string }[]; encounters?: { surface: string; context: string }[]
+}
 
 export const handler: Handler = async (event) => {
   const requestId = randomUUID()
@@ -100,7 +110,7 @@ export const handler: Handler = async (event) => {
     const vocab = (await getDb()).collection('vocab')
     const entry = await vocab.findOne<Entry>({ userId: auth.userId, id })
     if (!entry) return reply(404, { message: 'This word is no longer saved.' })
-    const slots = STAGES[kindOf(entry.partOfSpeech)][stage]
+    const slots = STAGES[kindOfEntry(entry)][stage]
     if (!slots) return reply(400, { message: 'Unknown stage for this word.' })
     const existing = (entry.forms || []).filter(form => form.stage === stage)
     if (existing.length) return reply(200, { forms: existing })
@@ -108,8 +118,12 @@ export const handler: Handler = async (event) => {
 
     const used = (entry.forms || []).map(form => form.sentence).slice(-30)
     const met = (entry.encounters || []).slice(-5).map(item => `${item.surface} in: ${item.context}`)
+    const expression = entry.partOfSpeech === 'expression'
+    const binyan = entry.binyan || entry.head?.binyan
     const prompt = [
-      `Word: ${entry.lemma} (${entry.partOfSpeech || 'word'}${entry.binyan ? `, ${entry.binyan}` : ''}) — ${entry.gloss}`,
+      expression
+        ? `Expression: ${entry.lemma} — ${entry.gloss}. It inflects as the ${entry.head?.partOfSpeech || 'word'} ${entry.head?.lemma || ''}${binyan ? ` (${binyan})` : ''}; every card uses the whole expression.`
+        : `Word: ${entry.lemma} (${entry.partOfSpeech || 'word'}${binyan ? `, ${binyan}` : ''}) — ${entry.gloss}`,
       ...(stage === 'meanings'
         ? ['Write its meanings, one card each, using slots "sense1", "sense2", "sense3" in order (only as many as it has).']
         : [`Main meaning, the same for every form: ${mainMeaning(entry)}`, `Forms to write (${stage}):`, ...slots.map(item => `- slot "${item.slot}": ${item.means}`)]),
@@ -135,9 +149,11 @@ export const handler: Handler = async (event) => {
     const order = slots.map(item => item.slot)
     const forms = order.flatMap(slot => {
       const item = generated.find(candidate => candidate.slot === slot && candidate.form.trim() && candidate.sentence.trim())
+      // The marks are kept as the words in order, space-separated (apps/mobile/src/lib/marks.ts).
+      const words = (list: string[]) => list.map(word => word.trim()).filter(Boolean).join(' ')
       return item ? [{
-        key: `${stage}:${slot}`, stage, slot, he: item.form.trim(), en: item.english.trim(),
-        sentence: item.sentence.trim(), mark: item.inSentence.trim(), translation: item.translation.trim(), enMark: item.inTranslation.trim(),
+        key: `${stage}:${slot}`, stage, slot, he: item.form.trim(), en: item.english.trim(), sentence: item.sentence.trim(),
+        mark: words(item.inSentence), ...(item.said.trim() ? { said: item.said.trim() } : {}), translation: item.translation.trim(), enMark: words(item.inTranslation),
       }] : []
     })
     if (!forms.length) return reply(422, { message: 'These forms could not be written.', requestId })

@@ -11,7 +11,7 @@ import { Button, colors, ErrorNotice, Pressy, TextButton } from '../components/u
 import { request } from '../lib/api'
 import { textFromDocument } from '../lib/documents'
 import { feel } from '../lib/feedback'
-import { countsOf } from '../lib/forms'
+import { freshStages } from '../lib/forms'
 import { APPEAR, DISAPPEAR } from '../lib/motion'
 import { getPref, setPref } from '../lib/prefs'
 import { type LastRead, parseLastRead } from '../lib/today'
@@ -26,7 +26,7 @@ import { useVocab } from '../state/vocab'
 // just done is seen happening; after studying it also gives one soft breath of wind.
 export default function Home() {
   const { session, setRecognition } = useSession()
-  const { entries, at: now, loaded } = useVocab(session)
+  const { entries, loaded } = useVocab(session)
   const insets = useSafeAreaInsets()
   const reduceMotion = useReducedMotion()
   const bonsai = useRef<BonsaiHandle>(null)
@@ -40,7 +40,8 @@ export default function Home() {
   const [lastRead, setLastRead] = useState<LastRead | null>(null)
   const [opening, setOpening] = useState(false)
   const [openError, setOpenError] = useState<string | null>(null)
-  const due = useMemo(() => countsOf(entries, now).due, [entries, now])
+  // What Mila suggests studying next: a stage it has just brought in. A suggestion, never a count.
+  const next = useMemo(() => freshStages(entries, 1)[0], [entries])
 
   useFocusEffect(useCallback(() => {
     setFocused(true); setVisit(value => value + 1); setHour(hourNow())
@@ -51,8 +52,8 @@ export default function Home() {
     return () => { setFocused(false); clearInterval(clock) }
   }, []))
 
-  // Once per visit, when the saved words are in (they give what's due): the tree last shown at
-  // once, then today's from the server. Offline, the last one stays.
+  // Once per visit, when the saved words are in: the tree last shown at once, then today's from
+  // the server. Offline, the last one stays.
   const owner = session?.user.id
   const loadedVisit = useRef('')
   useEffect(() => {
@@ -65,7 +66,7 @@ export default function Home() {
       const shown = await lastTree(session)
       if (live && shown) setTree(current => current ?? shown)
       try {
-        const fresh = await loadTree(session, due)
+        const fresh = await loadTree(session)
         if (!live) return
         setTree(fresh); rememberTree(session, fresh)
         // After the tree has had a moment to grow into its new state.
@@ -73,7 +74,6 @@ export default function Home() {
       } catch { if (live) setTree(current => current ?? shown ?? SAPLING) }
     })()
     return () => { live = false }
-    // `due` is read when the visit loads, not followed: a grade elsewhere shows on the next visit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [owner, loaded, visit])
 
@@ -96,7 +96,7 @@ export default function Home() {
   const touched = useCallback((part: BonsaiPart) => feel(part === 'foliage' ? 'tick' : 'select'), [])
 
   const shown = tree ?? SAPLING
-  const line = treeLine(shown, due, entries.length > 0, !!session)
+  const line = treeLine(shown, entries.length > 0, !!session)
   const date = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase()
 
   return <View style={home.page}>
@@ -124,8 +124,8 @@ export default function Home() {
           <TextButton title="Library" onPress={() => router.push('/library')} />
         </View>
         <View style={home.action}>
-          {/* Green when cards are waiting: what's due is information, never a badge. */}
-          <Button secondary={!due} title="Study" detail={session && due ? `${due} waiting` : undefined} style={home.button}
+          {/* Green when Mila has something new to suggest: information, never a badge. */}
+          <Button secondary={!next} title="Study" detail={session && next ? `${next.label} · ${next.entry.lemma}` : undefined} style={home.button}
             onPress={() => router.push(session ? '/practice' : '/login')} />
           <TextButton title="Your words" onPress={() => router.push('/vocabulary')} />
         </View>
