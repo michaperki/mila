@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { Binary } from 'mongodb'
 import { verifyAuth } from './lib/auth'
 import { getDb } from './lib/mongo'
-import { recordElevenLabs, recordGeminiSpeech } from './lib/ai-usage'
+import { checkDailySpend, recordElevenLabs, recordGeminiSpeech } from './lib/ai-usage'
 
 // Hebrew read aloud in the voice chosen in Account (Sarah, the default, or Charon). The app sends
 // one sentence or word at a time and plays the clips in order, so each answer stays small and
@@ -40,6 +40,7 @@ export const handler: Handler = async (event) => {
     const cached = await clips.findOne({ _id: key })
     if (cached) return reply(200, { audio: Buffer.from(cached.audio.buffer).toString('base64'), mime: cached.mime })
 
+    await checkDailySpend(auth)
     const started = Date.now()
     const clip = spec.provider === 'elevenlabs'
       ? await elevenLabs(text, spec.id, spec.model, auth.userId, started)
@@ -50,6 +51,7 @@ export const handler: Handler = async (event) => {
   } catch (error) {
     const status = (error as { statusCode?: number }).statusCode
     if (status === 401) return reply(401, { message: 'Your session has expired. Please sign in again.', requestId })
+    if (status === 429) return reply(429, { message: (error as Error).message, code: 'DAILY_LIMIT', requestId })
     if (status === 503) return reply(503, { message: (error as Error).message, requestId })
     console.error('Speech failed', { requestId, name: (error as Error).name, message: (error as Error).message.slice(0, 300) })
     return reply(502, { message: 'Listening is unavailable right now.', requestId })

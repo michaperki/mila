@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
-import { Alert, Linking, Switch, Text, View } from 'react-native'
+import { Alert, Switch, Text, View } from 'react-native'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles, TextButton } from '../components/ui'
 import { request } from '../lib/api'
@@ -13,10 +13,11 @@ import { setVoice, speak, useSpeech, VOICES, type Voice } from '../lib/speech'
 import { ListenButton } from '../components/Listen'
 import { getPref, setPref } from '../lib/prefs'
 import { lastTree, plantedOn, type Tree } from '../lib/tree'
-// Account → AI usage: the `ai-usage` function's summary of this month's paid calls, and how
-// many answers came from the cache instead (free).
-type Usage = { since: string; cost: number; requests: number; features: { feature: string; requests: number; cacheHits?: number; cost: number }[] }
-const FEATURES: Record<string, string> = { page: 'Page reads', word: 'Word explanations', forms: 'Practice cards', table: 'Tables of forms', root: 'Root families', ocr: 'Text recognition', translate: 'Translation', speech: 'Listening' }
+// Account → AI spend, for the developers only (ADMIN_EMAILS on the server; everyone else gets a
+// 403 and sees nothing): this month's paid calls across all learners, by feature and by learner,
+// and how many answers came from the cache instead (free).
+type Usage = { since: string; cost: number; requests: number; features: { feature: string; requests: number; cacheHits?: number; cost: number }[]; users: { email: string; requests: number; cost: number }[] }
+const FEATURES: Record<string, string> = { page: 'Page reads', word: 'Word explanations', glosses: 'Sentence meanings', forms: 'Practice cards', table: 'Tables of forms', root: 'Root families', ocr: 'Text recognition', translate: 'Translation', speech: 'Listening' }
 // Played when a voice is picked, so the choice is heard straight away.
 const SAMPLE = 'מָחָר יֵשׁ לִי מִבְחָן בְּחֶשְׁבּוֹן.'
 const dollars = (value: number) => (value > 0 && value < 0.01 ? '< $0.01' : `$${value.toFixed(2)}`)
@@ -62,15 +63,16 @@ export default function Account() {
   ])
   return <Page>
     <ErrorNotice message={error || restoreError} />
-    {session ? <View style={styles.card}><Text style={styles.heading}>{session.user.email}</Text><Text style={styles.copy}>{session.user.tier === 'premium' ? 'Premium' : 'Free'} account · shared with Mila on the web</Text></View> : <AccountGate />}
+    {session ? <View style={styles.card}><Text style={styles.heading}>{session.user.email}</Text><Text style={styles.copy}>{session.user.tier === 'premium' ? 'Premium' : 'Free'} account</Text></View> : <AccountGate />}
     <View style={styles.card}>
       <SwitchRow title="Tree in the wind" detail={`${tree && plantedOn(tree) ? `${plantedOn(tree)}. ` : ''}Your tree sways gently on Home. It stays still when Reduce Motion is on.`} value={sway} onChange={chooseSway} />
     </View>
     <View style={styles.card}>
       <Text style={styles.heading}>Camera privacy</Text>
-      <Text style={styles.copy}>Images are sent to Google for text recognition and are not stored by Mila.</Text>
+      <Text style={styles.copy}>{'Photos are sent to Google to find the text and, when you read a page, to Anthropic\'s Claude to correct and translate it. Mila doesn\'t keep your photos.'}</Text>
       {privacyOpen ? <>
         <Text style={styles.copy}>Only passages you choose to save are added to your library.</Text>
+        <Text style={styles.copy}>{'Words and sentences you look up are sent to Anthropic\'s Claude to explain them, and text you listen to is sent to ElevenLabs or Google to be read aloud.'}</Text>
         <Text style={styles.copy}>Live preview is off until you turn it on in the camera. It samples a few images instead of every video frame, needs internet, and pauses after a short session.</Text>
         <TextButton title="Show less" onPress={() => setPrivacyOpen(false)} />
       </> : <TextButton title="Learn more" onPress={() => setPrivacyOpen(true)} />}
@@ -104,7 +106,6 @@ export default function Account() {
       <SwitchRow title="Sounds" detail="Short sounds in practice and when you save a word. They follow the silent switch." value={feelings.sounds} onChange={value => toggle('sounds', value)} />
       <SwitchRow title="Haptics" detail="Taps you feel when you press, select and answer." value={feelings.haptics} onChange={value => toggle('haptics', value)} />
     </View>
-    <Button secondary title="Open Mila on the web" onPress={() => { void Linking.openURL('https://mila-hebrew.netlify.app/') }} />
     <View style={styles.card}>
       <Text style={styles.heading}>App version</Text>
       <Text style={styles.copy}>{describeVersion()}</Text>
@@ -112,10 +113,15 @@ export default function Account() {
       <Button secondary title="Check for updates" busy={checking} onPress={() => void checkForUpdate()} />
     </View>
     {session && !!usage && <View style={styles.card}>
-      <Text style={styles.heading}>AI usage this month</Text>
+      <Text style={styles.heading}>AI spend this month · everyone</Text>
+      <Text style={[styles.copy, { fontSize: 13 }]}>Only you see this, as a developer.</Text>
       <Text style={{ fontSize: 30, fontWeight: '700', color: colors.ink }}>{dollars(usage.cost)}</Text>
       {usage.features.map(row => <View key={row.feature} style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
         <Text style={styles.copy}>{FEATURES[row.feature] || row.feature} · {row.requests}{row.cacheHits ? ` · ${row.cacheHits} cached` : ''}</Text>
+        <Text style={[styles.copy, { color: colors.ink }]}>{dollars(row.cost)}</Text>
+      </View>)}
+      {usage.users.map(row => <View key={row.email} style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
+        <Text style={[styles.copy, { flex: 1 }]} numberOfLines={1}>{row.email} · {row.requests}</Text>
         <Text style={[styles.copy, { color: colors.ink }]}>{dollars(row.cost)}</Text>
       </View>)}
       <Text style={[styles.copy, { fontSize: 13 }]}>Estimated at list prices, before free tiers.</Text>

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
 import { getDb } from './lib/mongo'
 import { readPage } from './lib/page-read'
-import { recordVision } from './lib/ai-usage'
+import { checkDailySpend, recordVision } from './lib/ai-usage'
 
 const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers, body: JSON.stringify(body) })
@@ -57,6 +57,7 @@ export const handler: Handler = async (event) => {
     // after OCR, a vision model corrects and structures it. Live preview stays OCR-only.
     const read = payload.mode === 'read' && !!process.env.ANTHROPIC_API_KEY
     await checkBudget(auth.userId, read)
+    await checkDailySpend(auth)
     // DOCUMENT_TEXT_DETECTION is Vision's dense-text model (book pages, worksheets);
     // TEXT_DETECTION targets sparse scene text and drops more letters on small print.
     const started = Date.now()

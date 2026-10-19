@@ -2,7 +2,7 @@ import type { Handler } from '@netlify/functions'
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
-import { recordCacheHit, recordClaude } from './lib/ai-usage'
+import { checkDailySpend, recordCacheHit, recordClaude } from './lib/ai-usage'
 import { cachedAnswer, rememberAnswer } from './lib/ai-cache'
 
 // A root's family: the idea its letters carry and the everyday words built on it (כ־ת־ב: to
@@ -66,6 +66,7 @@ export const handler: Handler = async (event) => {
       return reply(200, cached)
     }
 
+    await checkDailySpend(auth)
     client ??= new Anthropic()
     const response = await client.beta.messages.create({
       model: 'claude-opus-5-5',
@@ -90,6 +91,7 @@ export const handler: Handler = async (event) => {
   } catch (error) {
     const status = (error as { statusCode?: number }).statusCode
     if (status === 401) return reply(401, { message: 'Your session has expired. Please sign in again.', requestId })
+    if (status === 429) return reply(429, { message: (error as Error).message, code: 'DAILY_LIMIT', requestId })
     console.error('Root family failed', { requestId, name: (error as Error).name, status: error instanceof Anthropic.APIError ? error.status : undefined })
     return reply(503, { message: 'Root families are unavailable right now.', requestId })
   }

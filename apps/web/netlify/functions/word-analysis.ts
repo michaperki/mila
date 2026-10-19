@@ -2,7 +2,7 @@ import type { Handler } from '@netlify/functions'
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
-import { recordCacheHit, recordClaude } from './lib/ai-usage'
+import { checkDailySpend, recordCacheHit, recordClaude } from './lib/ai-usage'
 import { cachedAnswer, rememberAnswer } from './lib/ai-cache'
 
 // Explains one tapped Hebrew word *in its sentence*: contextual meaning, prefix/suffix
@@ -135,6 +135,7 @@ export const handler: Handler = async (event) => {
       return reply(200, cached)
     }
 
+    await checkDailySpend(auth)
     client ??= new Anthropic()
     const response = await client.beta.messages.create(analysisRequest(word, sentence), { timeout: 15000, maxRetries: 1 })
     await recordClaude(auth.userId, 'word', response, Date.now() - started)
@@ -149,6 +150,7 @@ export const handler: Handler = async (event) => {
   } catch (error) {
     const status = (error as { statusCode?: number }).statusCode
     if (status === 401) return reply(401, { message: 'Your session has expired. Please sign in again.', requestId })
+    if (status === 429) return reply(429, { message: (error as Error).message, code: 'DAILY_LIMIT', requestId })
     // Log the classification only; the learner's text stays out of logs.
     console.error('Word analysis failed', { requestId, name: (error as Error).name, status: error instanceof Anthropic.APIError ? error.status : undefined })
     return reply(503, { message: 'Word explanation is unavailable right now.', code: 'ANALYSIS_UNAVAILABLE', requestId })

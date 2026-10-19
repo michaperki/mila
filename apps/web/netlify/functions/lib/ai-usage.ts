@@ -1,7 +1,7 @@
 import { getDb } from './mongo'
 
-// Every paid provider call is recorded here, one document per call, so Account can show what
-// the app is spending. Costs use list prices (USD) at the time of the call, before free tiers
+// Every paid provider call is recorded here, one document per call, so the developers can see
+// what the app is spending (Account, for ADMIN_EMAILS) and each learner's day can be capped. Costs use list prices (USD) at the time of the call, before free tiers
 // and discounts; the provider's billing console stays the authoritative total.
 // Prices: platform.claude.com/docs/en/about-claude/pricing, cloud.google.com/vision/pricing,
 // cloud.google.com/translate/pricing (checked 2026-10-16), elevenlabs.io/pricing/api,
@@ -75,14 +75,49 @@ export const recordElevenLabs = (userId: string, model: string, characters: numb
 export const recordGeminiSpeech = (userId: string, model: string, inputTokens: number, outputTokens: number, ms: number) =>
   record({ userId, feature: 'speech', provider: 'google', model, inputTokens, outputTokens, cost: geminiSpeechCost(inputTokens, outputTokens), ms })
 
-// This calendar month (UTC) for one user, by feature.
-export async function monthSummary(userId: string, now = new Date()) {
+// The developers, by sign-in email (comma-separated ADMIN_EMAILS): they see everyone's spend
+// and have no daily limit.
+export const isAdmin = (email?: string) =>
+  !!email && (process.env.ADMIN_EMAILS || '').split(',').some(admin => admin.trim().toLowerCase() === email.toLowerCase())
+
+// One learner's estimated spend in a UTC day is capped (AI_DAILY_LIMIT_USD, $3 unless set), so a
+// single account can't run up the bill. Checked before each paid call; answers from the cache are free.
+export async function checkDailySpend(auth: { userId: string; email?: string }, now = new Date()) {
+  if (isAdmin(auth.email)) return
+  const limit = Number(process.env.AI_DAILY_LIMIT_USD) > 0 ? Number(process.env.AI_DAILY_LIMIT_USD) : 3
+  const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const [today] = await (await getDb()).collection('aiUsage').aggregate<{ cost: number }>([
+    { $match: { userId: auth.userId, at: { $gte: since } } },
+    { $group: { _id: null, cost: { $sum: '$cost' } } },
+  ]).toArray()
+  if ((today?.cost ?? 0) >= limit) {
+    console.warn('Daily AI limit reached', { userId: auth.userId, cost: today!.cost, limit })
+    throw Object.assign(new Error('You\'ve used today\'s AI help. It starts again tomorrow.'), { statusCode: 429, code: 'DAILY_LIMIT' })
+  }
+}
+
+// This calendar month (UTC) by feature, for one user or (no userId) for everyone.
+export async function monthSummary(userId?: string, now = new Date()) {
   const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
   const rows = await (await getDb()).collection('aiUsage').aggregate<{ _id: Feature; requests: number; cacheHits: number; cost: number; inputTokens: number; outputTokens: number }>([
-    { $match: { userId, at: { $gte: since } } },
+    { $match: { ...(userId ? { userId } : {}), at: { $gte: since } } },
     { $group: { _id: '$feature', requests: { $sum: { $cond: ['$cached', 0, 1] } }, cacheHits: { $sum: { $cond: ['$cached', 1, 0] } }, cost: { $sum: '$cost' }, inputTokens: { $sum: { $ifNull: ['$inputTokens', 0] } }, outputTokens: { $sum: { $ifNull: ['$outputTokens', 0] } } } },
     { $sort: { cost: -1 } },
   ]).toArray()
   const features = rows.map(({ _id, ...row }) => ({ feature: _id, ...row }))
   return { since: since.toISOString(), cost: features.reduce((sum, row) => sum + row.cost, 0), requests: features.reduce((sum, row) => sum + row.requests, 0), features }
+}
+
+// This calendar month (UTC) by learner, most expensive first, with their sign-in emails.
+export async function monthByUser(now = new Date()) {
+  const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+  const db = await getDb()
+  const rows = await db.collection('aiUsage').aggregate<{ _id: string; requests: number; cost: number }>([
+    { $match: { at: { $gte: since } } },
+    { $group: { _id: '$userId', requests: { $sum: { $cond: ['$cached', 0, 1] } }, cost: { $sum: '$cost' } } },
+    { $sort: { cost: -1 } },
+  ]).toArray()
+  const users = await db.collection('users').find<{ userId: string; email: string }>({ userId: { $in: rows.map(row => row._id) } }, { projection: { _id: 0, userId: 1, email: 1 } }).toArray()
+  const emails = new Map(users.map(user => [user.userId, user.email]))
+  return rows.map(row => ({ email: emails.get(row._id) || row._id, requests: row.requests, cost: row.cost }))
 }

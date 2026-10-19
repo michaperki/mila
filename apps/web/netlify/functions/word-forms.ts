@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
 import { getDb } from './lib/mongo'
-import { recordClaude } from './lib/ai-usage'
+import { checkDailySpend, recordClaude } from './lib/ai-usage'
 
 // Writes one stage of a saved word's practice cards, each with its own short example sentence,
 // and adds them to the vocab entry. "meanings" is every word's first stage: one card per
@@ -118,6 +118,7 @@ export const handler: Handler = async (event) => {
     if (existing.length) return reply(200, { forms: existing })
     if (!process.env.ANTHROPIC_API_KEY) return reply(503, { message: 'Word practice is not configured yet.', requestId })
 
+    await checkDailySpend(auth)
     const used = (entry.forms || []).map(form => form.sentence).slice(-30)
     const met = (entry.encounters || []).slice(-5).map(item => `${item.surface} in: ${item.context}`)
     const expression = entry.partOfSpeech === 'expression'
@@ -167,6 +168,7 @@ export const handler: Handler = async (event) => {
   } catch (error) {
     const status = (error as { statusCode?: number }).statusCode
     if (status === 401) return reply(401, { message: 'Your session has expired. Please sign in again.', requestId })
+    if (status === 429) return reply(429, { message: (error as Error).message, code: 'DAILY_LIMIT', requestId })
     console.error('Word forms failed', { requestId, name: (error as Error).name, status: error instanceof Anthropic.APIError ? error.status : undefined })
     return reply(503, { message: 'Word practice is unavailable right now.', requestId })
   }

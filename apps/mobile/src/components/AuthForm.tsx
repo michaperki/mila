@@ -23,7 +23,7 @@ export default function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
     <Bonsai growth={8} overgrowth={0} vitality={92} interactive={false} haptics={false} style={{ height: 210, marginHorizontal: -22, marginTop: -22 }} />
     <Text style={styles.eyebrow}>HEBREW, IN YOUR EVERYDAY</Text>
     <Text style={styles.title}>{mode === 'signup' ? 'Make it yours.' : 'Welcome back.'}</Text>
-    <Text style={styles.copy}>Your Mila account works here and on the web. Keep every passage and word together.</Text>
+    <Text style={styles.copy}>Your Mila account keeps every passage and word together, safe if you change phones.</Text>
     <View><Text style={styles.label}>Email</Text><TextInput accessibilityLabel="Email" style={styles.input} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email" textContentType="emailAddress" /></View>
     <View><Text style={styles.label}>Password</Text><TextInput accessibilityLabel="Password" style={styles.input} value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} textContentType={mode === 'signup' ? 'newPassword' : 'password'} returnKeyType="go" onSubmitEditing={() => void submit()} /></View>
     <ErrorNotice message={error} /><Button title={mode === 'signup' ? 'Create account' : 'Sign in'} busy={busy} onPress={() => void submit()} />

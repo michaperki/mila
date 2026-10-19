@@ -79,7 +79,7 @@ export default function CloudList({ kind }: { kind: 'texts' }) {
   return <Page onRefresh={() => load()}>
     {empty && <><Text style={styles.eyebrow}>KEEP THE CONTEXT</Text><Text style={styles.title}>Your reading shelf.</Text></>}
     {!session ? <AccountGate /> : <><ErrorNotice message={error} />{!loaded && !error && <Loading />}
-      {empty && <View style={styles.card}><Text style={styles.heading}>A fresh start.</Text><Text style={styles.copy}>Save a passage from the reader and it will appear here, on this phone and on the web.</Text></View>}
+      {empty && <View style={styles.card}><Text style={styles.heading}>A fresh start.</Text><Text style={styles.copy}>Save a passage from the reader and it will appear here.</Text></View>}
       {items.length > 0 && <View style={{ gap: 10 }}>
         <TextInput value={query} onChangeText={setQuery} placeholder="Search titles and text" placeholderTextColor={colors.muted} style={[styles.input, { minHeight: 44, paddingVertical: 10 }]}
           autoCorrect={false} autoCapitalize="none" clearButtonMode="while-editing" returnKeyType="search" />

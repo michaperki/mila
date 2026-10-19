@@ -2,7 +2,7 @@ import type { Handler } from '@netlify/functions'
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
-import { recordCacheHit, recordClaude } from './lib/ai-usage'
+import { checkDailySpend, recordCacheHit, recordClaude } from './lib/ai-usage'
 import { cachedAnswer, rememberAnswer } from './lib/ai-cache'
 
 // A word's whole table of forms to look at: a verb's infinitive, present, past, future,
@@ -113,6 +113,7 @@ export const handler: Handler = async (event) => {
       return reply(200, cached)
     }
 
+    await checkDailySpend(auth)
     const groups = TABLES[kind]
     const prompt = [
       `Word: ${lemma} (${kind}${binyan ? `, ${binyan}` : ''})`,
@@ -149,6 +150,7 @@ export const handler: Handler = async (event) => {
   } catch (error) {
     const status = (error as { statusCode?: number }).statusCode
     if (status === 401) return reply(401, { message: 'Your session has expired. Please sign in again.', requestId })
+    if (status === 429) return reply(429, { message: (error as Error).message, code: 'DAILY_LIMIT', requestId })
     console.error('Word table failed', { requestId, name: (error as Error).name, status: error instanceof Anthropic.APIError ? error.status : undefined })
     return reply(503, { message: 'Tables of forms are unavailable right now.', requestId })
   }
