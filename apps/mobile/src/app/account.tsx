@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { useFocusEffect } from 'expo-router'
+import { router, useFocusEffect } from 'expo-router'
 import { Alert, Switch, Text, View } from 'react-native'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles, TextButton } from '../components/ui'
@@ -59,6 +59,17 @@ export default function Account() {
       setVocabStatus(null)
       void request<{ deleted?: number }>('vocab?all=1', { token: session!.token, method: 'DELETE' })
         .then(data => { clearVocab(session!); setVocabStatus(`Deleted ${data.deleted ?? 0} ${data.deleted === 1 ? 'word' : 'words'}.`) }, (failure: Error) => setError(failure.message))
+    } },
+  ])
+  const [deleting, setDeleting] = useState(false)
+  // Everything kept for the account goes (the `account` function); then this phone signs out.
+  const deleteAccount = () => Alert.alert('Delete your account?', 'Your account, saved words, passages, practice history and tree are deleted for good. This can\'t be undone.', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete account', style: 'destructive', onPress: () => {
+      setDeleting(true); setError(null)
+      void request('account', { token: session!.token, method: 'DELETE' })
+        .then(async () => { clearVocab(session!); await signOut(); router.replace('/'); Alert.alert('Your account was deleted.') }, (failure: Error) => setError(failure.message))
+        .finally(() => setDeleting(false))
     } },
   ])
   return <Page>
@@ -132,6 +143,7 @@ export default function Account() {
       <TextButton title="Delete all saved words" color={colors.red} onPress={clearVocabulary} />
     </View>}
     {session && <TextButton title="Sign out" onPress={() => { void signOut().catch(e => setError(e.message)) }} />}
+    {session && <TextButton title={deleting ? 'Deleting account…' : 'Delete account'} color={colors.red} onPress={() => { if (!deleting) deleteAccount() }} />}
   </Page>
 }
 
