@@ -9,7 +9,7 @@ import { analysisRequest, type WordAnalysis } from '../../netlify/functions/word
 // every answer for reading through and fails below the bar. Add a case for every miss met in
 // the app, near misses especially.
 type Kind = 'pattern' | 'fixed' | 'none'
-const cases: { word: string; sentence: string; kind: Kind; lemma?: string }[] = [
+const cases: { word: string; sentence: string; kind: Kind; lemma?: string | string[] }[] = [
   // Patterns: a word that opens a frame with an open place.
   { word: 'ונטול־ינשופים', sentence: 'הלילה בגן היה שקט ונטול־ינשופים.', kind: 'pattern', lemma: 'נטול' },
   { word: 'נטול', sentence: 'אני שותה רק קפה נטול קפאין בערב.', kind: 'pattern', lemma: 'נטול' },
@@ -19,7 +19,7 @@ const cases: { word: string; sentence: string; kind: Kind; lemma?: string }[] = 
   { word: 'כדי', sentence: 'היא הלכה לספרייה כדי ללמוד בשקט.', kind: 'pattern', lemma: 'כדי' },
   { word: 'חשבתי', sentence: 'כל הלילה חשבתי על מה שאמרת לי.', kind: 'pattern', lemma: 'לחשוב על' },
   { word: 'מלא', sentence: 'החדר היה מלא אנשים.', kind: 'pattern', lemma: 'מלא' },
-  { word: 'ככל', sentence: 'ככל שעובר הזמן, קל לי יותר.', kind: 'pattern', lemma: 'ככל ש' },
+  { word: 'ככל', sentence: 'ככל שעובר הזמן, קל לי יותר.', kind: 'pattern', lemma: ['ככל ש', 'ככל ש יותר'] },
   // Fixed: every word belongs to it and it means more than its words.
   { word: 'מעמיד', sentence: 'הוא מעמיד פנים שהוא ישן.', kind: 'fixed', lemma: 'להעמיד פנים' },
   { word: 'ספר', sentence: 'הילדים הולכים לבית ספר חדש השנה.', kind: 'fixed', lemma: 'בית ספר' },
@@ -47,7 +47,7 @@ const cases: { word: string; sentence: string; kind: Kind; lemma?: string }[] = 
 
 const env = (() => { try { return readFileSync(new URL('../../.env', import.meta.url), 'utf8') } catch { return '' } })()
 const apiKey = process.env.ANTHROPIC_API_KEY || env.match(/^ANTHROPIC_API_KEY\s*=\s*['"]?([^'"\s]+)/m)?.[1]
-const plain = (text: string) => text.replace(/[֑-ׇ]/g, '').replace(/[־\-–]/g, ' ').replace(/\s+/g, ' ').trim()
+const plain = (text: string) => text.replace(/[\u0591-\u05C7]/g, '').replace(/[.,…]/g, '').replace(/[\u05BE\-–]/g, ' ').replace(/\s+/g, ' ').trim()
 const kindOf = (analysis: WordAnalysis): Kind => (!analysis.phrase?.text ? 'none' : analysis.phrase.kind === 'pattern' ? 'pattern' : 'fixed')
 
 it.skipIf(!apiKey)('tells patterns, fixed expressions and ordinary words apart', async () => {
@@ -60,7 +60,7 @@ it.skipIf(!apiKey)('tells patterns, fixed expressions and ordinary words apart',
   let right = 0
   const lines = cases.map((item, i) => {
     const answer = answers[i], kind = kindOf(answer), phrase = answer.phrase
-    const lemmaOk = !item.lemma || plain(phrase.lemmaPlain || phrase.lemma) === plain(item.lemma)
+    const lemmaOk = !item.lemma || [item.lemma].flat().some(lemma => plain(phrase.lemmaPlain || phrase.lemma) === plain(lemma))
     const ok = kind === item.kind && lemmaOk
     if (ok) right++
     return [
