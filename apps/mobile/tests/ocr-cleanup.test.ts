@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { bareWord, cleanOcr, segmentText, stripNiqqud, titleFrom } from '../src/lib/ocr-cleanup.ts'
+import { bareWord, cleanOcr, readingWords, segmentText, stripNiqqud, titleFrom } from '../src/lib/ocr-cleanup.ts'
 
 const page = [
   'טקסטים בעלי מילים ארוכות 33',
@@ -49,4 +49,13 @@ test('titles truncate at a word boundary with an ellipsis', () => {
 test('word helpers', () => {
   assert.equal(bareWord('"בַּחֶשְׁבּוֹן."'), 'בַּחֶשְׁבּוֹן')
   assert.equal(stripNiqqud('בַּחֶשְׁבּוֹן'), 'בחשבון')
+})
+
+test('the reader keeps dashes and the quotes beside them with a word', () => {
+  const surfaces = (text: string) => readingWords(text).map(word => word.surface)
+  assert.deepEqual(surfaces('"הפוטרים, נכון, ככה שמעתי —"'), ['"הפוטרים,', 'נכון,', 'ככה', 'שמעתי —"'])
+  assert.deepEqual(surfaces('"— כן, הבן שלהם"'), ['"— כן,', 'הבן', 'שלהם"'])
+  assert.deepEqual(surfaces('שלום - עולם'), ['שלום -', 'עולם'])
+  assert.deepEqual(readingWords('שמעתי —"').map(word => word.bare), ['שמעתי'])
+  assert.deepEqual(readingWords('— "'), [])
 })

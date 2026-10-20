@@ -4,10 +4,10 @@ import { router, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import * as Crypto from 'expo-crypto'
-import { stop as stopSpeaking } from '../lib/speech'
+import { prefetchSpeech, stop as stopSpeaking, useSpeech } from '../lib/speech'
 import { ListenButton } from '../components/Listen'
 import Animated from 'react-native-reanimated'
-import { Button, colors, ErrorNotice, Page, Pill, styles, TextButton } from '../components/ui'
+import { Button, colors, ErrorNotice, Page, Pill, Pressy, styles, TextButton } from '../components/ui'
 import { DraggableSheet } from '../components/Motion'
 import { APPEAR, REFLOW, SHEET_IN, SHEET_OUT } from '../lib/motion'
 import { feel } from '../lib/feedback'
@@ -16,7 +16,7 @@ import { request } from '../lib/api'
 import { isolateHebrew, otherSenses } from '../lib/bidi'
 import { rangeOf, type Rect, wordAt } from '../lib/selection'
 import { documentFromRecognition, segmentsOf } from '../lib/documents'
-import { bareWord, stripNiqqud, titleFrom } from '../lib/ocr-cleanup'
+import { readingWords, stripNiqqud, titleFrom } from '../lib/ocr-cleanup'
 import { paragraphsOf, runsOf } from '../lib/page'
 import { type EnglishMode, getPref, rememberRead, setPref, TEXT_SIZES } from '../lib/prefs'
 import { noteActivity } from '../lib/tree'
@@ -135,8 +135,7 @@ export default function Reader() {
   const segments = useMemo(() => (recognition ? segmentsOf(recognition) : []), [recognition])
   // A page read keeps the page's paragraphs: dividers go between paragraphs, not sentences.
   const paged = recognition?.source === 'page'
-  const words = useMemo(() => segments.flatMap((segment, index) => segment.he.split(/\s+/).filter(Boolean)
-    .map(surface => ({ surface, bare: bareWord(surface), segment: index }))).filter(word => word.bare), [segments])
+  const words = useMemo(() => segments.flatMap((segment, index) => readingWords(segment.he).map(word => ({ ...word, segment: index }))), [segments])
   const indexOfFirstWord = useMemo(() => {
     const starts: number[] = []
     words.forEach((word, i) => { if (starts[word.segment] === undefined) starts[word.segment] = i })
@@ -147,16 +146,34 @@ export default function Reader() {
     words.forEach((word, i) => { ends[word.segment] = i })
     return ends
   }, [words])
-  // Selecting a sentence asks for its words' quick meanings straight away.
+  // The sentence after this one that has words, where Next goes.
+  const sentenceAfter = useCallback((segment: number) => {
+    for (let i = segment + 1; i < segments.length; i++) if (indexOfFirstWord[i] !== undefined) return i
+    return undefined
+  }, [segments, indexOfFirstWord])
+  // Selecting a sentence asks for its words' quick meanings straight away. Once they are in, the
+  // next sentence's are asked for too (never before, so they can't hold this one up), so Next
+  // opens on meanings already there; each sentence's are asked for only once, and are cached.
   useEffect(() => {
     if (active === null || !session || indexOfFirstWord[active] === undefined) return
     let current = true
-    const sentenceWords = words.slice(indexOfFirstWord[active], indexOfLastWord[active] + 1).map(item => item.bare)
-    void quickMeanings(segments[active].he, sentenceWords, session.token).then(meanings => {
-      if (current && meanings.length) setQuick(known => ({ ...known, [active]: meanings }))
+    const meaningsOf = (segment: number) => quickMeanings(segments[segment].he, words.slice(indexOfFirstWord[segment], indexOfLastWord[segment] + 1).map(item => item.bare), session.token)
+    void meaningsOf(active).then(meanings => {
+      if (!current) return
+      if (meanings.length) setQuick(known => ({ ...known, [active]: meanings }))
+      const next = sentenceAfter(active)
+      if (next !== undefined) void meaningsOf(next)
     })
     return () => { current = false }
-  }, [active, session, segments, words, indexOfFirstWord, indexOfLastWord])
+  }, [active, session, segments, words, indexOfFirstWord, indexOfLastWord, sentenceAfter])
+  // While a sentence is being listened to, the next one's audio is fetched, so Next and Listen
+  // play at once. Only when listening: a recorded voice costs more than the meanings do.
+  const { playing } = useSpeech()
+  useEffect(() => {
+    if (active === null || !session || playing !== segments[active]?.he) return
+    const next = sentenceAfter(active)
+    if (next !== undefined) void prefetchSpeech(segments[next].he, session.token)
+  }, [playing, active, session, segments, sentenceAfter])
   // Sentences flow together within a paragraph, like a page in a book.
   const paragraphs = useMemo(() => paragraphsOf(segments, paged), [segments, paged])
 
@@ -267,11 +284,12 @@ export default function Reader() {
   // A pattern on one word (נָטוּל + …) is saved as that word, so it has no "Save just" of its own.
   const phraseIsWord = !!phrase && !!analysis && lemmaKey(phrase.lemmaPlain || phrase.lemma || '') === lemmaKey(lemma)
   const inYourWords = leadPhrase ? phraseEntry : savedEntry
-  // How the tapped word was read: its pieces with their meanings, its form and the dictionary
-  // form it comes from (וְ and + צָעַק yelled · past, he · from לִצְעֹק), so each occurrence is
-  // seen as a form of one word.
+  // How the tapped word was read: its pieces, its form and the dictionary form it comes from
+  // (וְ + צָעַק · past, he · from לִצְעֹק), so each occurrence is seen as a form of one word. The
+  // pieces' meanings are in the meaning above and under Details (Breakdown), not repeated here,
+  // where English between the Hebrew pieces broke up their right-to-left order.
   const reading = !isPhrase && analysis ? [
-    analysis.parts.length > 1 ? analysis.parts.map(part => `${part.text} ${part.meaning}`).join(' + ') : '',
+    analysis.parts.length > 1 ? analysis.parts.map(part => part.text).join(' + ') : '',
     analysis.form,
     analysis.lemma && stripNiqqud(analysis.lemma) !== stripNiqqud(analysis.vocalized || analysis.word) ? `from ${analysis.lemma}` : '',
   ].filter(Boolean).join(' · ') : ''
@@ -387,7 +405,8 @@ export default function Reader() {
     }
   }
   const nextEnglish: Record<EnglishMode, EnglishMode> = { tap: 'all', all: 'off', off: 'tap' }
-  const englishLabel: Record<EnglishMode, string> = { tap: 'English: tapped', all: 'English: all', off: 'English: off' }
+  const englishLabel: Record<EnglishMode, string> = { tap: 'EN · tap', all: 'EN · all', off: 'EN · off' }
+  const englishSpoken: Record<EnglishMode, string> = { tap: 'for the tapped sentence', all: 'for every sentence', off: 'off' }
   const cycleEnglish = () => setEnglish(value => { setPref('english', nextEnglish[value]); return nextEnglish[value] })
   const toggleNiqqud = () => setShowNiqqud(!showNiqqud)
   // Drag across words to explain them together. A mostly horizontal move takes over from
@@ -462,13 +481,18 @@ export default function Reader() {
   return <View ref={frame} style={{ flex: 1, backgroundColor: colors.paper }}>
     <ScrollView ref={scroller} scrollEnabled={!dragRange} scrollEventThrottle={32} onScroll={event => { scrollY.current = event.nativeEvent.contentOffset.y }}
       contentContainerStyle={[styles.content, { gap: 10, paddingTop: 14, paddingBottom: active !== null ? overlayHeight + 24 : 36, paddingLeft: 22 + insets.left, paddingRight: 22 + insets.right }]}>
+      {/* One row: whole-page listening is gone, since every sentence has its own Listen. */}
       <View style={[styles.row, { gap: 8 }]}>
-        <Pill icon={english === 'off' ? 'eye-off-outline' : 'eye-outline'} label={englishLabel[english]} active={english !== 'off'} onPress={cycleEnglish} accessibilityLabel={`${englishLabel[english]}. Change`} />
+        <Pill icon={english === 'off' ? 'eye-off-outline' : 'eye-outline'} label={englishLabel[english]} active={english !== 'off'} onPress={cycleEnglish} accessibilityLabel={`English ${englishSpoken[english]}. Change`} />
         {vowelled && <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />}
-        <Pill label="A−" onPress={() => resize(-1)} accessibilityLabel={`Smaller text, now ${Math.round(size * 100)}%`} />
-        <Pill label="A+" onPress={() => resize(1)} accessibilityLabel={`Larger text, now ${Math.round(size * 100)}%`} />
-        <View style={[styles.row, { gap: 6, flexWrap: 'nowrap' }]}><ListenButton pill text={segments.map(segment => segment.he)} accessibilityLabel="Listen to the whole page in Hebrew" /></View>
-        <FeedbackButton screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, active, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss, analysis })} />
+        <View style={reader.sizes}>
+          <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={`Smaller text, now ${Math.round(size * 100)}%`} onPress={() => resize(-1)} hitSlop={6} style={reader.size}><Text style={reader.sizeLabel}>A−</Text></Pressy>
+          <View style={reader.sizesRule} />
+          <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={`Larger text, now ${Math.round(size * 100)}%`} onPress={() => resize(1)} hitSlop={6} style={reader.size}><Text style={reader.sizeLabel}>A+</Text></Pressy>
+        </View>
+        <View style={{ marginLeft: 'auto' }}>
+          <FeedbackButton variant="icon" screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, active, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss, analysis })} />
+        </View>
       </View>
       {active === null && hint && <Text style={[styles.copy, { fontSize: 13, lineHeight: 18 }]}>Tap a sentence to select it, then tap a word for its meaning or drag across words for a phrase.</Text>}
       {!!recognition.readError && <Text style={reader.edge}>Read with basic text recognition, so some letters may be wrong.</Text>}
@@ -627,6 +651,11 @@ function expressionEntry(unit: Phrase, found: WordAnalysis | undefined): Pick<Vo
 }
 
 const reader = StyleSheet.create({
+  // A− | A+ as one control in the toolbar.
+  sizes: { flexDirection: 'row', alignItems: 'center', minHeight: 36, borderRadius: 18, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white },
+  size: { minHeight: 34, paddingHorizontal: 11, justifyContent: 'center' },
+  sizeLabel: { fontSize: 14, fontWeight: '600', color: colors.green },
+  sizesRule: { width: 1, height: 18, backgroundColor: colors.line },
   paragraph: { paddingVertical: 7, gap: 2 },
   run: { gap: 2, paddingVertical: 2 },
   // The active sentence: a quiet band behind it; the selected word stands out on top.

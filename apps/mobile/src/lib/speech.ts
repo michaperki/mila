@@ -78,8 +78,28 @@ function finish() {
   void setAudioModeAsync({ playsInSilentMode: false, interruptionMode: 'mixWithOthers' }).catch(() => {})
 }
 
-// The clip's file on the device, fetched from the `speech` function the first time.
-async function clip(text: string, voice: Voice, token: string) {
+// Fetches the clips for `text` ahead of time, so reading it next starts at once. Only the voice
+// in use, and nothing signed out (the phone's own voice needs nothing fetched).
+export async function prefetchSpeech(text: string, token?: string | null) {
+  if (!token) return
+  await startSpeech()
+  const voice = state.voice
+  for (const piece of speechPieces(text).slice(0, 2)) await clip(piece, voice, token).catch(() => null)
+}
+
+// The clip's file on the device, fetched from the `speech` function the first time. A clip
+// still on its way is shared, so a prefetch and a tap never pay for the same clip twice.
+const fetching = new Map<string, Promise<string>>()
+function clip(text: string, voice: Voice, token: string) {
+  const key = `${voice}|${text}`
+  let pending = fetching.get(key)
+  if (!pending) {
+    pending = fetchClip(text, voice, token).finally(() => fetching.delete(key))
+    fetching.set(key, pending)
+  }
+  return pending
+}
+async function fetchClip(text: string, voice: Voice, token: string) {
   const hash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `${voice}|${text}`)
   for (const extension of ['mp3', 'wav']) {
     const file = new File(clips, `${hash}.${extension}`)

@@ -3,7 +3,8 @@
 // Hebrew attach to it, so "…means חיים." can render as ".חיים means…". Wrapping each
 // Hebrew run in a right-to-left isolate (RLI … PDI) keeps it in place inside LTR text.
 const HEBREW = '֐-׿יִ-ﭏ'
-const RUN = new RegExp(`[${HEBREW}]+(?:[\\s־'"׳״-]+[${HEBREW}]+)*`, 'g')
+// Hebrew joined by spaces, maqaf, quotes or " + " (a word's pieces, וְ + צָעַק) is one run.
+const RUN = new RegExp(`[${HEBREW}]+(?:[\\s־'"׳״+-]+[${HEBREW}]+)*`, 'g')
 const RLI = '⁧'
 const PDI = '⁩'
 

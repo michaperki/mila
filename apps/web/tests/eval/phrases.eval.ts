@@ -43,6 +43,13 @@ const cases: { word: string; sentence: string; kind: Kind; lemma?: string | stri
   { word: 'עייף', sentence: 'אחרי העבודה הוא היה עייף מאוד.', kind: 'none' },
   { word: 'החלון', sentence: 'היא פתחה את החלון של המטבח.', kind: 'none' },
   { word: 'נקיות', sentence: 'הידיים שלו נקיות עכשיו.', kind: 'none' },
+  // None: one word with prefixes attached is read as its pieces, never as a unit of its own.
+  { word: 'המתלחששים', sentence: 'הוא עבר ליד המתלחששים ומיהר הלאה.', kind: 'none' },
+  { word: 'ובבית', sentence: 'בבוקר הלכנו לים ובבית חיכתה לנו ארוחה.', kind: 'none' },
+  { word: 'כשהגיע', sentence: 'כשהגיע הביתה, כולם כבר ישנו.', kind: 'none' },
+  { word: 'מהחלון', sentence: 'היא הסתכלה מהחלון על הגשם.', kind: 'none' },
+  { word: 'ושמחתי', sentence: 'קיבלתי את המכתב ושמחתי מאוד.', kind: 'none' },
+  { word: 'לחבריו', sentence: 'הוא סיפר לחבריו על הטיול.', kind: 'none' },
 ]
 
 const env = (() => { try { return readFileSync(new URL('../../.env', import.meta.url), 'utf8') } catch { return '' } })()
@@ -66,7 +73,7 @@ it.skipIf(!apiKey)('tells patterns, fixed expressions and ordinary words apart',
     return [
       `${ok ? '✓' : '✗'} ${item.word} — expected ${item.kind}${item.lemma ? ` ${item.lemma}` : ''}, got ${kind}${kind !== 'none' ? ` ${phrase.lemmaPlain || phrase.lemma}` : ''}`,
       `    ${item.sentence}`,
-      `    meaning: ${answer.meaning} · parts: ${answer.parts.map(part => `${part.text} ${part.meaning}`).join(' + ')} · form: ${answer.form || '—'}`,
+      `    meaning: ${answer.meaning} · parts: ${answer.parts.map(part => `${part.text} ${part.meaning}`).join(' + ')} · form: ${answer.form || '—'} · lemma: ${answer.lemmaPlain || '—'}${answer.readAs ? ` · read as ${answer.readAs}` : ''}`,
       ...(kind !== 'none' ? [`    unit: ${phrase.pattern || phrase.lemma} · ${phrase.meaning} · here: ${phrase.textMeaning}${phrase.examples?.length ? ` · e.g. ${phrase.examples.map(example => `${example.text} "${example.meaning}"`).join(', ')}` : ''}`] : []),
     ].join('\n')
   })

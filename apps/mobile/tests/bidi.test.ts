@@ -7,6 +7,8 @@ test('isolates each Hebrew run, keeping multi-word runs and trailing punctuation
   assert.equal(isolateHebrew('Part of כִּסֵּא הַתִּינוֹק · baby chair'), 'Part of ⁧כִּסֵּא הַתִּינוֹק⁩ · baby chair')
   assert.equal(isolateHebrew('Root ח־ש־ב'), 'Root ⁧ח־ש־ב⁩')
   assert.equal(isolateHebrew('no hebrew'), 'no hebrew')
+  // A word's pieces read right to left as one: צָעַק + וְ, then the English after them.
+  assert.equal(isolateHebrew('וְ + צָעַק · past, he · from לִצְעֹק'), '⁧וְ + צָעַק⁩ · past, he · from ⁧לִצְעֹק⁩')
 })
 
 test('drops dictionary senses that repeat the contextual meaning', () => {

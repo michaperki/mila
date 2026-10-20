@@ -44,15 +44,17 @@ export function noteActivity(kind: keyof Activity, count = 1) {
   keepPending()
 }
 
-// The tree last shown, so Home opens on it and then grows into the new one.
-export async function lastTree(session: Session | null): Promise<Tree | null> {
+// The tree last shown, so Home opens on it and then grows into the new one, and whether the
+// learner had saved words then, so the line under it is right before the words are in again.
+export async function lastShown(session: Session | null): Promise<{ tree: Tree; hasWords?: boolean } | null> {
   if (!session) return null
   try {
-    const saved = JSON.parse(await getPref('tree')) as { owner: string; tree: Tree }
-    return saved.owner === session.user.id ? saved.tree : null
+    const saved = JSON.parse(await getPref('tree')) as { owner: string; tree: Tree; hasWords?: boolean }
+    return saved.owner === session.user.id ? { tree: saved.tree, hasWords: saved.hasWords } : null
   } catch { return null }
 }
-export const rememberTree = (session: Session, tree: Tree) => setPref('tree', JSON.stringify({ owner: session.user.id, tree }))
+export const lastTree = async (session: Session | null) => (await lastShown(session))?.tree ?? null
+export const rememberTree = (session: Session, tree: Tree, hasWords: boolean) => setPref('tree', JSON.stringify({ owner: session.user.id, tree, hasWords }))
 
 // Sends what is waiting and returns the tree as it stands.
 export async function loadTree(session: Session): Promise<Tree> {

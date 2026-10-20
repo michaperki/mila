@@ -72,3 +72,19 @@ const NIQQUD = /[֑-ׇ]/g
 export const stripNiqqud = (text: string) => text.replace(NIQQUD, '')
 // Punctuation that hugs a word but isn't part of it (Hebrew geresh ׳ / gershayim ״ are kept mid-word).
 export const bareWord = (surface: string) => surface.replace(/^[\s.,!?;:״"'׳()[\]{}«»\-–—]+|[\s.,!?;:״"'׳()[\]{}«»\-–—]+$/g, '')
+
+// A sentence as the reader draws it: its words, each with the punctuation around it. A piece
+// with no letters of its own (a dash, or a closing quote after one: שמעתי —") is drawn with the
+// word before it, or the word after it at the start of a sentence, so it shows but isn't a word.
+export function readingWords(sentence: string): { surface: string; bare: string }[] {
+  const result: { surface: string; bare: string }[] = []
+  let leading = ''
+  for (const piece of sentence.split(/\s+/).filter(Boolean)) {
+    const bare = bareWord(piece)
+    const last = result[result.length - 1]
+    if (bare) { result.push({ surface: leading ? `${leading} ${piece}` : piece, bare }); leading = '' }
+    else if (last) last.surface = `${last.surface} ${piece}`
+    else leading = leading ? `${leading} ${piece}` : piece
+  }
+  return result
+}

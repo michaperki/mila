@@ -9,7 +9,7 @@ import { useSession } from '../state/session'
 
 // "Report" for testing in the field: a note plus a snapshot of what the app saw,
 // captured at the moment the button was tapped. Read them with `npm run feedback` in apps/web.
-export function FeedbackButton({ screen, context, variant = 'pill' }: { screen: string; context: () => unknown; variant?: 'pill' | 'overlay' }) {
+export function FeedbackButton({ screen, context, variant = 'pill' }: { screen: string; context: () => unknown; variant?: 'pill' | 'icon' | 'overlay' }) {
   const { session } = useSession()
   const [snapshot, setSnapshot] = useState<unknown>(undefined)
   const [open, setOpen] = useState(false)
@@ -28,7 +28,7 @@ export function FeedbackButton({ screen, context, variant = 'pill' }: { screen: 
     catch (failure) { setError((failure as Error).message) } finally { setBusy(false) }
   }
   return <>
-    {variant === 'pill' ? <Pill icon="flag-outline" label="Report" onPress={start} accessibilityLabel="Report a problem" />
+    {variant !== 'overlay' ? <Pill icon="flag-outline" label={variant === 'pill' ? 'Report' : undefined} onPress={start} accessibilityLabel="Report a problem" />
       : <Pressable accessibilityRole="button" accessibilityLabel="Report a problem" onPress={start} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#00000066', alignItems: 'center', justifyContent: 'center' }}><Ionicons name="flag-outline" size={19} color={colors.white} /></Pressable>}
     <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#0006' }}>

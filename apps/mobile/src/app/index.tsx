@@ -15,7 +15,7 @@ import { freshStages } from '../lib/forms'
 import { APPEAR, DISAPPEAR } from '../lib/motion'
 import { getPref, setPref } from '../lib/prefs'
 import { type LastRead, parseLastRead } from '../lib/today'
-import { lastTree, loadTree, rememberTree, SAPLING, takeTended, type Tree, treeLine } from '../lib/tree'
+import { lastShown, loadTree, rememberTree, SAPLING, takeTended, type Tree, treeLine } from '../lib/tree'
 import type { TextDoc } from '../lib/types'
 import { useSession } from '../state/session'
 import { useVocab } from '../state/vocab'
@@ -26,11 +26,13 @@ import { useVocab } from '../state/vocab'
 // just done is seen happening; after studying it also gives one soft breath of wind.
 export default function Home() {
   const { session, setRecognition } = useSession()
-  const { entries, loaded } = useVocab(session)
+  const { entries, loaded, error: vocabError } = useVocab(session)
   const insets = useSafeAreaInsets()
   const reduceMotion = useReducedMotion()
   const bonsai = useRef<BonsaiHandle>(null)
   const [tree, setTree] = useState<Tree | null>(null)
+  // Whether there were saved words when the tree was last shown, until they are loaded again.
+  const [hadWords, setHadWords] = useState<boolean | undefined>()
   const [focused, setFocused] = useState(true)
   const [visit, setVisit] = useState(0)
   const [hour, setHour] = useState(hourNow)
@@ -52,30 +54,37 @@ export default function Home() {
     return () => { setFocused(false); clearInterval(clock) }
   }, []))
 
-  // Once per visit, when the saved words are in: the tree last shown at once, then today's from
-  // the server. Offline, the last one stays.
+  // Once per visit: the tree last shown at once, from the phone, then today's from the server.
+  // Neither waits for the saved words. Offline, the last one stays.
   const owner = session?.user.id
   const loadedVisit = useRef('')
   useEffect(() => {
-    if (!session) { setTree(SAPLING); return }
-    if (!loaded || loadedVisit.current === `${owner}:${visit}`) return
+    if (!session) { setTree(SAPLING); setHadWords(undefined); return }
+    // Visit 0 is the first render, before the focus effect has counted this visit.
+    if (!visit || loadedVisit.current === `${owner}:${visit}`) return
     loadedVisit.current = `${owner}:${visit}`
     const greet = takeTended()
     let live = true
     void (async () => {
-      const shown = await lastTree(session)
-      if (live && shown) setTree(current => current ?? shown)
+      const shown = await lastShown(session)
+      if (live && shown) { setTree(current => current ?? shown.tree); setHadWords(current => current ?? shown.hasWords) }
       try {
         const fresh = await loadTree(session)
         if (!live) return
-        setTree(fresh); rememberTree(session, fresh)
+        setTree(fresh)
         // After the tree has had a moment to grow into its new state.
         if (greet) setTimeout(() => bonsai.current?.celebrate(), 1200)
-      } catch { if (live) setTree(current => current ?? shown ?? SAPLING) }
+      } catch { if (live) setTree(current => current ?? shown?.tree ?? SAPLING) }
     })()
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [owner, loaded, visit])
+  }, [owner, visit])
+  // Words that failed to load say nothing about whether there are any.
+  const hasWords = entries.length > 0 || (loaded && !vocabError ? false : hadWords)
+  useEffect(() => {
+    if (session && tree && tree !== SAPLING && hasWords !== undefined) rememberTree(session, tree, hasWords)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tree, hasWords])
 
   // The passage comes from the library, so it opens as saved, at the sentence where reading stopped.
   const continueReading = async () => {
@@ -95,8 +104,9 @@ export default function Home() {
   const go = (path: '/camera' | '/compose') => { setReading(false); router.push(path) }
   const touched = useCallback((part: BonsaiPart) => feel(part === 'foliage' ? 'tick' : 'select'), [])
 
-  const shown = tree ?? SAPLING
-  const line = treeLine(shown, entries.length > 0, !!session)
+  // Said only once it is known, so it never shows a young tree's line that then changes;
+  // a blank line until then keeps the panel, and the tree above it, where they will be.
+  const line = tree && (!session || hasWords !== undefined) ? treeLine(tree, !!hasWords, !!session) : '\u00A0'
   const date = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase()
 
   return <View style={home.page}>
