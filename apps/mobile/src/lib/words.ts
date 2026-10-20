@@ -1,5 +1,5 @@
 import { stripNiqqud } from './ocr-cleanup.ts'
-import type { Encounter, VocabEntry } from './types'
+import type { Construction, Encounter, VocabEntry } from './types'
 
 // A saved word's identity: its dictionary form as plainly written (no niqqud, a maqaf read as a
 // space), so the same word saved again with other vowels is one entry. Words are identified by
@@ -64,8 +64,11 @@ export const expressionsWith = (entries: VocabEntry[], entry: VocabEntry) => {
     || !!item.built?.some(part => lemmaKey(part.lemmaPlain || part.lemma) === key)
   return entries.filter(item => item.partOfSpeech === 'expression' && item.id !== entry.id && builtOn(item))
 }
-// The prepositions a word takes, as they follow it: "+ בְּ", "+ עִם / עַל"; empty if none.
-export const prepositionsOf = (entry: Pick<VocabEntry, 'governs'>) => (entry.governs?.length ? `+ ${entry.governs.map(item => item.preposition).join(' / ')}` : '')
+// The constructions a word is used in (lib/types.ts); a word saved before them has its
+// prepositions alone, each read as a construction of the word with it.
+export const constructionsOf = (entry: Pick<VocabEntry, 'constructions' | 'governs'> & { lemma?: string }): Construction[] =>
+  entry.constructions?.length ? entry.constructions
+    : (entry.governs || []).map(item => ({ pattern: `${entry.lemma ?? ''} ${item.preposition}`.trim(), chip: item.preposition, preposition: 'required' as const, meaning: item.meaning }))
 // The words an expression is built from, each with the saved word it is, if it is saved.
 export const partsOf = (entries: VocabEntry[], entry: VocabEntry) => (entry.built || []).map(part => {
   const key = lemmaKey(part.lemmaPlain || part.lemma)

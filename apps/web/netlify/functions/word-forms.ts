@@ -87,7 +87,7 @@ Forms: for each requested form, give the correct standard modern Hebrew form and
 
 Expressions: a sense that only exists together with particular other words (a verb with its fixed preposition or object, an idiom: לעבור דרך "to go through", להעמיד פנים "to pretend") belongs to that expression, not to the word on its own. When writing a single word, leave such senses out. When the word you are given is itself an expression, every card is the whole expression: its meanings are the expression's, every form inflects the words of it that inflect and keeps the rest ("עברנו דרך", "תעמידי פנים"), and inSentence lists every one of its words in the sentence.
 
-Prepositions: when you are told the prepositions the word takes (להשתמש בְּ, לדבר עִם / עַל), write its sentences with them wherever the word has an object or complement, so the learner sees the word with its preposition; when it takes more than one, spread them across the cards, each in the sense it gives.
+Constructions: when you are told the constructions the word is used in (לְהַזְכִּיר לְמִישֶׁהוּ אֶת מַשֶּׁהוּ "to remind someone of something", לְהִרְהֵר בְּמַשֶּׁהוּ "to contemplate something"), write every sentence in the construction that fits its sense, wherever the word has a complement, so the learner sees the word as it is used; spread them across the cards. On meanings cards, a sense that comes with a construction of its own (להזכיר לְ "to remind" and להזכיר אֶת "to mention") is its own card in that construction, and constructions that share a sense make no extra cards.
 
 Patterns: when the word is learned as a pattern (נָטוּל + [שֵׁם עֶצֶם], "free of [noun]"), every card uses the pattern, with a different everyday word in its open place each time (נטול סוכר, נטולת דאגות, נטולי שומן), so the pattern is what is learned and not one example of it. "english" is the pattern's meaning with that card's word in its open place, marked for the form as usual ("free of sugar (f.)"), and inSentence and inTranslation list only the pattern's own words, not the word in its open place.
 
@@ -99,6 +99,8 @@ let client: Anthropic | null = null
 type Generated = { slot: string; form: string; english: string; sentence: string; inSentence: string[]; said: string; translation: string; inTranslation: string[] }
 type Entry = {
   lemma: string; gloss: string; partOfSpeech?: string; binyan?: string; head?: { lemma: string; partOfSpeech?: string; binyan?: string }; pattern?: string
+  constructions?: { pattern: string; meaning: string }[]
+  // Saved before constructions: the prepositions alone.
   governs?: { preposition: string; meaning: string }[]
   forms?: { stage: string; slot?: string; en?: string; sentence: string }[]; encounters?: { surface: string; context: string }[]
 }
@@ -125,13 +127,15 @@ export const handler: Handler = async (event) => {
     const used = (entry.forms || []).map(form => form.sentence).slice(-30)
     const met = (entry.encounters || []).slice(-5).map(item => `${item.surface} in: ${item.context}`)
     const expression = entry.partOfSpeech === 'expression'
+    const constructions = entry.constructions?.length ? entry.constructions
+      : (entry.governs || []).map(item => ({ pattern: `${entry.lemma} ${item.preposition}`, meaning: item.meaning }))
     const binyan = entry.binyan || entry.head?.binyan
     const prompt = [
       expression
         ? `Expression: ${entry.lemma} — ${entry.gloss}. It inflects as the ${entry.head?.partOfSpeech || 'word'} ${entry.head?.lemma || ''}${binyan ? ` (${binyan})` : ''}; every card uses the whole expression.`
         : `Word: ${entry.lemma} (${entry.partOfSpeech || 'word'}${binyan ? `, ${binyan}` : ''}) — ${entry.gloss}`,
       ...(entry.pattern ? [`Learned as the pattern ${entry.pattern} — ${entry.gloss}.`] : []),
-      ...(entry.governs?.length ? [`Takes the prepositions: ${entry.governs.map(item => `${item.preposition} "${item.meaning}"`).join('; ')}.`] : []),
+      ...(constructions.length ? ['Constructions it is used in:', ...constructions.map(item => `- ${item.pattern} "${item.meaning}"`)] : []),
       ...(stage === 'meanings'
         ? ['Write its meanings, one card each, using slots "sense1", "sense2", "sense3" in order (only as many as it has).']
         : [`Main meaning, the same for every form: ${mainMeaning(entry)}`, `Forms to write (${stage}):`, ...slots.map(item => `- slot "${item.slot}": ${item.means}`)]),

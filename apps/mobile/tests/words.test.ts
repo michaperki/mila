@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { encountersOf, expressionsWith, headOf, lemmaKey, matches, partsOf, prepositionsOf, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../src/lib/words.ts'
+import { encountersOf, expressionsWith, headOf, lemmaKey, constructionsOf, matches, partsOf, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../src/lib/words.ts'
 
 const encounter = (surface: string, context: string, at: number) => ({ surface, meaning: 'm', context, at })
 
@@ -71,8 +71,10 @@ test('a saved word is found in any sentence: by its dictionary form, or before t
   assert.equal(savedBySurface([entry]).get(lemmaKey('וצעק')), undefined)
 })
 
-test('the prepositions a word takes follow it as + and are split by /', () => {
-  assert.equal(prepositionsOf({ governs: [{ preposition: 'בְּ', meaning: 'to use (something)' }] }), '+ בְּ')
-  assert.equal(prepositionsOf({ governs: [{ preposition: 'עִם', meaning: 'to talk with' }, { preposition: 'עַל', meaning: 'to talk about' }] }), '+ עִם / עַל')
-  assert.equal(prepositionsOf({}), '')
+test('a word is used in its constructions, and one saved before them in its prepositions alone', () => {
+  const remind = { pattern: 'לְהַזְכִּיר לְמִישֶׁהוּ', chip: 'לְ־', preposition: 'required' as const, meaning: 'to remind someone' }
+  assert.deepEqual(constructionsOf({ lemma: 'לְהַזְכִּיר', constructions: [remind], governs: [{ preposition: 'לְ', meaning: 'old' }] }), [remind])
+  assert.deepEqual(constructionsOf({ lemma: 'לְהִשְׁתַּמֵּשׁ', governs: [{ preposition: 'בְּ', meaning: 'to use (something)' }] }),
+    [{ pattern: 'לְהִשְׁתַּמֵּשׁ בְּ', chip: 'בְּ', preposition: 'required', meaning: 'to use (something)' }])
+  assert.deepEqual(constructionsOf({ lemma: 'לְהָצִיף' }), [])
 })

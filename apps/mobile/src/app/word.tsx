@@ -18,7 +18,7 @@ import { stripNiqqud } from '../lib/ocr-cleanup'
 import type { FormCard, TextDoc } from '../lib/types'
 import { withVowels } from '../lib/vowels'
 import { ensureForms } from '../lib/word-forms'
-import { encountersOf, expressionsWith, headOf, partsOf, prepositionsOf, sameId } from '../lib/words'
+import { constructionsOf, encountersOf, expressionsWith, headOf, partsOf, sameId } from '../lib/words'
 import { useSession } from '../state/session'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
@@ -91,6 +91,7 @@ export default function Word() {
   const expressions = expressionsWith(entries, entry)
   const head = headOf(entries, entry)
   const parts = partsOf(entries, entry)
+  const constructions = constructionsOf(entry)
   const inPlay = open.flatMap(stage => (known.includes(stage.key) ? [] : formsIn(entry, stage.key)))
   const wordKnown = isKnownWord(entry)
   // "I know this word" marks every stage known (it leaves studying); "Know these" marks one stage.
@@ -103,13 +104,11 @@ export default function Word() {
     <View style={{ gap: 2 }}>
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
         <ListenButton text={entry.lemma} accessibilityLabel="Hear this word" size={24} />
-        <Text style={word.lemma}>{v(entry.lemma)}{!!prepositionsOf(entry) && <Text style={word.plus}> {v(prepositionsOf(entry))}</Text>}</Text>
+        <Text style={word.lemma}>{v(entry.lemma)}</Text>
       </View>
       {/* Learned as a pattern: how the word is used (נָטוּל + [שֵׁם עֶצֶם]), its meaning below. */}
       {!!entry.pattern && <Text style={word.pattern}>{v(entry.pattern)}</Text>}
       <Text style={word.gloss}>{isolateHebrew(v(entry.gloss))}</Text>
-      {/* What it means with each preposition it takes (+ עִם / עַל above). */}
-      {!!entry.governs?.length && <Text style={word.meta}>{entry.governs.map(item => item.meaning).join(' · ')}</Text>}
       {!!grammar && <Text style={word.meta}>{isolateHebrew(grammar)}</Text>}
     </View>
     <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
@@ -125,6 +124,19 @@ export default function Word() {
       {hasTable(entry) && <Pill icon="grid-outline" label="All forms" onPress={() => router.push({ pathname: '/table', params: { id: entry.id } })} />}
       {hasRoot(entry) && <Pill icon="git-branch-outline" label={`Root ${rootOf(entry.root!)}`} accessibilityLabel={`Explore the root ${rootOf(entry.root!)}`}
         onPress={() => router.push({ pathname: '/root', params: { root: entry.root!, word: entry.lemma } })} />}
+    </View>}
+
+    {/* The constructions it is used in, each with its meaning and an example of it. */}
+    {constructions.length > 0 && <View style={[styles.card, word.section]}>
+      <Text style={word.stage}>How it’s used</Text>
+      {constructions.map(item => <View key={item.pattern} style={{ gap: 2 }}>
+        <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 10 }]}>
+          <Text style={[word.meaning, { flex: 1 }]}>{item.meaning}{item.preposition === 'optional' ? ' (preposition optional)' : ''}</Text>
+          <Text style={word.construction}>{v(item.pattern)}</Text>
+        </View>
+        {!!item.example && <Text style={word.example}>{v(item.example)}</Text>}
+        {!!item.exampleMeaning && <Text style={word.meta}>{item.exampleMeaning}</Text>}
+      </View>)}
     </View>}
 
     {/* An expression whose words don't plainly add up to its meaning: what it says word for word,
@@ -234,7 +246,7 @@ const word = StyleSheet.create({
   lemma: { fontSize: 34, lineHeight: 48, fontWeight: '600', color: colors.ink, writingDirection: 'rtl', flexShrink: 1 },
   gloss: { fontSize: 18, fontWeight: '600', color: colors.ink },
   pattern: { fontSize: 22, color: colors.ink, writingDirection: 'rtl', textAlign: 'right' },
-  plus: { fontSize: 24, fontWeight: '600', color: colors.green },
+  construction: { fontSize: 18, color: colors.green, writingDirection: 'rtl', textAlign: 'right', flexShrink: 1 },
   meta: { fontSize: 13, lineHeight: 19, color: colors.muted },
   pill: { fontSize: 12, fontWeight: '700', color: colors.muted, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, overflow: 'hidden' },
   pillDone: { color: colors.green, borderColor: colors.green },

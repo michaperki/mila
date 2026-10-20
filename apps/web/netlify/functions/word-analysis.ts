@@ -23,15 +23,20 @@ export type WordAnalysis = {
   form: string
   note: string
   readAs: string
-  governs: { preposition: string; meaning: string }[]
+  constructions: Construction[]
   phrase: { text: string; meaning: string; textMeaning: string; kind: string; pattern: string; examples: { text: string; meaning: string }[]; words: string[]; lemma: string; lemmaPlain: string; head: string; headPlain: string; partOfSpeech: string; binyan: string; literal: string; built: { lemma: string; lemmaPlain: string; meaning: string }[]; literalNote: string }
   excerpt: { text: string; meaning: string }
 }
 
+// One way a verb or adjective is built with what follows it, and what it means that way:
+// לְהַזְכִּיר לְמִישֶׁהוּ אֶת מַשֶּׁהוּ, "to remind someone of something". `chip` is just its own
+// grammatical words (לְ־ … אֶת) and `preposition` whether one is required, optional or none (את only).
+export type Construction = { pattern: string; chip: string; preposition: 'required' | 'optional' | 'none'; meaning: string; short: string; example: string; exampleMeaning: string }
+
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['word', 'vocalized', 'meaning', 'parts', 'lemma', 'lemmaPlain', 'lemmaMeaning', 'root', 'partOfSpeech', 'gender', 'binyan', 'form', 'note', 'readAs', 'governs', 'phrase', 'excerpt'],
+  required: ['word', 'vocalized', 'meaning', 'parts', 'lemma', 'lemmaPlain', 'lemmaMeaning', 'root', 'partOfSpeech', 'gender', 'binyan', 'form', 'note', 'readAs', 'constructions', 'phrase', 'excerpt'],
   properties: {
     word: { type: 'string', description: 'The word exactly as given.' },
     vocalized: { type: 'string', description: 'The word with full niqqud as read in this sentence.' },
@@ -57,17 +62,25 @@ const schema = {
     form: { type: 'string', description: 'Concise grammatical form of the word\'s main piece (not its prefixes, and for words joined with a maqaf, the tapped word\'s own), e.g. "past, 1st person singular" or "masculine singular, construct"; empty if trivial.' },
     note: { type: 'string', description: 'Only if it matters for understanding this sentence (an idiom, register, an irregular form): one short sentence that adds something no other field says. Do not restate the meaning, breakdown, lemma or grammar, and do not describe forms or vowel patterns that are not in the sentence. Usually empty.' },
     readAs: { type: 'string', description: 'If the tapped text is an OCR misreading (e.g. a dropped first letter), the word you believe is printed, without niqqud; otherwise empty. Analyze that word.' },
-    governs: {
+    constructions: {
       type: 'array',
-      description: 'For a verb or adjective, about the lemma rather than this sentence: the prepositions it takes for its object or complement in everyday modern Hebrew, which a learner has to learn with it because English would not lead them there, each with the meaning it gives, most common first, at most three. להשתמש: בְּ "to use (something)"; לדבר: עִם "to talk with (someone)", עַל "to talk about (something)"; לחכות: לְ "to wait for"; לפחד: מִ "to be afraid of"; גאה: בְּ "proud of". Only prepositions: not ש, כי or an infinitive after it, not a preposition that only adds a place, time or direction as it would to any verb (ללכת לים), and not a preposition that makes a separate expression with a meaning of its own (that is "phrase"). Empty for a word that takes a direct object (with את) or none, and for every other part of speech.',
-      items: { type: 'object', additionalProperties: false, required: ['preposition', 'meaning'], properties: {
-        preposition: { type: 'string', description: 'Vocalized: a prefix as itself (בְּ, לְ, מִ), any other as its word (עִם, עַל, אֶל).' },
-        meaning: { type: 'string', description: 'The word with this preposition, in 2 to 5 English words, with what it takes in brackets: "to use (something)".' },
-      } },
+      description: 'For a verb or adjective, about the lemma rather than this sentence: the constructions a learner needs to use it naturally, each with the meaning it has in it, most common first, at most four. A construction belongs here when its preposition is one English would not lead to (להשתמש בְּ "to use", לחכות לְ "to wait for", לפחד מִ "to be afraid of", גאה בְּ "proud of"), or when the meaning depends on the construction (להזכיר אֶת "to mention", להזכיר לְ "to remind someone", להזכיר לְ… אֶת "to remind someone of"; להרהר בְּ "to contemplate", להרהר אַחֲרֵי "to question, to doubt"). A construction with only את belongs here only to set it apart from the word\'s other constructions, never on its own. Give only constructions of everyday modern Hebrew that you are certain of, in the word\'s common senses, not every preposition that could follow it: two that mean the same (להתגעגע לְ and אֶל) are one, the more common, and a slang or rare sense is left out. Never a preposition that only adds a place, time or direction as it would to any verb (ללכת לים), nor one that adds something extra the word does not need, such as what it is done with (להציף את הרחוב במים: להציף just takes a direct object); never ש, כי or an infinitive; never a pattern with a word of its own besides the word and its grammatical words (לבקש סליחה מ is an expression, not a construction of לבקש); and never a preposition that makes a separate expression with a meaning of its own (that is "phrase"). Empty for a word that just takes a direct object (להציף, לכתוב) or no complement, and for every other part of speech: most words have none, and none is a full answer.',
+      items: {
+        type: 'object', additionalProperties: false, required: ['pattern', 'chip', 'preposition', 'meaning', 'short', 'example', 'exampleMeaning'],
+        properties: {
+          pattern: { type: 'string', description: 'The construction in full, vocalized: the word in dictionary form, then its grammatical words with מִישֶׁהוּ or מַשֶּׁהוּ for what fills them: לְהִשְׁתַּמֵּשׁ בְּמַשֶּׁהוּ, לְהַזְכִּיר לְמִישֶׁהוּ אֶת מַשֶּׁהוּ.' },
+          chip: { type: 'string', description: 'Only the construction\'s own grammatical words, vocalized, in order, without מישהו or משהו: a prefix with a maqaf (בְּ־, לְ־, מִ־), any other as its word (עַל, אַחֲרֵי, עִם, אֶת); two of them joined by " … " (לְ־ … אֶת).' },
+          preposition: { type: 'string', enum: ['required', 'optional', 'none'], description: '"required" if the word takes this preposition whenever it has this complement; "optional" if it is as natural without it, in the same meaning; "none" if the construction has no preposition, only את.' },
+          meaning: { type: 'string', description: 'The word in this construction, as a dictionary gives it: "to remind someone of something", "to contemplate something".' },
+          short: { type: 'string', description: 'The same in 1 to 3 English words without "to", someone or something: "remind of", "contemplate".' },
+          example: { type: 'string', description: 'One short, natural, everyday Hebrew sentence (4 to 9 words, no niqqud) using the word in this construction.' },
+          exampleMeaning: { type: 'string', description: 'Its natural English translation.' },
+        },
+      },
     },
     phrase: {
       type: 'object', additionalProperties: false, required: ['text', 'meaning', 'textMeaning', 'kind', 'pattern', 'examples', 'words', 'lemma', 'lemmaPlain', 'head', 'headPlain', 'partOfSpeech', 'binyan', 'literal', 'built', 'literalNote'],
-      description: 'If the word belongs to a unit in this sentence that a learner has to learn as a unit, that unit; otherwise every field empty. Most words belong to none: when unsure, leave it empty. There are two kinds. Fixed: an idiom or fixed expression whose words all belong to it and whose meaning is more than its words (להעמיד פנים, לשבור את הראש, בסופו של דבר, אין לי מושג), a multi-word name, or a construct chain (סמיכות) with a meaning of its own (בית ספר, עורך דין, ארוחת בוקר). A pattern: a word that, in this use, opens a frame with a place other words fill, and that a learner has to learn together with that frame, because its meaning or its grammar here depends on it: נטול + a noun ("free of"), חסר + a noun ("lacking"), בעל + a noun ("having"), כדי + an infinitive ("in order to"), a verb whose meaning with one preposition is not its meaning otherwise (לעמוד על, "to insist on"; לעבור על, "to go over, to violate"). Not a unit: words that only combine as usual, whatever their grammar: an adjective with its noun (ילד גדול, שמלה אדומה), a construct chain whose meaning adds up its words (ספר המורה, מבחן בחשבון), a verb with an ordinary object or place, and a verb with a preposition it takes in its usual meaning (השתמשתי במחשב, חיכיתי לך, חשבתי על זה): that preposition is in "governs" and the word stays a word.',
+      description: 'If the word belongs to a unit in this sentence that a learner has to learn as a unit, that unit; otherwise every field empty. Most words belong to none: when unsure, leave it empty. There are two kinds. Fixed: an idiom or fixed expression whose words all belong to it and whose meaning is more than its words (להעמיד פנים, לשבור את הראש, בסופו של דבר, אין לי מושג), a multi-word name, or a construct chain (סמיכות) with a meaning of its own (בית ספר, עורך דין, ארוחת בוקר). A pattern: a word that, in this use, opens a frame with a place other words fill, and that a learner has to learn together with that frame, because its meaning or its grammar here depends on it: נטול + a noun ("free of"), חסר + a noun ("lacking"), בעל + a noun ("having"), כדי + an infinitive ("in order to"), a verb whose meaning with one preposition is not its meaning otherwise (לעמוד על, "to insist on"; לעבור על, "to go over, to violate"). Not a unit: words that only combine as usual, whatever their grammar: an adjective with its noun (ילד גדול, שמלה אדומה), a construct chain whose meaning adds up its words (ספר המורה, מבחן בחשבון), a verb with an ordinary object or place, and a verb with a preposition it takes in its usual meaning (השתמשתי במחשב, חיכיתי לך, חשבתי על זה): that construction is in "constructions" and the word stays a word.',
       properties: {
         text: { type: 'string', description: 'The stretch of the sentence from the unit\'s first word to its last, exactly as written.' },
         kind: { type: 'string', description: '"pattern" if the unit has an open place that other words fill in other sentences (נטול ינשופים: נטול + a noun); "fixed" if every word of it belongs to it (להעמיד פנים, בית ספר).' },
@@ -120,13 +133,28 @@ export const analysisRequest = (word: string, sentence: string) => ({
   messages: [{ role: 'user' as const, content: `Sentence: ${sentence || word}\n${word.split(/\s+/).length > 1 ? 'Selected words' : 'Tapped word'}: ${word}` }],
 })
 
-// A conjunction (ש, כי) the model sometimes lists among a verb's prepositions is not one.
-export const onlyPrepositions = (analysis: WordAnalysis): WordAnalysis => ({
-  ...analysis, governs: (analysis.governs || []).filter(item => !/^(ש|כי)$/.test(item.preposition.replace(/[\u0591-\u05C7]/g, '').trim())),
-})
+// A word's constructions as they can be trusted: never ש or כי (not prepositions, though the
+// model sometimes lists them), and never a lone את construction, which says only that the word
+// takes a direct object, as most do.
+const plainHebrew = (text: string) => text.replace(/[\u0591-\u05C7]/g, '').replace(/[\u05BE\-–…]/g, ' ').trim()
+// A pattern is the word, then only grammatical words and מישהו or משהו (with a prefix: בְּמַשֶּׁהוּ),
+// never another word of its own (לבקש סליחה ממישהו is an expression).
+const GRAMMATICAL = new Set(['את', 'אות', 'על', 'עם', 'אל', 'אחרי', 'אחר', 'אצל', 'בין', 'בעד', 'נגד', 'לפני', 'מפני', 'כלפי', 'לגבי', 'בשביל', 'מול', 'עד', 'כמו', 'לקראת', 'אודות', 'בגלל', 'מן'])
+const placeholder = (word: string) => /^(ו|ב|ל|מ|מ־|כ)?(מישהו|משהו)$/.test(word) || /^(ב|ל|מ|כ)?(מי|מה)$/.test(word)
+const builtOnlyOfGrammar = (item: Construction, lemma: string) => {
+  const words = plainHebrew(item.pattern).replace(/[()]/g, '').split(/\s+/).filter(Boolean)
+  const own = plainHebrew(lemma).split(/\s+/).length
+  return words.length > own && words.slice(own).every(word => GRAMMATICAL.has(word) || placeholder(word) || /^(ב|ל|מ)$/.test(word))
+}
+export const trustedConstructions = (analysis: WordAnalysis): WordAnalysis => {
+  const kept = (analysis.constructions || []).filter(item => item.pattern?.trim() && item.chip?.trim() && item.meaning?.trim()
+    && !plainHebrew(item.chip).split(/\s+/).some(word => word === 'ש' || word === 'כי')
+    && builtOnlyOfGrammar(item, analysis.lemma || analysis.word)).slice(0, 4)
+  return { ...analysis, constructions: kept.every(item => item.preposition === 'none') ? [] : kept }
+}
 
 // The cache name for this prompt and schema: bump the version when either changes.
-const CACHE_KIND = 'word-analysis-v8'
+const CACHE_KIND = 'word-analysis-v9'
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, WordAnalysis>()
 let client: Anthropic | null = null
@@ -162,7 +190,7 @@ export const handler: Handler = async (event) => {
 
     if (response.stop_reason === 'refusal') return reply(422, { message: 'This word could not be explained.', code: 'ANALYSIS_REFUSED', requestId })
     const text = response.content.flatMap(block => (block.type === 'text' ? [block.text] : [])).join('')
-    const analysis = onlyPrepositions(JSON.parse(text) as WordAnalysis)
+    const analysis = trustedConstructions(JSON.parse(text) as WordAnalysis)
     if (cache.size >= 500) cache.delete(cache.keys().next().value!)
     cache.set(key, analysis)
     await rememberAnswer(CACHE_KIND, key, analysis)

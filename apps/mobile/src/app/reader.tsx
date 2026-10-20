@@ -9,6 +9,7 @@ import { ListenButton } from '../components/Listen'
 import Animated from 'react-native-reanimated'
 import { Button, colors, ErrorNotice, Page, Pill, Pressy, styles, TextButton } from '../components/ui'
 import { DraggableSheet } from '../components/Motion'
+import { Constructions } from '../components/Constructions'
 import { APPEAR, REFLOW, SHEET_IN, SHEET_OUT } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { FeedbackButton } from '../components/Feedback'
@@ -22,7 +23,7 @@ import { type EnglishMode, getPref, rememberRead, setPref, TEXT_SIZES } from '..
 import { noteActivity } from '../lib/tree'
 import { explainWord, quickMeanings } from '../lib/recognition'
 import type { Built, Encounter, Phrase, VocabEntry, WordAnalysis } from '../lib/types'
-import { encountersOf, lemmaKey, prepositionsOf, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
+import { constructionsOf, encountersOf, lemmaKey, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
 import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
@@ -373,7 +374,7 @@ export default function Reader() {
             ...(found?.gender ? { gender: found.gender } : {}),
             ...(found?.root ? { root: found.root } : {}),
             ...(found?.binyan ? { binyan: found.binyan } : {}),
-            ...(found?.governs?.length ? { governs: found.governs } : {}),
+            ...(found?.constructions?.length ? { constructions: found.constructions } : {}),
           }),
       }
       // The server may add it to the entry the word is already saved under, and says which.
@@ -567,10 +568,9 @@ export default function Reader() {
         </View>}
       {!wordBusy && !analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation.</Text>}
       {!!reading && !wordBusy && <Text style={reader.reading}>{isolateHebrew(v(reading))}</Text>}
-      {/* The prepositions the word takes, which are learned with it (לְהִשְׁתַּמֵּשׁ + בְּ). */}
-      {!isPhrase && !leadPhrase && !wordBusy && !!analysis?.governs?.length && <Text style={reader.fact}>
-        <Text style={reader.plus}>{isolateHebrew(v(prepositionsOf(analysis)))}</Text> · {analysis.governs.map(item => item.meaning).join(' · ')}
-      </Text>}
+      {/* The constructions the word is used in, learned with it (לְהִרְהֵר בְּ־, אַחֲרֵי). */}
+      {!isPhrase && !leadPhrase && !wordBusy && !!analysis && constructionsOf(analysis).length > 0
+        && <Constructions items={constructionsOf(analysis)} v={v} size={15} meanings align="start" />}
       {!patternFirst && unitBox}
       {inYourWords && !wordBusy && <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/word', params: { id: inYourWords.id } })} hitSlop={6} style={[styles.row, { gap: 4 }]}>
         <Ionicons name="bookmark" size={14} color={colors.green} />
@@ -707,5 +707,4 @@ const reader = StyleSheet.create({
   // English explanations are always left-to-right, whatever letter they start with.
   fact: { fontSize: 14, lineHeight: 24, color: colors.muted, writingDirection: 'ltr', textAlign: 'left' },
   factHebrew: { color: colors.ink, fontSize: 16 },
-  plus: { color: colors.green, fontSize: 16, fontWeight: '600' },
 })

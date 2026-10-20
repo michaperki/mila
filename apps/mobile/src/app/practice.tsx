@@ -20,7 +20,8 @@ import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
 import { noteActivity } from '../lib/tree'
 import type { FormCard, Results, Session, VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
-import { prepositionsOf } from '../lib/words'
+import { constructionsOf } from '../lib/words'
+import { Constructions } from '../components/Constructions'
 import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
 import { cachedVocab, putEntry, vocabFor } from '../state/vocab'
@@ -338,11 +339,17 @@ function CardHead({ label, lemma, listen }: { label?: string; lemma?: string; li
 
 // A word on its own: its dictionary form one side, its meanings the other; the answer side
 // shows both, with its part of speech, root and binyan, and for an expression whose words don't
-// plainly add up to its meaning, what it says word for word. The prepositions it takes follow it
-// wherever it is shown in Hebrew (לְהִשְׁתַּמֵּשׁ + בְּ).
+// plainly add up to its meaning, what it says word for word. The constructions it is used in are
+// chips under it wherever it is shown in Hebrew (components/Constructions.tsx).
 function WordSide({ entry, english, answer: answerSide, v }: { entry: VocabEntry; english: boolean; answer: boolean; v: (text: string) => string }) {
-  const plus = prepositionsOf(entry)
-  const hebrew = <Text style={practice.word}>{v(entry.lemma)}{!!plus && <Text style={practice.plus}> {v(plus)}</Text>}</Text>
+  const constructions = constructionsOf(entry)
+  const lemma = <Text style={practice.word}>{v(entry.lemma)}</Text>
+  // Its constructions under it as chips, and on the answer side what it means in each, when it
+  // has more than one (with one, that is the meaning shown).
+  const hebrew = !constructions.length ? lemma : <View style={{ gap: 6, alignItems: 'center', alignSelf: 'stretch' }}>
+    {lemma}
+    <Constructions items={constructions} v={v} meanings={answerSide && constructions.length > 1} />
+  </View>
   const meaning = <Text style={practice.meaning}>{entry.gloss}</Text>
   if (!answerSide) return english ? meaning : hebrew
   const grammar = [kindLabel(entry), entry.binyan, entry.root && `root ${entry.root}`].filter(Boolean).join(' · ')
@@ -360,7 +367,7 @@ const heardOf = (form: FormCard) => form.said || (form.stage === 'meanings' ? fo
 
 // One form in its sentence: the Hebrew sentence with the form marked, or its English with the
 // meaning marked. The answer side shows the Hebrew sentence, what the form means (with the form
-// alone to listen to), the form with the prepositions the word takes, and the translation.
+// alone to listen to), the form with the constructions the word is used in, and the translation.
 function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v }: { entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; hideMark: boolean; v: (text: string) => string }) {
   const hebrew = <Text style={practice.sentence}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} /></Text>
   if (!answerSide) return <>
@@ -374,7 +381,8 @@ function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v }:
       <Text style={[practice.meaning, { flexShrink: 1 }]}>{form.en}</Text>
       {!!heard && <ListenButton text={heard} accessibilityLabel="Listen to the word" size={22} speed={false} />}
     </View>
-    <Text style={[practice.detail, { textAlign: 'center' }]}>{v(form.he)}{!!prepositionsOf(entry) && <Text style={practice.plus}> {v(prepositionsOf(entry))}</Text>}</Text>
+    <Text style={[practice.detail, { textAlign: 'center' }]}>{v(form.he)}</Text>
+    <Constructions items={constructionsOf(entry)} v={v} size={14} />
     {!!form.translation && <Text style={practice.detail}>{form.translation}</Text>}
   </View>
 }
@@ -488,8 +496,6 @@ const practice = StyleSheet.create({
   word: { fontSize: 34, lineHeight: 48, color: colors.ink, writingDirection: 'rtl', textAlign: 'center' },
   sentence: { fontSize: 22, lineHeight: 36, color: colors.ink, writingDirection: 'rtl', textAlign: 'center' },
   mark: { backgroundColor: colors.lime, fontWeight: '600' },
-  // The prepositions a word takes, after it (+ בְּ).
-  plus: { color: colors.green, fontWeight: '600' },
   english: { fontSize: 20, lineHeight: 30, color: colors.ink, textAlign: 'center' },
   blank: { textDecorationLine: 'underline', textDecorationColor: colors.green, color: colors.green },
   hint: { fontSize: 15, color: colors.muted, textAlign: 'center' },

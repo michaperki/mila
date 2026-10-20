@@ -27,10 +27,17 @@ export type Recognition = {
 export type WordAnalysis = {
   word: string; vocalized: string; meaning: string; parts: { text: string; meaning: string }[]
   lemma: string; lemmaPlain?: string; lemmaMeaning: string; root: string; partOfSpeech: string; gender?: string; binyan: string; form: string; note: string
-  readAs?: string; governs?: Governed[]; phrase?: Phrase; excerpt?: { text: string; meaning: string }
+  readAs?: string; constructions?: Construction[]; governs?: Governed[]; phrase?: Phrase; excerpt?: { text: string; meaning: string }
 }
-// A preposition a verb or adjective takes, and what the word means with it (לְהִשְׁתַּמֵּשׁ: בְּ,
-// "to use (something)"); learned with the word rather than as an expression of its own.
+// One way a verb or adjective is built with what follows it, and what it means that way, learned
+// with the word rather than as an expression of its own: `pattern` in full (לְהַזְכִּיר לְמִישֶׁהוּ
+// אֶת מַשֶּׁהוּ), `chip` just its grammatical words (לְ־ … אֶת), whether its preposition is required,
+// optional or none (את only), its meaning, the same in a word or two, and an example.
+export type Construction = {
+  pattern: string; chip: string; preposition: 'required' | 'optional' | 'none'; meaning: string
+  short?: string; example?: string; exampleMeaning?: string
+}
+// Saved before constructions: a preposition the word takes, and what it means with it.
 export type Governed = { preposition: string; meaning: string }
 // The expression a tapped word belongs to: `text` as it stands in the sentence, `words` the
 // expression's own words as written there, in order (other words may come between them),
@@ -54,8 +61,8 @@ export type VocabEntry = StarredItem & Built & {
   partOfSpeech?: string; binyan?: string; encounters?: Encounter[]
   // Nouns: 'masculine' or 'feminine'.
   gender?: string
-  // The prepositions the word takes (see Governed).
-  governs?: Governed[]
+  // The constructions the word is used in (see Construction); `governs` for words saved before.
+  constructions?: Construction[]; governs?: Governed[]
   // The dictionary form without niqqud, in full spelling: what identifies the word (lib/words.ts).
   lemmaPlain?: string
   // Practice cards, one per form, written stage by stage (see lib/forms.ts); `known` lists the
