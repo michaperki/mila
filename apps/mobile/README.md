@@ -47,7 +47,7 @@ One-time setup:
 
 When the native layer changes (a native package, an `app.json` plugin or permission), the update gets a new runtime version (fingerprint) that the installed app won't accept. Build again by hand, either with step 3 or with `npx eas-cli@latest workflow:run .eas/workflows/preview.yml`, which builds only if no compatible build exists. Then install it from its link.
 
-Ship JS changes by hand: `npx eas-cli@latest update --channel preview --message "..."`. The app downloads updates when it launches and applies them the next time it starts. Account → Check for updates applies one immediately. Account → App version shows which update is running.
+Ship JS changes by hand: `npx eas-cli@latest update --channel preview --message "..."`. A push to main publishes to `preview` on its own (`.github/workflows/mobile-preview-update.yml`). The TestFlight build listens on `production`, which reaches every external tester: publish there from GitHub → Actions → Mobile preview update → Run workflow, choosing `production`. The app downloads updates when it launches and applies them the next time it starts. Account → Check for updates applies one immediately. Account → App version shows which update is running.
 
 Field feedback: the flag button (camera) and Report (reader) save a note together with the OCR text, segments, word analysis and app version. Photos are not included. Read them with `npm run feedback` in `apps/web`.
 

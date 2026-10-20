@@ -1,5 +1,8 @@
 # Publishes the mobile app's JavaScript to the `preview` channel on every push to main that
-# touches it. Runs on GitHub's machines because Expo's free queue can hold jobs for a long time.
+# touches it. The TestFlight build listens on `production`, which every external tester also gets:
+# publish there by hand from Actions → Mobile preview update → Run workflow → production, which
+# publishes the chosen branch's latest commit. Runs on GitHub's machines because Expo's free queue
+# can hold jobs for a long time.
 # A change to the native layer gets a new runtime version that no installed build accepts:
 # start a build by hand then (see apps/mobile/README.md). Needs the EXPO_TOKEN secret.
 name: Mobile preview update
@@ -9,9 +12,15 @@ on:
     branches: [main]
     paths: ['apps/mobile/**', 'apps/web/src/types.ts', '.github/workflows/mobile-preview-update.yml']
   workflow_dispatch:
+    inputs:
+      channel:
+        description: Channel to publish to (production reaches every TestFlight tester)
+        type: choice
+        options: [preview, production]
+        default: preview
 
 concurrency:
-  group: mobile-preview-update
+  group: mobile-update-${{ inputs.channel || 'preview' }}
   cancel-in-progress: true
 
 jobs:
@@ -34,5 +43,9 @@ jobs:
       - run: npm ci
       - name: Publish update
         env:
-          MESSAGE: ${{ github.event.head_commit.message || 'Manual publish' }}
-        run: eas update --channel preview --platform ios --environment preview --message "${MESSAGE%%$'\n'*}" --non-interactive
+          CHANNEL: ${{ inputs.channel || 'preview' }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+        # A run by hand has no pushed commit; it is named after the commit it publishes.
+        run: |
+          MESSAGE="${MESSAGE:-$(git log -1 --format=%s)}"
+          eas update --channel "$CHANNEL" --platform ios --environment "$CHANNEL" --message "${MESSAGE%%$'\n'*}" --non-interactive
