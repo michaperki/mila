@@ -32,6 +32,8 @@ export default defineConfig(({ mode }) => {
         ],
         manifest: false, // We're using a custom manifest file
         workbox: {
+          // The privacy policy is its own page, not a route of the app.
+          navigateFallbackDenylist: [/^\/privacy/],
           globPatterns: [
             '**/*.{js,css,html,ico,png,svg}',
             'ocr-models/*.traineddata',
