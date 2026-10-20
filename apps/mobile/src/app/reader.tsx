@@ -21,7 +21,7 @@ import { paragraphsOf, runsOf } from '../lib/page'
 import { type EnglishMode, getPref, rememberRead, setPref, TEXT_SIZES } from '../lib/prefs'
 import { noteActivity } from '../lib/tree'
 import { explainWord, quickMeanings } from '../lib/recognition'
-import type { Encounter, Phrase, VocabEntry, WordAnalysis } from '../lib/types'
+import type { Built, Encounter, Phrase, VocabEntry, WordAnalysis } from '../lib/types'
 import { encountersOf, lemmaKey, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
 import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
@@ -295,13 +295,15 @@ export default function Reader() {
   ].filter(Boolean).join(' · ') : ''
   // A word that belongs to an expression (להעמיד פנים) is taught as the expression: its own
   // meaning can be misleading on its own, so the expression leads and is what Save keeps. A
-  // pattern shows how it is built, what it means, and two more uses of it.
+  // pattern shows how it is built, what it means, and two more uses of it; an expression whose
+  // words don't plainly add up to its meaning, what it says word for word.
   const unitBox = phrase && !wordBusy ? <Animated.View entering={APPEAR} style={[reader.phrase, { flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingRight: 10, paddingVertical: 8 }]}>
     <Text style={reader.label}>{!isPattern ? 'Part of an expression' : fillsPattern ? 'Used here in a pattern' : 'A pattern'}</Text>
     {patternFirst
       ? <><Text style={reader.pattern}>{v(phrase.pattern!)}</Text><Text style={reader.fact}>{isolateHebrew(v(phrase.meaning))}</Text></>
       : <Text style={reader.fact}><Text style={reader.factHebrew}>{isolateHebrew(v((isPattern && phrase.pattern) || phrase.lemma || phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>}
     {isPattern && phrase.examples?.map(example => <Text key={example.text} style={reader.fact}><Text style={reader.factHebrew}>{isolateHebrew(v(example.text))}</Text> · {isolateHebrew(v(example.meaning))}</Text>)}
+    {!isPattern && !!phrase.literal && <Text style={reader.fact}>Literally “{phrase.literal}”</Text>}
     {isPattern && !!phrase.textMeaning && <Text style={reader.fact}>Here <Text style={reader.factHebrew}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.textMeaning))}</Text>}
   </Animated.View> : null
   // Saved ✓ tapped again undoes the save from this sentence. The server drops the encounter, and
@@ -647,8 +649,15 @@ function expressionEntry(unit: Phrase, found: WordAnalysis | undefined): Pick<Vo
     ...(unit.lemmaPlain ? { lemmaPlain: unit.lemmaPlain } : {}),
     ...(unit.head ? { head: { lemma: unit.head, ...(unit.headPlain ? { lemmaPlain: unit.headPlain } : {}), ...(unit.partOfSpeech ? { partOfSpeech: unit.partOfSpeech } : {}), ...(unit.binyan ? { binyan: unit.binyan } : {}) } } : {}),
     ...(headIsTapped && found?.root ? { root: found.root } : {}),
+    ...builtOf(unit),
   }
 }
+// How a fixed expression is built, when the explanation gives it (lib/types.ts).
+const builtOf = (unit: Phrase): Built => (!unit.literal ? {} : {
+  literal: unit.literal,
+  ...(unit.built?.length ? { built: unit.built.map(({ lemma, lemmaPlain, meaning }) => ({ lemma, meaning, ...(lemmaPlain ? { lemmaPlain } : {}) })) } : {}),
+  ...(unit.literalNote ? { literalNote: unit.literalNote } : {}),
+})
 
 const reader = StyleSheet.create({
   // A− | A+ as one control in the toolbar.

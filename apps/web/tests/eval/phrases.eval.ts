@@ -9,7 +9,8 @@ import { analysisRequest, type WordAnalysis } from '../../netlify/functions/word
 // every answer for reading through and fails below the bar. Add a case for every miss met in
 // the app, near misses especially.
 type Kind = 'pattern' | 'fixed' | 'none'
-const cases: { word: string; sentence: string; kind: Kind; lemma?: string | string[] }[] = [
+// `built`: whether a fixed expression should say how it is built (what it says word for word).
+const cases: { word: string; sentence: string; kind: Kind; lemma?: string | string[]; built?: boolean }[] = [
   // Patterns: a word that opens a frame with an open place.
   { word: 'ונטול־ינשופים', sentence: 'הלילה בגן היה שקט ונטול־ינשופים.', kind: 'pattern', lemma: 'נטול' },
   { word: 'נטול', sentence: 'אני שותה רק קפה נטול קפאין בערב.', kind: 'pattern', lemma: 'נטול' },
@@ -24,10 +25,11 @@ const cases: { word: string; sentence: string; kind: Kind; lemma?: string | stri
   { word: 'מעמיד', sentence: 'הוא מעמיד פנים שהוא ישן.', kind: 'fixed', lemma: 'להעמיד פנים' },
   { word: 'ספר', sentence: 'הילדים הולכים לבית ספר חדש השנה.', kind: 'fixed', lemma: 'בית ספר' },
   { word: 'עורך', sentence: 'עורך הדין שלו מצוין.', kind: 'fixed', lemma: 'עורך דין' },
-  { word: 'בסופו', sentence: 'בסופו של דבר הוא הסכים לבוא.', kind: 'fixed', lemma: 'בסופו של דבר' },
+  { word: 'בסופו', sentence: 'בסופו של דבר הוא הסכים לבוא.', kind: 'fixed', lemma: 'בסופו של דבר', built: true },
   { word: 'שברתי', sentence: 'שברתי את הראש על החידה הזאת שעה שלמה.', kind: 'fixed', lemma: 'לשבור את הראש' },
-  { word: 'מושג', sentence: 'אין לי מושג איפה שמתי את המפתחות.', kind: 'fixed', lemma: 'אין לי מושג' },
-  { word: 'ארוחת', sentence: 'אכלנו ארוחת בוקר במרפסת.', kind: 'fixed', lemma: 'ארוחת בוקר' },
+  { word: 'מושג', sentence: 'אין לי מושג איפה שמתי את המפתחות.', kind: 'fixed', lemma: 'אין לי מושג', built: true },
+  { word: 'ארוחת', sentence: 'אכלנו ארוחת בוקר במרפסת.', kind: 'fixed', lemma: 'ארוחת בוקר', built: false },
+  { word: 'האמת', sentence: 'למען האמת, לא הבנתי כלום בשיעור.', kind: 'fixed', lemma: 'למען האמת', built: true },
   { word: 'הולדת', sentence: 'מחר יום ההולדת של אחי.', kind: 'fixed', lemma: 'יום הולדת' },
   // None: words that only combine as usual, many of them close to a unit.
   { word: 'גדול', sentence: 'ילד גדול שיחק בחצר.', kind: 'none' },
@@ -74,12 +76,17 @@ it.skipIf(!apiKey)('tells patterns, fixed expressions and ordinary words apart',
       `${ok ? '✓' : '✗'} ${item.word} — expected ${item.kind}${item.lemma ? ` ${item.lemma}` : ''}, got ${kind}${kind !== 'none' ? ` ${phrase.lemmaPlain || phrase.lemma}` : ''}`,
       `    ${item.sentence}`,
       `    meaning: ${answer.meaning} · parts: ${answer.parts.map(part => `${part.text} ${part.meaning}`).join(' + ')} · form: ${answer.form || '—'} · lemma: ${answer.lemmaPlain || '—'}${answer.readAs ? ` · read as ${answer.readAs}` : ''}`,
+      ...(phrase.literal ? [`    built: literally "${phrase.literal}" · ${phrase.built.map(part => `${part.lemma} ${part.meaning}`).join(' + ')}${phrase.literalNote ? ` · ${phrase.literalNote}` : ''}`] : []),
       ...(kind !== 'none' ? [`    unit: ${phrase.pattern || phrase.lemma} · ${phrase.meaning} · here: ${phrase.textMeaning}${phrase.examples?.length ? ` · e.g. ${phrase.examples.map(example => `${example.text} "${example.meaning}"`).join(', ')}` : ''}`] : []),
     ].join('\n')
   })
-  console.log(`${lines.join('\n')}\n\n${right} of ${cases.length} right`)
+  // Whether an expression says how it is built, where that is checked: wrongly saying so is
+  // what a learner would be misled by, so it is printed for reading and checked loosely.
+  const builtCases = cases.flatMap((item, i) => (item.built === undefined ? [] : [!!answers[i].phrase?.literal === item.built]))
+  console.log(`${lines.join('\n')}\n\n${right} of ${cases.length} right · built ${builtCases.filter(Boolean).length} of ${builtCases.length}`)
   // Wrongly finding a unit is the costlier mistake (it is what the learner is asked to save).
   const falseUnits = cases.filter((item, i) => item.kind === 'none' && kindOf(answers[i]) !== 'none').length
   expect(falseUnits).toBeLessThanOrEqual(1)
   expect(right / cases.length).toBeGreaterThanOrEqual(0.85)
+  expect(builtCases.filter(Boolean).length).toBeGreaterThanOrEqual(builtCases.length - 1)
 })

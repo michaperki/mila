@@ -36,12 +36,18 @@ export type WordAnalysis = {
 // open place other words fill (נטול ינשופים is `pattern` נָטוּל + [שֵׁם עֶצֶם], "free of [noun]"):
 // its `lemma` and `words` are the fixed words only, and `textMeaning` is what it means here
 // ("owl-free"), with `examples` of other uses. Older explanations have only `text` and `meaning`.
-export type Phrase = { text: string; meaning: string; textMeaning?: string; kind?: string; pattern?: string; examples?: { text: string; meaning: string }[]; words?: string[]; lemma?: string; lemmaPlain?: string; head?: string; headPlain?: string; partOfSpeech?: string; binyan?: string }
+// A fixed expression whose meaning doesn't plainly follow from its words also says how it is
+// built: `literal` what it says word for word ("for the sake of the truth"), `built` its words in
+// dictionary form with what each means in it, and `literalNote` how that comes to mean what it does.
+export type Phrase = { text: string; meaning: string; textMeaning?: string; kind?: string; pattern?: string; examples?: { text: string; meaning: string }[]; words?: string[]; lemma?: string; lemmaPlain?: string; head?: string; headPlain?: string; partOfSpeech?: string; binyan?: string } & Built
+export type Built = { literal?: string; built?: BuiltPart[]; literalNote?: string }
+export type BuiltPart = { lemma: string; lemmaPlain?: string; meaning: string }
 // A saved word is its dictionary form (להדביק, not the הדביק that was tapped): `lemma`, `gloss`
 // (the dictionary form's meanings), part of speech, root and binyan describe it. Each place it
 // was met is an `Encounter`, so the same word met in several books stays one entry with one
 // practice history. Entries saved before encounters existed keep that data at the top level.
-export type VocabEntry = StarredItem & {
+// An expression saved with how it is built (see Phrase) keeps that too.
+export type VocabEntry = StarredItem & Built & {
   partOfSpeech?: string; binyan?: string; encounters?: Encounter[]
   // Nouns: 'masculine' or 'feminine'.
   gender?: string

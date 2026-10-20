@@ -23,7 +23,7 @@ export type WordAnalysis = {
   form: string
   note: string
   readAs: string
-  phrase: { text: string; meaning: string; textMeaning: string; kind: string; pattern: string; examples: { text: string; meaning: string }[]; words: string[]; lemma: string; lemmaPlain: string; head: string; headPlain: string; partOfSpeech: string; binyan: string }
+  phrase: { text: string; meaning: string; textMeaning: string; kind: string; pattern: string; examples: { text: string; meaning: string }[]; words: string[]; lemma: string; lemmaPlain: string; head: string; headPlain: string; partOfSpeech: string; binyan: string; literal: string; built: { lemma: string; lemmaPlain: string; meaning: string }[]; literalNote: string }
   excerpt: { text: string; meaning: string }
 }
 
@@ -57,7 +57,7 @@ const schema = {
     note: { type: 'string', description: 'Only if it matters for understanding this sentence (an idiom, register, an irregular form): one short sentence that adds something no other field says. Do not restate the meaning, breakdown, lemma or grammar, and do not describe forms or vowel patterns that are not in the sentence. Usually empty.' },
     readAs: { type: 'string', description: 'If the tapped text is an OCR misreading (e.g. a dropped first letter), the word you believe is printed, without niqqud; otherwise empty. Analyze that word.' },
     phrase: {
-      type: 'object', additionalProperties: false, required: ['text', 'meaning', 'textMeaning', 'kind', 'pattern', 'examples', 'words', 'lemma', 'lemmaPlain', 'head', 'headPlain', 'partOfSpeech', 'binyan'],
+      type: 'object', additionalProperties: false, required: ['text', 'meaning', 'textMeaning', 'kind', 'pattern', 'examples', 'words', 'lemma', 'lemmaPlain', 'head', 'headPlain', 'partOfSpeech', 'binyan', 'literal', 'built', 'literalNote'],
       description: 'If the word belongs to a unit in this sentence that a learner has to learn as a unit, that unit; otherwise every field empty. Most words belong to none: when unsure, leave it empty. There are two kinds. Fixed: an idiom or fixed expression whose words all belong to it and whose meaning is more than its words (להעמיד פנים, לשבור את הראש, בסופו של דבר, אין לי מושג), a multi-word name, or a construct chain (סמיכות) with a meaning of its own (בית ספר, עורך דין, ארוחת בוקר). A pattern: a word that, in this use, opens a frame with a place other words fill, and that a learner has to learn together with that frame, because its meaning or its grammar here depends on it: נטול + a noun ("free of"), חסר + a noun ("lacking"), בעל + a noun ("having"), כדי + an infinitive ("in order to"), a verb with the preposition it takes for this meaning (לחשוב על, "to think about"). Not a unit: words that only combine as usual, whatever their grammar: an adjective with its noun (ילד גדול, שמלה אדומה), a construct chain whose meaning adds up its words (ספר המורה, מבחן בחשבון), a verb with an ordinary object or place.',
       properties: {
         text: { type: 'string', description: 'The stretch of the sentence from the unit\'s first word to its last, exactly as written.' },
@@ -76,6 +76,12 @@ const schema = {
         headPlain: { type: 'string', description: 'The same without niqqud, in full spelling (לעבור), or empty.' },
         partOfSpeech: { type: 'string', description: 'What the whole unit inflects as: verb, noun or adjective, or "other" if it is fixed.' },
         binyan: { type: 'string', description: 'If the inflecting word is a verb: its binyan in Latin letters; otherwise empty.' },
+        literal: { type: 'string', description: 'For a fixed unit of two or more words: what it says word for word, in English, when seeing that helps a learner understand or remember why it means what it does ("for the sake of the truth" for למען האמת, "at the end of the matter" for בסופו של דבר). Empty for a pattern, and for a unit whose literal reading adds nothing to its meaning (ארוחת בוקר is "breakfast").' },
+        built: {
+          type: 'array', description: 'Whenever "literal" is given: each word of the unit in its own dictionary form, vocalized, without the prefixes ה, ו, ב, ל, מ, ש, כ unless they are part of the word (לְמַעַן keeps its ל), with its plain spelling and the meaning it has inside this unit, in order. Otherwise empty.',
+          items: { type: 'object', additionalProperties: false, required: ['lemma', 'lemmaPlain', 'meaning'], properties: { lemma: { type: 'string' }, lemmaPlain: { type: 'string', description: 'Without niqqud, in full spelling.' }, meaning: { type: 'string', description: '1 to 4 English words.' } } },
+        },
+        literalNote: { type: 'string', description: 'Whenever "literal" is given and only if it helps: one short sentence on how the literal reading comes to mean what the unit means or how it is used ("Introduces an honest admission."). Only what you are certain of; never a guessed history of the expression. Usually empty.' },
       },
     },
     excerpt: {
@@ -106,7 +112,7 @@ export const analysisRequest = (word: string, sentence: string) => ({
 })
 
 // The cache name for this prompt and schema: bump the version when either changes.
-const CACHE_KIND = 'word-analysis-v6'
+const CACHE_KIND = 'word-analysis-v7'
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, WordAnalysis>()
 let client: Anthropic | null = null

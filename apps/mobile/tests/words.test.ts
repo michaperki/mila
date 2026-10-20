@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { encountersOf, expressionsWith, headOf, lemmaKey, matches, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../src/lib/words.ts'
+import { encountersOf, expressionsWith, headOf, lemmaKey, matches, partsOf, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../src/lib/words.ts'
 
 const encounter = (surface: string, context: string, at: number) => ({ surface, meaning: 'm', context, at })
 
@@ -52,6 +52,15 @@ test('an expression and the word it is built on find each other', () => {
   assert.deepEqual(expressionsWith([word, expression, other], word).map(item => item.id), ['e'])
   assert.equal(headOf([word, expression, other], expression)?.id, 'w')
   assert.equal(headOf([expression, other], expression), undefined)
+})
+
+test('an expression and the words it is built from find each other, though none of them inflects', () => {
+  const word = { id: 'w', lemma: 'לְמַעַן', lemmaPlain: 'למען', gloss: 'for the sake of', createdAt: 0, partOfSpeech: 'preposition' }
+  const expression = { id: 'e', lemma: 'לְמַעַן הָאֱמֶת', lemmaPlain: 'למען האמת', gloss: 'to tell the truth', createdAt: 0, partOfSpeech: 'expression',
+    literal: 'for the sake of the truth', built: [{ lemma: 'לְמַעַן', lemmaPlain: 'למען', meaning: 'for the sake of' }, { lemma: 'אֱמֶת', meaning: 'truth' }] }
+  assert.deepEqual(expressionsWith([word, expression], word).map(item => item.id), ['e'])
+  assert.deepEqual(partsOf([word, expression], expression).map(({ part, saved }) => [part.meaning, saved?.id]), [['for the sake of', 'w'], ['truth', undefined]])
+  assert.deepEqual(partsOf([word, expression], word), [])
 })
 
 test('a saved word is found in any sentence: by its dictionary form, or before that by a form saved', () => {

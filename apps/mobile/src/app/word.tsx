@@ -18,7 +18,7 @@ import { stripNiqqud } from '../lib/ocr-cleanup'
 import type { FormCard, TextDoc } from '../lib/types'
 import { withVowels } from '../lib/vowels'
 import { ensureForms } from '../lib/word-forms'
-import { encountersOf, expressionsWith, headOf, sameId } from '../lib/words'
+import { encountersOf, expressionsWith, headOf, partsOf, sameId } from '../lib/words'
 import { useSession } from '../state/session'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
@@ -90,6 +90,7 @@ export default function Word() {
   const later = stages.filter(stage => stageState(entry, stage.key) === 'later')
   const expressions = expressionsWith(entries, entry)
   const head = headOf(entries, entry)
+  const parts = partsOf(entries, entry)
   const inPlay = open.flatMap(stage => (known.includes(stage.key) ? [] : formsIn(entry, stage.key)))
   const wordKnown = isKnownWord(entry)
   // "I know this word" marks every stage known (it leaves studying); "Know these" marks one stage.
@@ -122,6 +123,24 @@ export default function Word() {
       {hasTable(entry) && <Pill icon="grid-outline" label="All forms" onPress={() => router.push({ pathname: '/table', params: { id: entry.id } })} />}
       {hasRoot(entry) && <Pill icon="git-branch-outline" label={`Root ${rootOf(entry.root!)}`} accessibilityLabel={`Explore the root ${rootOf(entry.root!)}`}
         onPress={() => router.push({ pathname: '/root', params: { root: entry.root!, word: entry.lemma } })} />}
+    </View>}
+
+    {/* An expression whose words don't plainly add up to its meaning: what it says word for word,
+        and its words, each leading to the saved word it is. */}
+    {!!entry.literal && <View style={[styles.card, word.section]}>
+      <Text style={word.stage}>How it’s built</Text>
+      {parts.map(({ part, saved }) => {
+        const row = <>
+          <Text style={[word.meaning, { flex: 1 }]}>{isolateHebrew(part.meaning)}</Text>
+          <Text style={word.form}>{v(part.lemma)}</Text>
+          {saved && <Ionicons name="chevron-forward" size={16} color={colors.muted} />}
+        </>
+        return saved
+          ? <Pressable key={part.lemma} accessibilityRole="button" accessibilityHint="Opens this saved word" onPress={() => router.push({ pathname: '/word', params: { id: saved.id } })} style={word.formRow}>{row}</Pressable>
+          : <View key={part.lemma} style={word.formRow}>{row}</View>
+      })}
+      <Text style={word.literal}>Literally “{entry.literal}”</Text>
+      {!!entry.literalNote && <Text style={word.meta}>{isolateHebrew(entry.literalNote)}</Text>}
     </View>}
 
     {open.map(stage => {
@@ -159,7 +178,7 @@ export default function Word() {
     </View>}
 
     {/* An expression and the word it is built on lead to each other. */}
-    {head && <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/word', params: { id: head.id } })} style={[styles.card, word.section]}>
+    {head && !parts.some(item => item.saved?.id === head.id) && <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/word', params: { id: head.id } })} style={[styles.card, word.section]}>
       <Text style={word.meta}>Built on</Text>
       <Text style={word.meaning}>{isolateHebrew(v(head.lemma))} · {isolateHebrew(head.gloss)}</Text>
     </Pressable>}
@@ -225,6 +244,7 @@ const word = StyleSheet.create({
   form: { fontSize: 21, color: colors.ink, writingDirection: 'rtl' },
   formInline: { fontSize: 17, fontWeight: '400', color: colors.ink },
   meaning: { fontSize: 15, fontWeight: '600', color: colors.ink },
+  literal: { fontSize: 15, fontStyle: 'italic', color: colors.ink },
   example: { fontSize: 16, lineHeight: 24, color: colors.muted, writingDirection: 'rtl', textAlign: 'right' },
   dot: { width: 10, height: 10, borderRadius: 5, borderWidth: 1.5, borderColor: colors.muted },
 })

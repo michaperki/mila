@@ -56,12 +56,19 @@ export function matches(entry: VocabEntry, query: string) {
     .some(field => !!field && stripNiqqud(field.toLowerCase()).includes(needle))
 }
 
-// Saved expressions built on a word (לעבור דרך for לעבור), matched by the plain spelling of the
-// word that inflects in them.
+// Saved expressions built on a word, matched by plain spelling: the word that inflects in them
+// (לעבור דרך for לעבור), or any of the words they are built from (למען האמת for למען).
 export const expressionsWith = (entries: VocabEntry[], entry: VocabEntry) => {
   const key = lemmaKey(entry.lemmaPlain || entry.lemma)
-  return entries.filter(item => item.partOfSpeech === 'expression' && item.id !== entry.id && !!item.head && lemmaKey(item.head.lemmaPlain || item.head.lemma) === key)
+  const builtOn = (item: VocabEntry) => (!!item.head && lemmaKey(item.head.lemmaPlain || item.head.lemma) === key)
+    || !!item.built?.some(part => lemmaKey(part.lemmaPlain || part.lemma) === key)
+  return entries.filter(item => item.partOfSpeech === 'expression' && item.id !== entry.id && builtOn(item))
 }
+// The words an expression is built from, each with the saved word it is, if it is saved.
+export const partsOf = (entries: VocabEntry[], entry: VocabEntry) => (entry.built || []).map(part => {
+  const key = lemmaKey(part.lemmaPlain || part.lemma)
+  return { part, saved: entries.find(item => item.id !== entry.id && item.partOfSpeech !== 'expression' && lemmaKey(item.lemmaPlain || item.lemma) === key) }
+})
 // The saved word an expression is built on, if it is saved.
 export const headOf = (entries: VocabEntry[], entry: VocabEntry) => {
   if (!entry.head) return undefined
