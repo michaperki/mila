@@ -7,12 +7,14 @@ import type { Construction } from '../lib/types'
 // is full. `meanings` puts what the word means in each beneath it ("contemplate", "question"),
 // for an answer side or the word's page; an optional preposition's chip has a dashed outline.
 // Nothing is drawn for a word without constructions. `size` is the chips' font size, about half
-// the word's above them; `align` 'start' sets them at the left, as in the reader's panel.
+// the word's above them; `align` sets them at the left ('start', as in the reader's panel) or the
+// right ('end', under a right-aligned word).
 export function Constructions({ items, v, size = 19, meanings = false, align = 'center' }: {
-  items: Construction[]; v: (text: string) => string; size?: number; meanings?: boolean; align?: 'center' | 'start'
+  items: Construction[]; v: (text: string) => string; size?: number; meanings?: boolean; align?: 'center' | 'start' | 'end'
 }) {
   if (!items.length) return null
-  return <View style={[box.row, { justifyContent: align === 'center' ? 'center' : 'flex-end' }]}>
+  // The row runs right to left, so its start is on the right.
+  return <View style={[box.row, { justifyContent: align === 'center' ? 'center' : align === 'start' ? 'flex-end' : 'flex-start' }]}>
     {items.map(item => <View key={item.pattern} accessible accessibilityLabel={`${item.chip}: ${item.meaning}`} style={box.item}>
       <View style={[box.chip, item.preposition === 'optional' && box.optional]}>
         <Text style={[box.text, { fontSize: size, lineHeight: Math.round(size * 1.45) }]} numberOfLines={1}>{v(item.chip)}</Text>

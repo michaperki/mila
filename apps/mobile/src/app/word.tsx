@@ -18,7 +18,8 @@ import { stripNiqqud } from '../lib/ocr-cleanup'
 import type { FormCard, TextDoc } from '../lib/types'
 import { withVowels } from '../lib/vowels'
 import { ensureForms } from '../lib/word-forms'
-import { constructionsOf, encountersOf, expressionsWith, headOf, partsOf, sameId } from '../lib/words'
+import { constructionsOf, encountersOf, expressionsWith, headOf, partsOf, patternLabel, sameId } from '../lib/words'
+import { Constructions } from '../components/Constructions'
 import { useSession } from '../state/session'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
@@ -27,8 +28,8 @@ const STATE: Record<StageState, string> = { known: 'Known', ready: 'Ready', fami
 
 // One saved word: what it means and what kind of word it is, its stages (meanings first, then
 // its forms) with how each is going, expressions built on it, and where it was met. Mila brings
-// in later stages as the earlier ones become familiar; "Study now" opens one before that.
-// "I know this word" takes it out of studying; "Know these" marks one stage known. Nothing is
+// in later stages as the earlier ones become familiar; tapping one not in yet opens it now.
+// "Mark word as known" takes it out of studying; "Mark known" marks one stage known. Nothing is
 // quizzed here.
 export default function Word() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -83,7 +84,8 @@ export default function Word() {
         .then(() => { router.back(); dropEntry(session, entry.id) }, (failure: Error) => setError(failure.message))
     } },
   ])
-  const grammar = [kindLabel(entry), entry.binyan, entry.root && `root ${entry.root}`].filter(Boolean).join(' · ')
+  // The root is left out where the button to explore it already names it.
+  const grammar = [kindLabel(entry), entry.binyan, entry.root && !hasRoot(entry) && `root ${entry.root}`].filter(Boolean).join(' · ')
   const known = entry.known || []
   const stages = stagesOf(entry)
   const open = stages.filter(stage => stageState(entry, stage.key) !== 'later')
@@ -94,7 +96,7 @@ export default function Word() {
   const constructions = constructionsOf(entry)
   const inPlay = open.flatMap(stage => (known.includes(stage.key) ? [] : formsIn(entry, stage.key)))
   const wordKnown = isKnownWord(entry)
-  // "I know this word" marks every stage known (it leaves studying); "Know these" marks one stage.
+  // "Mark word as known" marks every stage known (it leaves studying); "Mark known" marks one stage.
   const knowWord = () => { feel('unlock'); setKnown(stages.map(stage => stage.key)) }
 
   return <Page>
@@ -106,18 +108,20 @@ export default function Word() {
         <ListenButton text={entry.lemma} accessibilityLabel="Hear this word" size={24} />
         <Text style={word.lemma}>{v(entry.lemma)}</Text>
       </View>
-      {/* Learned as a pattern: how the word is used (נָטוּל + [שֵׁם עֶצֶם]), its meaning below. */}
-      {!!entry.pattern && <Text style={word.pattern}>{v(entry.pattern)}</Text>}
+      {/* Learned as a pattern: how the word is used (נָטוּל + noun), its meaning below. */}
+      {!!entry.pattern && <Text style={word.pattern}>{v(patternLabel(entry.pattern))}</Text>}
+      {/* The constructions it is used in, smaller under it; what each means is in How it's used. */}
+      {constructions.length > 0 && <View style={{ marginBottom: 4 }}><Constructions items={constructions} v={v} size={17} align="end" /></View>}
       <Text style={word.gloss}>{isolateHebrew(v(entry.gloss))}</Text>
       {!!grammar && <Text style={word.meta}>{isolateHebrew(grammar)}</Text>}
     </View>
     <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
       <Text style={[word.pill, wordKnown && word.pillDone]}>
-        {wordKnown ? 'Known' : statusOf(entry) === 'mastered' ? 'Learned' : inPlay.length ? `${inPlay.filter(isFamiliar).length} of ${inPlay.length} familiar` : 'New'}
+        {wordKnown ? 'Known' : statusOf(entry) === 'mastered' ? 'Learned' : inPlay.length ? `${inPlay.filter(isFamiliar).length} of ${inPlay.length} cards familiar` : 'New'}
       </Text>
       {wordKnown
         ? <TextButton title="Undo" onPress={() => { feel('tick'); setKnown([]) }} />
-        : <TextButton title="I know this word" color={colors.green} onPress={knowWord} />}
+        : <TextButton title="Mark word as known" color={colors.green} onPress={knowWord} />}
     </View>
     {/* Looking around the word: all its forms at once, and the other words of its root. */}
     {(hasTable(entry) || hasRoot(entry)) && <View style={[styles.row, { gap: 8, marginTop: -8 }]}>
@@ -135,7 +139,7 @@ export default function Word() {
           <Text style={word.construction}>{v(item.pattern)}</Text>
         </View>
         {!!item.example && <Text style={word.example}>{v(item.example)}</Text>}
-        {!!item.exampleMeaning && <Text style={word.meta}>{item.exampleMeaning}</Text>}
+        {!!item.exampleMeaning && <Text style={word.translation}>{item.exampleMeaning}</Text>}
       </View>)}
     </View>}
 
@@ -172,7 +176,7 @@ export default function Word() {
               {(state === 'learning' || state === 'familiar') && forms.length ? `${STATE[state]} · ${forms.filter(isFamiliar).length}/${forms.length}` : STATE[state]}
             </Text>
           </Pressable>
-          {state !== 'known' && state !== 'ready' && !wordKnown && <TextButton title="Know these" color={colors.green} onPress={() => { feel('unlock'); setKnown([...known, stage.key]) }} />}
+          {state !== 'known' && state !== 'ready' && !wordKnown && <TextButton title="Mark known" color={colors.green} onPress={() => { feel('unlock'); setKnown([...known, stage.key]) }} />}
           {state === 'known' && !wordKnown && <TextButton title="Undo" onPress={() => { feel('tick'); setKnown(known.filter(key => key !== stage.key)) }} />}
         </View>
         {shown && forms.map(form => (meanings
@@ -182,13 +186,14 @@ export default function Word() {
           : <TextButton title="Prepare these" color={colors.green} onPress={() => setTried(null)} />)}
       </Animated.View>
     })}
-    {/* Stages Mila hasn't brought in yet: suggested later, never locked. */}
+    {/* Stages Mila hasn't brought in yet, in one row: never locked, a tap opens one now. */}
     {later.length > 0 && !wordKnown && <View style={[styles.card, word.section]}>
-      {later.map(stage => <View key={stage.key} style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
-        <Text style={word.stage}>{stage.label}</Text>
-        <TextButton title="Study now" color={colors.green} onPress={() => { feel('unlock'); setStages('opened', [...(entry.opened || []), stage.key]) }} />
-      </View>)}
-      <Text style={word.meta}>Mila brings these in as the forms above become familiar. You can study any of them now.</Text>
+      <Text style={word.stage}>More forms</Text>
+      <View style={[styles.row, { gap: 8 }]}>
+        {later.map(stage => <Pill key={stage.key} icon="add" label={stage.label} accessibilityLabel={`Study the ${stage.label.toLowerCase()} now`}
+          onPress={() => { feel('unlock'); setStages('opened', [...(entry.opened || []), stage.key]) }} />)}
+      </View>
+      <Text style={word.meta}>Tap one to start studying it.</Text>
     </View>}
 
     {/* An expression and the word it is built on lead to each other. */}
@@ -215,7 +220,7 @@ export default function Word() {
 
 const Dot = ({ form }: { form: FormCard }) => <View style={[word.dot, !!form.results?.length && { backgroundColor: colors.lime, borderColor: colors.green }, isFamiliar(form) && { backgroundColor: colors.green, borderColor: colors.green }]} />
 
-// One meaning: what it means, and the sentence it is practised in. The Hebrew is the word at the
+// One meaning: what it means, and the sentence it is practised in with its English. The Hebrew is the word at the
 // top, so it is only shown when this meaning uses another form of it.
 function MeaningRow({ form, lemma, v }: { form: FormCard; lemma: string; v: (text: string) => string }) {
   const other = stripNiqqud(form.he) !== stripNiqqud(lemma)
@@ -223,7 +228,8 @@ function MeaningRow({ form, lemma, v }: { form: FormCard; lemma: string; v: (tex
     <Dot form={form} />
     <View style={{ flex: 1, gap: 2 }}>
       <Text style={word.meaning}>{form.en}{other ? <Text style={word.formInline}>{`  ${isolateHebrew(v(form.he))}`}</Text> : null}</Text>
-      {!!form.sentence && <Text style={word.example} numberOfLines={2}>{v(form.sentence)}</Text>}
+      {!!form.sentence && <Text style={word.example}>{v(form.sentence)}</Text>}
+      {!!form.translation && <Text style={word.translation}>{form.translation}</Text>}
     </View>
   </View>
 }
@@ -261,5 +267,7 @@ const word = StyleSheet.create({
   meaning: { fontSize: 15, fontWeight: '600', color: colors.ink },
   literal: { fontSize: 15, fontStyle: 'italic', color: colors.ink },
   example: { fontSize: 16, lineHeight: 24, color: colors.muted, writingDirection: 'rtl', textAlign: 'right' },
+  // An example's English, as under the sentences where the word was met.
+  translation: { fontSize: 14, lineHeight: 21, color: colors.muted, writingDirection: 'ltr', textAlign: 'left' },
   dot: { width: 10, height: 10, borderRadius: 5, borderWidth: 1.5, borderColor: colors.muted },
 })

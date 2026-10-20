@@ -64,6 +64,14 @@ export const expressionsWith = (entries: VocabEntry[], entry: VocabEntry) => {
     || !!item.built?.some(part => lemmaKey(part.lemmaPlain || part.lemma) === key)
   return entries.filter(item => item.partOfSpeech === 'expression' && item.id !== entry.id && builtOn(item))
 }
+// A pattern with its open place named in English, as a learner reads it: אֵין טַעַם + [שֵׁם פֹּעַל]
+// is אֵין טַעַם + infinitive. An open place without a known name keeps its Hebrew.
+// Names in full or plain spelling (שם פועל, or שם פעל once its vowels are gone).
+const PLACES: [RegExp, string][] = [[/שם פו?על|מקור/, 'infinitive'], [/שם עצם/, 'noun'], [/תו?אר/, 'adjective'], [/פו?על/, 'verb'], [/משפט|פסוקית/, 'clause'], [/מספר/, 'number'], [/כינוי/, 'pronoun']]
+export const patternLabel = (pattern: string) => pattern.replace(/\[([^\]]+)\]/g, (place, name: string) => {
+  const plain = stripNiqqud(name).replace(/[״"]/g, '')
+  return PLACES.find(([test]) => test.test(plain))?.[1] ?? place
+})
 // The constructions a word is used in (lib/types.ts); a word saved before them has its
 // prepositions alone, each read as a construction of the word with it.
 export const constructionsOf = (entry: Pick<VocabEntry, 'constructions' | 'governs'> & { lemma?: string }): Construction[] =>

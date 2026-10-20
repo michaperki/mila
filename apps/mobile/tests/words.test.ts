@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { encountersOf, expressionsWith, headOf, lemmaKey, constructionsOf, matches, partsOf, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../src/lib/words.ts'
+import { encountersOf, expressionsWith, headOf, lemmaKey, constructionsOf, matches, partsOf, patternLabel, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../src/lib/words.ts'
 
 const encounter = (surface: string, context: string, at: number) => ({ surface, meaning: 'm', context, at })
 
@@ -77,4 +77,10 @@ test('a word is used in its constructions, and one saved before them in its prep
   assert.deepEqual(constructionsOf({ lemma: 'לְהִשְׁתַּמֵּשׁ', governs: [{ preposition: 'בְּ', meaning: 'to use (something)' }] }),
     [{ pattern: 'לְהִשְׁתַּמֵּשׁ בְּ', chip: 'בְּ', preposition: 'required', meaning: 'to use (something)' }])
   assert.deepEqual(constructionsOf({ lemma: 'לְהָצִיף' }), [])
+})
+
+test('a pattern names its open place in English', () => {
+  assert.equal(patternLabel('אֵין טַעַם + [שֵׁם פֹּעַל]'), 'אֵין טַעַם + infinitive')
+  assert.equal(patternLabel('נָטוּל + [שֵׁם עֶצֶם]'), 'נָטוּל + noun')
+  assert.equal(patternLabel('כְּכָל שֶׁ + [מַשֶּׁהוּ]'), 'כְּכָל שֶׁ + [מַשֶּׁהוּ]')
 })

@@ -81,7 +81,7 @@ const schema = {
 
 const SYSTEM = `You write practice material for an English-speaking learner of modern Hebrew who is learning one word, meaning by meaning and form by form. Each card is one sentence written for the card, never a sentence copied from the learner's reading.
 
-Meanings: when asked for the word's meanings, give one card per genuinely distinct sense a learner meets in everyday modern Hebrew, most common first. Most words have one; give at most three. Senses that are close or shade into each other are one card whose "english" lists them, most common first ("to assume, to estimate, to imagine"; "to bloom, to flourish"). Make a separate card only for a sense a learner would not guess from the others, such as a different domain or a colloquial or idiomatic use, and say so briefly in "english" ("to vanish, to take off (slang)"). Each card uses the dictionary form (verbs: the infinitive) in that sense, in a sentence that shows that sense clearly; "english" is that sense in 1 to 6 words (verbs as "to …"). Include the sense the learner met the word in.
+Meanings: when asked for the word's meanings, give one card per genuinely distinct sense a learner meets in everyday modern Hebrew, most common first. Most words have one; give at most three. Senses that are close or shade into each other are one card whose "english" lists them, most common first ("to assume, to estimate, to imagine"; "to bloom, to flourish"). Make a separate card only for a sense a learner would not guess from the others, such as a different domain or a colloquial or idiomatic use, and say so briefly in "english" ("to vanish, to take off (slang)"). Each card uses the dictionary form (verbs: the infinitive) in that sense, in a sentence that shows that sense clearly; "english" is that sense in 1 to 6 words (verbs as "to …"). Include the sense the learner met the word in, unless they met it inside an expression (למען in למען האמת, ראש in בראש קטן): what the expression means is not a sense of the word, so leave it out, and never write a card "(in …)".
 
 Forms: for each requested form, give the correct standard modern Hebrew form and a sentence that uses exactly that form. Leave out a form that is not in real use (for example a verbal noun the verb doesn't have) rather than inventing one. The forms are one word, not different meanings: every form's "english" uses the main meaning you are given, changing only for person, tense, number and gender ("he guesses", "they guessed", "guess! (to one woman)"), never to a synonym, and each sentence uses the word in that meaning, rendered with that same English word in its translation.
 
@@ -158,9 +158,11 @@ export const handler: Handler = async (event) => {
     if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') return reply(422, { message: 'These forms could not be written.', requestId })
     const text = response.content.flatMap(block => (block.type === 'text' ? [block.text] : [])).join('')
     const generated = (JSON.parse(text) as { forms: Generated[] }).forms
+    // A sense that is really an expression's ("(in למען האמת) to tell the truth") is not the word's.
+    const ofExpression = (english: string) => /\((in|as in) [^)]*[\u05D0-\u05EA]/i.test(english)
     const order = slots.map(item => item.slot)
     const forms = order.flatMap(slot => {
-      const item = generated.find(candidate => candidate.slot === slot && candidate.form.trim() && candidate.sentence.trim())
+      const item = generated.find(candidate => candidate.slot === slot && candidate.form.trim() && candidate.sentence.trim() && !(stage === 'meanings' && ofExpression(candidate.english)))
       // The marks are kept as the words in order, space-separated (apps/mobile/src/lib/marks.ts).
       const words = (list: string[]) => list.map(word => word.trim()).filter(Boolean).join(' ')
       return item ? [{
