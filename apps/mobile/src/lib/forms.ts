@@ -1,15 +1,16 @@
 import { stripNiqqud } from './ocr-cleanup.ts'
 import type { FormCard, Results, VocabEntry } from './types'
 
-// A saved word is learned in stages. Every word starts with its meanings (one card per
-// distinct meaning, using the dictionary form); then come its forms: a verb's present, past,
-// future, imperative and verbal noun, an adjective's other forms, a noun's plural. Each card
-// has its own sentence. An expression (לעבור דרך) has the stages of the word in it that
-// inflects, every card using the whole expression. A stage marked `withPrevious` comes in
-// together with the one before it (a verb's present with its meanings) but its cards come
-// after; Mila brings in any other stage once the learner is ready (see ProgressRules), and the
-// learner can study any stage before that. Stages and slots mirror
-// apps/web/netlify/functions/word-forms.ts, which writes the cards.
+// A saved word is learned in stages. Every saved word can be studied at once, first as its word
+// card alone; once it has been known once (isMet), its meanings come in (one card per distinct
+// meaning, using the dictionary form) and then its forms: a verb's present, past, future,
+// imperative and verbal noun, an adjective's other forms, a noun's plural. Each card has its own
+// sentence. An expression (לעבור דרך) has the stages of the word in it that inflects, every card
+// using the whole expression. A stage marked `withPrevious` comes in with the one before it once
+// the word is met (a verb's present with its meanings), its cards after; Mila brings in any other
+// stage once those before it are familiar (see ProgressRules). How a word is going decides how
+// hard its cards get, never whether it can be studied, and the learner can study any stage
+// sooner. Stages and slots mirror apps/web/netlify/functions/word-forms.ts, which writes the cards.
 export type Kind = 'verb' | 'adjective' | 'noun' | 'other'
 export type Stage = { key: string; label: string; slots: Record<string, string>; withPrevious?: boolean }
 const PERSONS = { '1sg': 'I', '2sg.m': 'you (m.)', '2sg.f': 'you (f.)', '3sg.m': 'he', '3sg.f': 'she', '1pl': 'we' }
@@ -48,17 +49,20 @@ export const dayOf = (now: number) => { const date = new Date(now); return `${da
 // What studying shows, and what Mila does with it. A swipe says whether the learner knew a card;
 // each card keeps its last few results, never a date to come back. A card is familiar when its
 // latest answers were right, and a wrong answer only makes it learning again: nothing resets.
-// A stage is familiar when about half its cards are (or a checkpoint went well), and ready when
-// nearly all are, or when most recent checkpoints were nailed; then Mila brings in the next
-// stage. Ready doesn't mean perfect, only that something new would help. The numbers live here
-// so they can be tuned in one place.
+// A stage is familiar when about half its cards are (or a checkpoint went well), and then Mila
+// brings in the next stage; it is ready when nearly all are, or when most recent checkpoints
+// were nailed. A round is mostly new words and words being learned, never only the same few
+// cards. The numbers live here so they can be tuned in one place.
 export const ProgressRules = {
   kept: 3, // results kept per card and per checkpoint
   familiarAfter: 2, // the latest answers that must be right for a card to be familiar
   familiarShare: 0.5, // share of a stage's cards familiar for the stage to be familiar
   readySlackFrom: 4, // a stage of this many cards or more is ready with one card still learning
   checkpointsReady: 2, // nailed checkpoints, of those kept, that make a stage ready
-  newPerRound: 8, // new cards brought into one round
+  roundSize: 18, // cards in a round, besides the familiar ones mixed in
+  newWordsPerRound: 5, // words seen for the first time in a round, at least
+  newWordsMax: 10, // ...and at most, when little is being learned to fill the round
+  deeperPerRound: 4, // new cards of words already met (their meanings, then their forms)
   familiarEvery: 3, // one familiar card for about this many others in a round
 }
 
@@ -97,17 +101,36 @@ export function stageProgress(entry: VocabEntry, stage: string): Progress {
   return forms.some(form => form.results?.length) || checkpointsOf(entry, stage).length ? 'learning' : 'new'
 }
 const isDone = (entry: VocabEntry, stage: string) => isKnown(entry, stage) || stageProgress(entry, stage) === 'ready'
+// Far enough along for Mila to bring in the next stage.
+const isFamiliarStage = (entry: VocabEntry, stage: string) => isKnown(entry, stage) || ['familiar', 'ready'].includes(stageProgress(entry, stage))
+const practisedStage = (entry: VocabEntry, stage: string) => formsIn(entry, stage).some(form => form.results?.length)
+
+// A word is met once the learner has known it once: its word card or one of its meanings
+// answered right, or its meanings marked known. Until then it is studied as its word card alone.
+export const isMet = (entry: VocabEntry) => !!entry.results?.some(Boolean)
+  || formsIn(entry, 'meanings').some(form => form.results?.some(Boolean)) || isKnown(entry, 'meanings')
 
 // The stages Mila has brought in: the first always; a `withPrevious` stage with the one before
-// it; any other once every stage brought in so far is ready (or marked known).
+// it once the word is met (or once it has been studied); any other once every stage brought in
+// so far is familiar (or marked known).
 export function recommendedStages(entry: VocabEntry): Stage[] {
   const stages = stagesOf(entry)
   const open = [stages[0]]
   for (let i = 1; i < stages.length; i++) {
-    if (!stages[i].withPrevious && !open.every(stage => isDone(entry, stage.key))) break
+    const comes = stages[i].withPrevious
+      ? isMet(entry) || practisedStage(entry, stages[i].key)
+      : open.every(stage => isFamiliarStage(entry, stage.key))
+    if (!comes) break
     open.push(stages[i])
   }
   return open
+}
+// The stages a word starts with, before anything is studied: its first and those that come in
+// with it. Bringing these in is not news (see freshStages, and the end of a round).
+export function startingStages(entry: VocabEntry): Stage[] {
+  const stages = stagesOf(entry)
+  const end = stages.findIndex((stage, i) => i > 0 && !stage.withPrevious)
+  return end === -1 ? stages : stages.slice(0, end)
 }
 // The stages in play: those Mila brought in and those the learner chose to study anyway.
 export function openStages(entry: VocabEntry): Stage[] {
@@ -151,8 +174,9 @@ export function newCards(entry: VocabEntry) {
 }
 
 // A study card: a saved word on its own (its dictionary form and meanings; `form` is null), one
-// of its form cards in a sentence, or a checkpoint on one of its stages (`checkpoint`).
-export type Card = { entry: VocabEntry; form: FormCard | null; checkpoint?: string }
+// of its form cards in a sentence, or a checkpoint on one of its stages (`checkpoint`). `why`
+// says why the round has it, for the learner who asks (practice.tsx).
+export type Card = { entry: VocabEntry; form: FormCard | null; checkpoint?: string; why?: string }
 export const cardKey = ({ entry, form, checkpoint }: Card) => `${entry.id}:${checkpoint ? `checkpoint:${checkpoint}` : form ? form.key : 'word'}`
 const resultsOf = ({ entry, form, checkpoint }: Card): Results =>
   (checkpoint ? { results: checkpointsOf(entry, checkpoint), last: entry.checkpoints?.[checkpoint]?.last } : form ?? entry)
@@ -169,28 +193,63 @@ export function checkpointStages(entry: VocabEntry, now = Date.now()) {
 export type Include = 'words' | 'sentences' | 'both'
 export type Order = 'smart' | 'shuffle'
 // One round of studying, which the learner can go round again for as long as they like. Smart
-// order: the cards still being learned (least recently seen first), up to a few new ones
-// (oldest saved word first, in stage order), and familiar cards mixed in now and then (least
-// recently seen first), so what is known comes back without crowding out the rest; then any
-// checkpoints. Shuffled: everything in play, shuffled. Either way, two cards of one word aren't
-// back to back where another card can go between. Nothing here is ever due.
+// order fills a round of about ProgressRules.roundSize cards:
+// - new words, as their word cards: at least a few every round, and more when little is being
+//   learned; the newest saved and the oldest still unseen in turn, so what was just read comes
+//   soon and nothing waits forever;
+// - the next cards of words already met (their meanings, then their forms), a few a round;
+// - the cards still being learned, least recently seen first, in the room left;
+// and mixed in among them, familiar cards now and then (least recently seen first), so what is
+// known comes back without crowding out the rest; then any checkpoints. Shuffled: everything in
+// play, shuffled. Either way, a word not yet met shows only its word card (in sentences only, its
+// meanings), and two cards of one word aren't back to back where another can go between.
+// Nothing here is ever due.
 export function deckOf(entries: VocabEntry[], { include, order }: { include: Include; order: Order }, now = Date.now(), seed = String(now)): Card[] {
   const studied = entries.filter(entry => !isKnownWord(entry))
+  const deeper = (entry: VocabEntry) => (include === 'sentences' || isMet(entry) ? newCards(entry) : [])
   const cards: Card[] = studied.flatMap(entry => [
     ...(include === 'sentences' ? [] : [{ entry, form: null }]),
-    ...(include === 'words' ? [] : [...activeForms(entry).filter(form => !!form.results?.length), ...newCards(entry)].map(form => ({ entry, form }))),
+    ...(include === 'words' ? [] : [...activeForms(entry).filter(form => !!form.results?.length), ...deeper(entry)].map(form => ({ entry, form }))),
   ])
-  const checkpoints: Card[] = include === 'both' ? studied.flatMap(entry => checkpointStages(entry, now).map(stage => ({ entry, form: null, checkpoint: stage }))) : []
-  if (order === 'shuffle') return spread(shuffle([...cards, ...checkpoints], seed))
+  const checkpoints: Card[] = include === 'both'
+    ? studied.flatMap(entry => checkpointStages(entry, now).map(stage => ({ entry, form: null, checkpoint: stage, why: `checkpoint · ${stageLabel(entry, stage)} is familiar, not yet ready` })))
+    : []
+  if (order === 'shuffle') return spread(shuffle([...cards, ...checkpoints], seed).map(card => ({ why: 'shuffled', ...card })))
+  const rules = ProgressRules
   const state = (card: Card) => cardState(resultsOf(card).results)
-  const seen = (a: Card, b: Card) => (resultsOf(a).last ?? 0) - (resultsOf(b).last ?? 0)
-  const learning = cards.filter(card => state(card) === 'learning').sort(seen)
-  // Sorting is stable, so a new word's cards keep their stage order.
-  const fresh = cards.filter(card => state(card) === 'new').sort((a, b) => a.entry.createdAt - b.entry.createdAt).slice(0, ProgressRules.newPerRound)
-  const familiar = cards.filter(card => state(card) === 'familiar').sort(seen)
-  const others = [...learning, ...fresh]
-  const some = others.length ? familiar.slice(0, Math.ceil(others.length / ProgressRules.familiarEvery)) : familiar
+  const lastOf = (card: Card) => resultsOf(card).last ?? 0
+  const learning = cards.filter(card => state(card) === 'learning').sort((a, b) => lastOf(a) - lastOf(b))
+  const fresh = cards.filter(card => state(card) === 'new')
+  // Unseen words, newest and oldest in turn.
+  const unseen = fresh.filter(card => !card.form).sort((a, b) => a.entry.createdAt - b.entry.createdAt)
+  const newWords: Card[] = []
+  for (let lo = 0, hi = unseen.length - 1; lo <= hi;) {
+    newWords.push(unseen[hi--])
+    if (lo <= hi) newWords.push(unseen[lo++])
+  }
+  // Words met most recently go deeper first; sorting is stable, so a word's cards keep their order.
+  const metAt = (entry: VocabEntry) => Math.max(entry.last ?? 0, ...formsIn(entry, 'meanings').map(form => form.last ?? 0))
+  const next = fresh.filter(card => card.form).sort((a, b) => metAt(b.entry) - metAt(a.entry))
+  const deeperTaken = next.slice(0, rules.deeperPerRound + (include === 'sentences' ? rules.newWordsPerRound : 0))
+  const room = rules.roundSize - deeperTaken.length
+  const wordsTaken = newWords.slice(0, Math.min(rules.newWordsMax, Math.max(rules.newWordsPerRound, room - learning.length)))
+  const learningTaken = learning.slice(0, Math.max(0, room - wordsTaken.length))
+  const familiar = cards.filter(card => state(card) === 'familiar').sort((a, b) => lastOf(a) - lastOf(b))
+  const explained = (list: Card[], why: (card: Card) => string) => list.map(card => ({ ...card, why: why(card) }))
+  const others = mix(
+    explained(learningTaken, card => `still learning · last seen ${ago(lastOf(card), now)}`),
+    [...explained(wordsTaken, card => `new word · saved ${ago(card.entry.createdAt, now)}`), ...explained(deeperTaken, card => `next for this word · ${stageLabel(card.entry, card.form!.stage)}`)],
+  )
+  const some = explained(others.length ? familiar.slice(0, Math.ceil(others.length / rules.familiarEvery)) : familiar,
+    card => `familiar · last seen ${ago(lastOf(card), now)}`)
   return spread([...mix(others, some), ...checkpoints])
+}
+const stageLabel = (entry: VocabEntry, stage: string) => stagesOf(entry).find(item => item.key === stage)?.label ?? stage
+// "today", "yesterday", "3 days ago", or "never".
+export function ago(at: number, now = Date.now()) {
+  if (!at) return 'never'
+  const days = Math.round((new Date(now).setHours(0, 0, 0, 0) - new Date(at).setHours(0, 0, 0, 0)) / 86_400_000)
+  return days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`
 }
 // `extra` spread evenly through `cards`.
 function mix<T>(cards: T[], extra: T[]): T[] {
@@ -232,7 +291,7 @@ export function freshStages(entries: VocabEntry[], limit = 3): Suggestion[] {
   const out: Suggestion[] = []
   for (const entry of entries) {
     if (isKnownWord(entry)) continue
-    const initial = new Set(recommendedStages({ ...entry, forms: [], known: [], checkpoints: {} }).map(stage => stage.key))
+    const initial = new Set(startingStages(entry).map(stage => stage.key))
     for (const stage of recommendedStages(entry)) {
       if (initial.has(stage.key) || isKnown(entry, stage.key)) continue
       if (formsIn(entry, stage.key).some(form => form.results?.length) || checkpointsOf(entry, stage.key).length) continue

@@ -13,7 +13,7 @@ import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, deckOf, firstSense, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf } from '../lib/forms'
+import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, deckOf, firstSense, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
@@ -39,13 +39,17 @@ type Loaded = Table | { error: string }
 // is answered only shapes what Mila brings in next and what comes round more: nothing is ever
 // due. A round ends calmly and can go round again for as long as you like; Done stops. Hebrew or
 // English first, smart or shuffled order, which cards and quiz mode are chosen on the screen and
-// remembered. New stages' cards are written in the background.
+// remembered. New stages' cards are written in the background. A long press on the card count
+// shows why each card is in the round (lib/forms.ts deckOf), to see what Mila is choosing.
 export default function Practice() {
   const { session } = useSession()
   const insets = useSafeAreaInsets()
   const [showVowels] = useVowels()
   const v = (text: string) => withVowels(text, showVowels)
   const [settings, setSettings] = useState<Settings | null>(null)
+  const [why, setWhy] = useState(false)
+  useEffect(() => { void getPref('studyWhy').then(setWhy) }, [])
+  const toggleWhy = () => { feel('tick'); setPref('studyWhy', !why); setWhy(!why) }
   const [deck, setDeck] = useState<Card[] | null>(null)
   // Where the round being studied starts in the deck (rounds are appended as they go round).
   const [roundStart, setRoundStart] = useState(0)
@@ -207,11 +211,16 @@ export default function Practice() {
     void request('vocab', { token: session.token, method: 'PATCH', body }).catch((failure: Error) => setError(`A result wasn't saved. ${failure.message}`))
     const opened = recommendedStages(entry).map(item => item.key)
     setWords(current => ({ ...current, [entry.id]: updated })); putEntry(session, updated)
-    // A stage Mila now brings in: note it for the summary and have its cards written for next time.
+    // A stage Mila now brings in: have its cards written for next time, and note it for the
+    // summary unless every word starts with it (a verb's present comes in once it is met).
     const fresh = recommendedStages(updated).filter(item => !opened.includes(item.key))
     if (fresh.length) {
-      setUnlocked(current => [...current, ...fresh.map(item => `${v(entry.lemma)}: ${item.label}`)])
-      setTimeout(() => feel('unlock'), 250)
+      const starting = startingStages(entry).map(item => item.key)
+      const news = fresh.filter(item => !starting.includes(item.key))
+      if (news.length) {
+        setUnlocked(current => [...current, ...news.map(item => `${v(entry.lemma)}: ${item.label}`)])
+        setTimeout(() => feel('unlock'), 250)
+      }
       void ensureForms(updated, session.token).then(ready => { share(session, ready); keep(ready) })
     }
     // The round in front of the learner isn't reordered by an answer.
@@ -237,9 +246,10 @@ export default function Practice() {
         : Object.keys(answers).length < 3 ? 'Swipe right if you knew it, left if you\'re still learning.' : ''
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <TopBar settings={settings} change={change} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} />
+    <TopBar settings={settings} change={change} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onWhy={toggleWhy} />
     <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: 'center', paddingBottom: 24 + insets.bottom }]}>
       <ErrorNotice message={error} />
+      {why && !!card.why && <Text style={practice.why}>{card.why}</Text>}
       {/* One swipe card for the whole deck; only what is on it changes (see SwipeCard). No exit
           animation: a swiped card has already left. */}
       <SwipeCard card={position} onSwipe={swiped} onDrag={onDrag} hints={choices || !answerable ? undefined : HINTS}>
@@ -291,15 +301,15 @@ const HINTS: Record<Side, ReactNode> = {
 }
 
 // Done, the arrows and where the round is; below, the settings as chips.
-function TopBar({ settings, change, progress, canGoBack, onBack, onNext, onDone }: {
-  settings: Settings; change: (patch: Partial<Settings>) => void; progress: { at: number; of: number } | null; canGoBack: boolean; onBack: () => void; onNext: () => void; onDone: () => void
+function TopBar({ settings, change, progress, canGoBack, onBack, onNext, onDone, onWhy }: {
+  settings: Settings; change: (patch: Partial<Settings>) => void; progress: { at: number; of: number } | null; canGoBack: boolean; onBack: () => void; onNext: () => void; onDone: () => void; onWhy?: () => void
 }) {
   return <View style={practice.top}>
     <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
       <Pressable accessibilityRole="button" onPress={onDone} hitSlop={10}><Text style={practice.done}>Done</Text></Pressable>
       <View style={[styles.row, { gap: 4, flexWrap: 'nowrap' }]}>
         <Arrow icon="chevron-back" label="Previous card" disabled={!canGoBack} onPress={onBack} />
-        <Text style={practice.progress} accessibilityLabel={progress ? `Card ${progress.at} of ${progress.of}` : undefined}>{progress ? `${progress.at} / ${progress.of}` : ''}</Text>
+        <Text style={practice.progress} onLongPress={onWhy} accessibilityLabel={progress ? `Card ${progress.at} of ${progress.of}` : undefined}>{progress ? `${progress.at} / ${progress.of}` : ''}</Text>
         <Arrow icon="chevron-forward" label="Next card" onPress={onNext} />
       </View>
     </View>
@@ -463,6 +473,7 @@ const practice = StyleSheet.create({
   top: { gap: 10, paddingHorizontal: 22, paddingTop: 12 },
   done: { fontSize: 16, fontWeight: '600', color: colors.green },
   progress: { fontSize: 14, color: colors.muted, minWidth: 52, textAlign: 'center', fontVariant: ['tabular-nums'] },
+  why: { fontSize: 12, color: colors.muted, textAlign: 'center', fontVariant: ['tabular-nums'] },
   arrow: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   unlocked: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 14, backgroundColor: colors.lime },
   card: { alignItems: 'center', gap: 14, paddingVertical: 18, minHeight: 240, justifyContent: 'center' },

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { assess, cardKey, cardState, checkpointStages, choicesFor, countsOf, deckOf, freshStages, isKnownWord, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf } from '../src/lib/forms.ts'
+import { ago, assess, cardKey, cardState, checkpointStages, choicesFor, countsOf, deckOf, freshStages, isKnownWord, isMet, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -41,11 +41,26 @@ test('a stage is familiar at half its cards, ready with all but one of four or m
   assert.equal(stageProgress(checked([true, false, true]), 'present'), 'ready')
 })
 
-test('Mila brings in the next stage once every stage so far is ready; the learner can open any before that', () => {
-  const start = verb([form('meanings:sense1', learning), ...present([])])
+test('a word is met once known once; then its present comes in with its meanings', () => {
+  // Saved, not yet studied: only its meanings are written, and it is studied as its word card.
+  assert.deepEqual(missingStages(verb([])), ['meanings'])
+  assert.ok(!isMet(verb([form('meanings:sense1', { results: [false, false], last: now })])))
+  assert.ok(isMet(verb([], { results: [true, false], last: now })))
+  assert.ok(isMet(verb([form('meanings:sense1', { results: [false, true], last: now })])))
+  assert.ok(isMet(verb([], { known: ['meanings'] })))
+  assert.deepEqual(recommendedStages(verb([], { results: [true], last: now })).map(stage => stage.key), ['meanings', 'present'])
+  // A present already studied stays in play.
+  assert.deepEqual(recommendedStages(verb([form('meanings:sense1'), form('present:m.sg', { results: [false], last: now })])).map(stage => stage.key), ['meanings', 'present'])
+})
+
+test('Mila brings in the next stage once every stage so far is familiar; the learner can open any before that', () => {
+  const start = verb([form('meanings:sense1', learning), ...present([])], { results: [true], last: now })
   assert.deepEqual(recommendedStages(start).map(stage => stage.key), ['meanings', 'present'])
-  assert.deepEqual(missingStages(verb([])), ['meanings', 'present'])
   assert.equal(stageState(start, 'past'), 'later')
+  // Half the present familiar is enough; it needn't be nearly all of it.
+  const halfway = verb([form('meanings:sense1', familiar), ...present([familiar, familiar, learning, learning])])
+  assert.deepEqual(recommendedStages(halfway).map(stage => stage.key), ['meanings', 'present', 'past'])
+  assert.deepEqual(recommendedStages(verb([form('meanings:sense1', familiar), ...present([familiar, learning, learning, learning])])).map(stage => stage.key), ['meanings', 'present'])
   const ready = verb([form('meanings:sense1', familiar), ...present([familiar, familiar, familiar, learning])])
   assert.deepEqual(recommendedStages(ready).map(stage => stage.key), ['meanings', 'present', 'past'])
   assert.deepEqual(missingStages(ready), ['past'])
@@ -61,22 +76,24 @@ test('Mila brings in the next stage once every stage so far is ready; the learne
 })
 
 test('meanings come before the present tense, and present waits until the meanings exist', () => {
-  const entry = verb([form('present:m.sg'), form('meanings:sense2'), form('meanings:sense1')])
+  const entry = verb([form('present:m.sg'), form('meanings:sense2'), form('meanings:sense1')], { results: [true], last: now })
   assert.deepEqual(newCards(entry).map(card => card.key), ['meanings:sense2', 'meanings:sense1', 'present:m.sg'])
-  assert.deepEqual(newCards(verb([form('present:m.sg')])), [])
+  assert.deepEqual(newCards(verb([form('present:m.sg')], { results: [true], last: now })), [])
 })
 
-test('a round: learning cards first, a few new ones, familiar ones mixed in now and then, then checkpoints', () => {
+test('a round: new words, the next cards of words met, what is being learned, and familiar ones now and then', () => {
   const a = verb([form('meanings:sense1', familiar), form('present:m.sg', learning), form('present:f.sg', { results: [false], last: now - 3 * DAY })], { id: 'a', createdAt: 1, ...familiar })
   const b = verb([form('meanings:sense1')], { id: 'b', createdAt: 2 })
   const keys = (cards: ReturnType<typeof deckOf>) => cards.map(cardKey)
-  const smart = keys(deckOf([b, a], { include: 'both', order: 'smart' }, now))
-  // Learning (least recently seen first), new (b's word, then its meaning), and a familiar card
-  // for about every three others, mixed in; one word's cards kept apart.
-  assert.deepEqual(smart, ['a:present:f.sg', 'b:word', 'a:present:m.sg', 'b:meanings:sense1', 'a:word', 'a:meanings:sense1'])
-  // More to learn: still only about one familiar card in four.
-  const many = [b, a, ...['c', 'd', 'e'].map((id, i) => verb([form('meanings:sense1')], { id, createdAt: 3 + i }))]
-  assert.equal(deckOf(many, { include: 'both', order: 'smart' }, now).filter(card => card.entry.id === 'a' && (card.form?.key ?? 'word') !== 'present:m.sg' && card.form?.key !== 'present:f.sg').length, 2)
+  const smart = deckOf([b, a], { include: 'both', order: 'smart' }, now)
+  // b isn't met yet, so it comes as its word card alone; a familiar card for about every three others.
+  assert.deepEqual(keys(smart), ['a:present:f.sg', 'b:word', 'a:present:m.sg', 'a:word'])
+  assert.deepEqual(smart.map(card => card.why), ['still learning · last seen 3 days ago', `new word · saved ${ago(2, now)}`, 'still learning · last seen yesterday', 'familiar · last seen yesterday'])
+  // Once b is met, its meanings come next.
+  const metB = { ...b, results: [true], last: now - DAY }
+  assert.ok(keys(deckOf([metB, a], { include: 'both', order: 'smart' }, now)).includes('b:meanings:sense1'))
+  // In sentences only, a word not yet met still shows its meanings.
+  assert.deepEqual(keys(deckOf([b], { include: 'sentences', order: 'smart' }, now)), ['b:meanings:sense1'])
   assert.deepEqual(keys(deckOf([a, b], { include: 'words', order: 'smart' }, now)), ['b:word', 'a:word'])
   assert.ok(keys(deckOf([a, b], { include: 'sentences', order: 'smart' }, now)).every(key => !key.endsWith(':word')))
   // With only familiar cards, the round is all of them.
@@ -84,8 +101,34 @@ test('a round: learning cards first, a few new ones, familiar ones mixed in now 
   assert.deepEqual(keys(deckOf([known], { include: 'both', order: 'smart' }, now)), ['k:word', 'k:meanings:sense1'])
   // Shuffled: every card in play, the same order for the same seed.
   const shuffled = keys(deckOf([a, b], { include: 'both', order: 'shuffle' }, now, 'seed'))
-  assert.equal(shuffled.length, 6)
+  assert.equal(shuffled.length, 5)
   assert.deepEqual(keys(deckOf([a, b], { include: 'both', order: 'shuffle' }, now, 'seed')), shuffled)
+})
+
+test('a round always brings new words, newest and oldest in turn, however much is being learned', () => {
+  const unseen = Array.from({ length: 30 }, (_, i) => verb([form('meanings:sense1')], { id: `n${i}`, createdAt: 100 + i }))
+  const busy = Array.from({ length: 40 }, (_, i) => verb([form('meanings:sense1', { results: [false], last: now - i })], { id: `l${i}`, createdAt: 1, results: [true, false], last: now - i * 1000 }))
+  const round = deckOf([...unseen, ...busy], { include: 'words', order: 'smart' }, now)
+  const fresh = round.filter(card => card.entry.id.startsWith('n')).map(card => card.entry.id)
+  assert.deepEqual(fresh.sort(), ['n29', 'n0', 'n28', 'n1', 'n27'].sort())
+  // Learning fills the rest of the round, least recently seen first; the round stays its size.
+  assert.equal(round.filter(card => card.entry.id.startsWith('l')).length, 13)
+  // New material isn't left to the end: a new word within the first few cards.
+  assert.ok(round.slice(0, 4).some(card => card.entry.id.startsWith('n')))
+  // With nothing being learned, a round takes more new words.
+  assert.equal(deckOf(unseen, { include: 'words', order: 'smart' }, now).length, 10)
+  // The next cards of words met: a few a round, those met most recently first.
+  const met = Array.from({ length: 8 }, (_, i) => verb([form('meanings:sense1'), form('meanings:sense2')], { id: `m${i}`, createdAt: 1, results: [true], last: now - i * DAY }))
+  const deeper = deckOf(met, { include: 'sentences', order: 'smart' }, now)
+  assert.equal(deeper.length, 9)
+  assert.ok(deeper.every(card => card.why?.startsWith('next for this word · Meanings')))
+})
+
+test('how long ago, in days', () => {
+  assert.equal(ago(0, now), 'never')
+  assert.equal(ago(now - 60_000, now), 'today')
+  assert.equal(ago(now - DAY, now), 'yesterday')
+  assert.equal(ago(now - 3 * DAY, now), '3 days ago')
 })
 
 test('a checkpoint comes for a familiar stage that is not ready, at most once a day', () => {
@@ -101,8 +144,8 @@ test('a checkpoint comes for a familiar stage that is not ready, at most once a 
 
 test('an expression is learned in the stages of the word that inflects in it', () => {
   const expression: VocabEntry = { id: 'x', lemma: 'לַעֲבֹר דֶּרֶךְ', gloss: 'to go through', createdAt: 1, partOfSpeech: 'expression', head: { lemma: 'לַעֲבֹר', partOfSpeech: 'verb' } }
-  assert.deepEqual(missingStages(expression), ['meanings', 'present'])
-  assert.deepEqual(missingStages({ ...expression, head: undefined }), ['meanings'])
+  assert.deepEqual(missingStages({ ...expression, results: [true], last: now }), ['meanings', 'present'])
+  assert.deepEqual(missingStages({ ...expression, results: [true], last: now, head: undefined }), ['meanings'])
 })
 
 test('cards of one word are kept apart when something else can go between', () => {
