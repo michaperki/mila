@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import Anthropic from '@anthropic-ai/sdk'
 import { expect, it } from 'vitest'
-import { analysisRequest, type WordAnalysis } from '../../netlify/functions/word-analysis'
+import { analysisRequest, onlyPrepositions, type WordAnalysis } from '../../netlify/functions/word-analysis'
 
 // Does the word explanation tell a pattern (נטול + a noun) from a fixed expression (להעמיד פנים)
 // from words that only combine as usual (ילד גדול)? Each case is a tapped word in a sentence,
@@ -10,7 +10,9 @@ import { analysisRequest, type WordAnalysis } from '../../netlify/functions/word
 // the app, near misses especially.
 type Kind = 'pattern' | 'fixed' | 'none'
 // `built`: whether a fixed expression should say how it is built (what it says word for word).
-const cases: { word: string; sentence: string; kind: Kind; lemma?: string | string[]; built?: boolean }[] = [
+// `governs`: the prepositions a verb takes, in plain spelling; checked on the ordinary words too
+// (אכלנו, צעק), which take none.
+const cases: { word: string; sentence: string; kind: Kind; lemma?: string | string[]; built?: boolean; governs?: string[] }[] = [
   // Patterns: a word that opens a frame with an open place.
   { word: 'ונטול־ינשופים', sentence: 'הלילה בגן היה שקט ונטול־ינשופים.', kind: 'pattern', lemma: 'נטול' },
   { word: 'נטול', sentence: 'אני שותה רק קפה נטול קפאין בערב.', kind: 'pattern', lemma: 'נטול' },
@@ -18,7 +20,7 @@ const cases: { word: string; sentence: string; kind: Kind; lemma?: string | stri
   { word: 'חסר', sentence: 'הנהג היה חסר סבלנות בפקק.', kind: 'pattern', lemma: 'חסר' },
   { word: 'בעל', sentence: 'אנחנו מחפשים מועמד בעל ניסיון בניהול.', kind: 'pattern', lemma: 'בעל' },
   { word: 'כדי', sentence: 'היא הלכה לספרייה כדי ללמוד בשקט.', kind: 'pattern', lemma: 'כדי' },
-  { word: 'חשבתי', sentence: 'כל הלילה חשבתי על מה שאמרת לי.', kind: 'pattern', lemma: 'לחשוב על' },
+  { word: 'עמד', sentence: 'הוא עמד על כך שנבוא בזמן.', kind: 'pattern', lemma: 'לעמוד על' },
   { word: 'מלא', sentence: 'החדר היה מלא אנשים.', kind: 'pattern', lemma: 'מלא' },
   { word: 'ככל', sentence: 'ככל שעובר הזמן, קל לי יותר.', kind: 'pattern', lemma: ['ככל ש', 'ככל ש יותר'] },
   // Fixed: every word belongs to it and it means more than its words.
@@ -32,7 +34,7 @@ const cases: { word: string; sentence: string; kind: Kind; lemma?: string | stri
   { word: 'האמת', sentence: 'למען האמת, לא הבנתי כלום בשיעור.', kind: 'fixed', lemma: 'למען האמת', built: true },
   { word: 'הולדת', sentence: 'מחר יום ההולדת של אחי.', kind: 'fixed', lemma: 'יום הולדת' },
   // None: words that only combine as usual, many of them close to a unit.
-  { word: 'גדול', sentence: 'ילד גדול שיחק בחצר.', kind: 'none' },
+  { word: 'גדול', sentence: 'ילד גדול שיחק בחצר.', kind: 'none', governs: [] },
   { word: 'אדומה', sentence: 'היא קנתה שמלה אדומה לחתונה.', kind: 'none' },
   { word: 'ספר', sentence: 'ספר המורה מונח על השולחן.', kind: 'none' },
   { word: 'בחשבון', sentence: 'יש לנו מבחן בחשבון מחר.', kind: 'none' },
@@ -40,11 +42,18 @@ const cases: { word: string; sentence: string; kind: Kind; lemma?: string | stri
   { word: 'חתול', sentence: 'ראיתי חתול שחור ברחוב.', kind: 'none' },
   { word: 'ארוך', sentence: 'התלמידים כתבו חיבור ארוך.', kind: 'none' },
   { word: 'חדשה', sentence: 'אבא קנה מכונית חדשה.', kind: 'none' },
-  { word: 'צעק', sentence: 'המורה צעק בקול רם.', kind: 'none' },
-  { word: 'אכלנו', sentence: 'אכלנו פיצה עם חברים.', kind: 'none' },
+  { word: 'צעק', sentence: 'המורה צעק בקול רם.', kind: 'none', governs: [] },
+  { word: 'אכלנו', sentence: 'אכלנו פיצה עם חברים.', kind: 'none', governs: [] },
   { word: 'עייף', sentence: 'אחרי העבודה הוא היה עייף מאוד.', kind: 'none' },
   { word: 'החלון', sentence: 'היא פתחה את החלון של המטבח.', kind: 'none' },
   { word: 'נקיות', sentence: 'הידיים שלו נקיות עכשיו.', kind: 'none' },
+  // None: a verb with a preposition it takes in its usual meaning stays a word; the preposition
+  // is in `governs`.
+  { word: 'חשבתי', sentence: 'כל הלילה חשבתי על מה שאמרת לי.', kind: 'none', governs: ['על'] },
+  { word: 'השתמשתי', sentence: 'השתמשתי במחשב של אחי.', kind: 'none', governs: ['ב'] },
+  { word: 'חיכיתי', sentence: 'חיכיתי לך שעה בתחנה.', kind: 'none', governs: ['ל'] },
+  { word: 'פחדתי', sentence: 'כשהייתי קטן פחדתי מכלבים.', kind: 'none', governs: ['מ'] },
+  { word: 'דיברנו', sentence: 'דיברנו עם המורה על המבחן.', kind: 'none', governs: ['עם', 'על'] },
   // None: one word with prefixes attached is read as its pieces, never as a unit of its own.
   { word: 'המתלחששים', sentence: 'הוא עבר ליד המתלחששים ומיהר הלאה.', kind: 'none' },
   { word: 'ובבית', sentence: 'בבוקר הלכנו לים ובבית חיכתה לנו ארוחה.', kind: 'none' },
@@ -64,7 +73,7 @@ it.skipIf(!apiKey)('tells patterns, fixed expressions and ordinary words apart',
   const answers = await Promise.all(cases.map(async item => {
     const response = await client.beta.messages.create(analysisRequest(item.word, item.sentence) as never, { timeout: 60_000, maxRetries: 2 }) as Anthropic.Beta.BetaMessage
     const text = response.content.flatMap(block => (block.type === 'text' ? [block.text] : [])).join('')
-    return JSON.parse(text) as WordAnalysis
+    return onlyPrepositions(JSON.parse(text) as WordAnalysis)
   }))
   let right = 0
   const lines = cases.map((item, i) => {
@@ -76,17 +85,20 @@ it.skipIf(!apiKey)('tells patterns, fixed expressions and ordinary words apart',
       `${ok ? '✓' : '✗'} ${item.word} — expected ${item.kind}${item.lemma ? ` ${item.lemma}` : ''}, got ${kind}${kind !== 'none' ? ` ${phrase.lemmaPlain || phrase.lemma}` : ''}`,
       `    ${item.sentence}`,
       `    meaning: ${answer.meaning} · parts: ${answer.parts.map(part => `${part.text} ${part.meaning}`).join(' + ')} · form: ${answer.form || '—'} · lemma: ${answer.lemmaPlain || '—'}${answer.readAs ? ` · read as ${answer.readAs}` : ''}`,
+      ...(answer.governs?.length ? [`    governs: ${answer.governs.map(item => `${item.preposition} "${item.meaning}"`).join('; ')}`] : []),
       ...(phrase.literal ? [`    built: literally "${phrase.literal}" · ${phrase.built.map(part => `${part.lemma} ${part.meaning}`).join(' + ')}${phrase.literalNote ? ` · ${phrase.literalNote}` : ''}`] : []),
       ...(kind !== 'none' ? [`    unit: ${phrase.pattern || phrase.lemma} · ${phrase.meaning} · here: ${phrase.textMeaning}${phrase.examples?.length ? ` · e.g. ${phrase.examples.map(example => `${example.text} "${example.meaning}"`).join(', ')}` : ''}`] : []),
     ].join('\n')
   })
   // Whether an expression says how it is built, where that is checked: wrongly saying so is
   // what a learner would be misled by, so it is printed for reading and checked loosely.
+  const governsCases = cases.flatMap((item, i) => (!item.governs ? [] : [[...(answers[i].governs || []).map(g => plain(g.preposition))].sort().join() === [...item.governs].sort().join()]))
   const builtCases = cases.flatMap((item, i) => (item.built === undefined ? [] : [!!answers[i].phrase?.literal === item.built]))
-  console.log(`${lines.join('\n')}\n\n${right} of ${cases.length} right · built ${builtCases.filter(Boolean).length} of ${builtCases.length}`)
+  console.log(`${lines.join('\n')}\n\n${right} of ${cases.length} right · built ${builtCases.filter(Boolean).length} of ${builtCases.length} · prepositions ${governsCases.filter(Boolean).length} of ${governsCases.length}`)
   // Wrongly finding a unit is the costlier mistake (it is what the learner is asked to save).
   const falseUnits = cases.filter((item, i) => item.kind === 'none' && kindOf(answers[i]) !== 'none').length
   expect(falseUnits).toBeLessThanOrEqual(1)
   expect(right / cases.length).toBeGreaterThanOrEqual(0.85)
   expect(builtCases.filter(Boolean).length).toBeGreaterThanOrEqual(builtCases.length - 1)
+  expect(governsCases.filter(Boolean).length).toBeGreaterThanOrEqual(governsCases.length - 1)
 })

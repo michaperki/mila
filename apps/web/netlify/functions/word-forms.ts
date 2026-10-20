@@ -87,6 +87,8 @@ Forms: for each requested form, give the correct standard modern Hebrew form and
 
 Expressions: a sense that only exists together with particular other words (a verb with its fixed preposition or object, an idiom: לעבור דרך "to go through", להעמיד פנים "to pretend") belongs to that expression, not to the word on its own. When writing a single word, leave such senses out. When the word you are given is itself an expression, every card is the whole expression: its meanings are the expression's, every form inflects the words of it that inflect and keeps the rest ("עברנו דרך", "תעמידי פנים"), and inSentence lists every one of its words in the sentence.
 
+Prepositions: when you are told the prepositions the word takes (להשתמש בְּ, לדבר עִם / עַל), write its sentences with them wherever the word has an object or complement, so the learner sees the word with its preposition; when it takes more than one, spread them across the cards, each in the sense it gives.
+
 Patterns: when the word is learned as a pattern (נָטוּל + [שֵׁם עֶצֶם], "free of [noun]"), every card uses the pattern, with a different everyday word in its open place each time (נטול סוכר, נטולת דאגות, נטולי שומן), so the pattern is what is learned and not one example of it. "english" is the pattern's meaning with that card's word in its open place, marked for the form as usual ("free of sugar (f.)"), and inSentence and inTranslation list only the pattern's own words, not the word in its open place.
 
 Sentences must differ from each other and from the sentences already used for this word: vary who acts, the setting, the objects and the sentence shape, so no two read as the same sentence with the person changed. Keep the rest of each sentence simple, common vocabulary, so the target word is the only hard part and its meaning is clear from the sentence.`
@@ -97,6 +99,7 @@ let client: Anthropic | null = null
 type Generated = { slot: string; form: string; english: string; sentence: string; inSentence: string[]; said: string; translation: string; inTranslation: string[] }
 type Entry = {
   lemma: string; gloss: string; partOfSpeech?: string; binyan?: string; head?: { lemma: string; partOfSpeech?: string; binyan?: string }; pattern?: string
+  governs?: { preposition: string; meaning: string }[]
   forms?: { stage: string; slot?: string; en?: string; sentence: string }[]; encounters?: { surface: string; context: string }[]
 }
 
@@ -128,6 +131,7 @@ export const handler: Handler = async (event) => {
         ? `Expression: ${entry.lemma} — ${entry.gloss}. It inflects as the ${entry.head?.partOfSpeech || 'word'} ${entry.head?.lemma || ''}${binyan ? ` (${binyan})` : ''}; every card uses the whole expression.`
         : `Word: ${entry.lemma} (${entry.partOfSpeech || 'word'}${binyan ? `, ${binyan}` : ''}) — ${entry.gloss}`,
       ...(entry.pattern ? [`Learned as the pattern ${entry.pattern} — ${entry.gloss}.`] : []),
+      ...(entry.governs?.length ? [`Takes the prepositions: ${entry.governs.map(item => `${item.preposition} "${item.meaning}"`).join('; ')}.`] : []),
       ...(stage === 'meanings'
         ? ['Write its meanings, one card each, using slots "sense1", "sense2", "sense3" in order (only as many as it has).']
         : [`Main meaning, the same for every form: ${mainMeaning(entry)}`, `Forms to write (${stage}):`, ...slots.map(item => `- slot "${item.slot}": ${item.means}`)]),

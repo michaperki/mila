@@ -336,7 +336,7 @@ function CardHead({ label, lemma, listen }: { label?: string; lemma?: string; li
 }
 
 // A word on its own: its dictionary form one side, its meanings the other; the answer side
-// shows both, with its part of speech, root and binyan, and for an expression whose words don't
+// shows both, with its part of speech, root and binyan, the prepositions it takes, and for an expression whose words don't
 // plainly add up to its meaning, what it says word for word.
 function WordSide({ entry, english, answer: answerSide, v }: { entry: VocabEntry; english: boolean; answer: boolean; v: (text: string) => string }) {
   const hebrew = <Text style={practice.word}>{v(entry.lemma)}</Text>
@@ -346,6 +346,9 @@ function WordSide({ entry, english, answer: answerSide, v }: { entry: VocabEntry
   return <View style={{ gap: 8, alignItems: 'center', alignSelf: 'stretch' }}>
     {english ? <>{meaning}{hebrew}</> : <>{hebrew}{meaning}</>}
     {!!grammar && <Text style={practice.detail}>{grammar}</Text>}
+    {entry.governs?.map(item => <Text key={item.preposition} style={[practice.detail, { textAlign: 'center' }]}>
+      with <Text style={{ color: colors.ink }}>{v(item.preposition)}</Text> · {item.meaning}
+    </Text>)}
     {!!entry.literal && <Text style={[practice.detail, { fontStyle: 'italic', textAlign: 'center' }]}>Literally “{entry.literal}”</Text>}
   </View>
 }

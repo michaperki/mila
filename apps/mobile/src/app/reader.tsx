@@ -373,6 +373,7 @@ export default function Reader() {
             ...(found?.gender ? { gender: found.gender } : {}),
             ...(found?.root ? { root: found.root } : {}),
             ...(found?.binyan ? { binyan: found.binyan } : {}),
+            ...(found?.governs?.length ? { governs: found.governs } : {}),
           }),
       }
       // The server may add it to the entry the word is already saved under, and says which.
@@ -566,6 +567,12 @@ export default function Reader() {
         </View>}
       {!wordBusy && !analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation.</Text>}
       {!!reading && !wordBusy && <Text style={reader.reading}>{isolateHebrew(v(reading))}</Text>}
+      {/* The prepositions the word takes, which are learned with it (לְהִשְׁתַּמֵּשׁ בְּ). */}
+      {!isPhrase && !leadPhrase && !wordBusy && !!analysis?.governs?.length && <View>
+        {analysis.governs.map(item => <Text key={item.preposition} style={reader.fact}>
+          With <Text style={reader.factHebrew}>{isolateHebrew(v(item.preposition))}</Text> · {isolateHebrew(item.meaning)}
+        </Text>)}
+      </View>}
       {!patternFirst && unitBox}
       {inYourWords && !wordBusy && <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/word', params: { id: inYourWords.id } })} hitSlop={6} style={[styles.row, { gap: 4 }]}>
         <Ionicons name="bookmark" size={14} color={colors.green} />

@@ -125,6 +125,14 @@ export default function Word() {
         onPress={() => router.push({ pathname: '/root', params: { root: entry.root!, word: entry.lemma } })} />}
     </View>}
 
+    {/* The prepositions it takes, learned with it: what it means with each. */}
+    {!!entry.governs?.length && <View style={[styles.card, word.section]}>
+      <Text style={word.stage}>Used with</Text>
+      {entry.governs.map(item => <View key={item.preposition} style={word.formRow}>
+        <Text style={[word.meaning, { flex: 1 }]}>{isolateHebrew(item.meaning)}</Text>
+        <Text style={word.form}>{v(item.preposition)}</Text>
+      </View>)}
+    </View>}
     {/* An expression whose words don't plainly add up to its meaning: what it says word for word,
         and its words, each leading to the saved word it is. */}
     {!!entry.literal && <View style={[styles.card, word.section]}>
