@@ -18,7 +18,7 @@ import { stripNiqqud } from '../lib/ocr-cleanup'
 import type { FormCard, TextDoc } from '../lib/types'
 import { withVowels } from '../lib/vowels'
 import { ensureForms } from '../lib/word-forms'
-import { encountersOf, expressionsWith, headOf, partsOf, sameId } from '../lib/words'
+import { encountersOf, expressionsWith, headOf, partsOf, prepositionsOf, sameId } from '../lib/words'
 import { useSession } from '../state/session'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
@@ -103,11 +103,13 @@ export default function Word() {
     <View style={{ gap: 2 }}>
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
         <ListenButton text={entry.lemma} accessibilityLabel="Hear this word" size={24} />
-        <Text style={word.lemma}>{v(entry.lemma)}</Text>
+        <Text style={word.lemma}>{v(entry.lemma)}{!!prepositionsOf(entry) && <Text style={word.plus}> {v(prepositionsOf(entry))}</Text>}</Text>
       </View>
       {/* Learned as a pattern: how the word is used (נָטוּל + [שֵׁם עֶצֶם]), its meaning below. */}
       {!!entry.pattern && <Text style={word.pattern}>{v(entry.pattern)}</Text>}
       <Text style={word.gloss}>{isolateHebrew(v(entry.gloss))}</Text>
+      {/* What it means with each preposition it takes (+ עִם / עַל above). */}
+      {!!entry.governs?.length && <Text style={word.meta}>{entry.governs.map(item => item.meaning).join(' · ')}</Text>}
       {!!grammar && <Text style={word.meta}>{isolateHebrew(grammar)}</Text>}
     </View>
     <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
@@ -125,14 +127,6 @@ export default function Word() {
         onPress={() => router.push({ pathname: '/root', params: { root: entry.root!, word: entry.lemma } })} />}
     </View>}
 
-    {/* The prepositions it takes, learned with it: what it means with each. */}
-    {!!entry.governs?.length && <View style={[styles.card, word.section]}>
-      <Text style={word.stage}>Used with</Text>
-      {entry.governs.map(item => <View key={item.preposition} style={word.formRow}>
-        <Text style={[word.meaning, { flex: 1 }]}>{isolateHebrew(item.meaning)}</Text>
-        <Text style={word.form}>{v(item.preposition)}</Text>
-      </View>)}
-    </View>}
     {/* An expression whose words don't plainly add up to its meaning: what it says word for word,
         and its words, each leading to the saved word it is. */}
     {!!entry.literal && <View style={[styles.card, word.section]}>
@@ -240,6 +234,7 @@ const word = StyleSheet.create({
   lemma: { fontSize: 34, lineHeight: 48, fontWeight: '600', color: colors.ink, writingDirection: 'rtl', flexShrink: 1 },
   gloss: { fontSize: 18, fontWeight: '600', color: colors.ink },
   pattern: { fontSize: 22, color: colors.ink, writingDirection: 'rtl', textAlign: 'right' },
+  plus: { fontSize: 24, fontWeight: '600', color: colors.green },
   meta: { fontSize: 13, lineHeight: 19, color: colors.muted },
   pill: { fontSize: 12, fontWeight: '700', color: colors.muted, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, overflow: 'hidden' },
   pillDone: { color: colors.green, borderColor: colors.green },

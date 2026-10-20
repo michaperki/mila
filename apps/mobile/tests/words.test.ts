@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { encountersOf, expressionsWith, headOf, lemmaKey, matches, partsOf, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../src/lib/words.ts'
+import { encountersOf, expressionsWith, headOf, lemmaKey, matches, partsOf, prepositionsOf, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../src/lib/words.ts'
 
 const encounter = (surface: string, context: string, at: number) => ({ surface, meaning: 'm', context, at })
 
@@ -69,4 +69,10 @@ test('a saved word is found in any sentence: by its dictionary form, or before t
   assert.equal(savedByLemma([entry]).get(lemmaKey('לִצְעוֹק'))?.id, entry.id)
   assert.equal(savedBySurface([entry]).get(lemmaKey('צעק'))?.id, entry.id)
   assert.equal(savedBySurface([entry]).get(lemmaKey('וצעק')), undefined)
+})
+
+test('the prepositions a word takes follow it as + and are split by /', () => {
+  assert.equal(prepositionsOf({ governs: [{ preposition: 'בְּ', meaning: 'to use (something)' }] }), '+ בְּ')
+  assert.equal(prepositionsOf({ governs: [{ preposition: 'עִם', meaning: 'to talk with' }, { preposition: 'עַל', meaning: 'to talk about' }] }), '+ עִם / עַל')
+  assert.equal(prepositionsOf({}), '')
 })

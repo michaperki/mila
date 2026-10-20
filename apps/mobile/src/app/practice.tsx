@@ -20,6 +20,7 @@ import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
 import { noteActivity } from '../lib/tree'
 import type { FormCard, Results, Session, VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
+import { prepositionsOf } from '../lib/words'
 import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
 import { cachedVocab, putEntry, vocabFor } from '../state/vocab'
@@ -236,7 +237,7 @@ export default function Practice() {
 
   const listen = checkpoint ? undefined : form ? form.sentence : entry.lemma
   const side = (english: boolean, answerSide: boolean) => form
-    ? <SentenceSide form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={v} />
+    ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={v} />
     : <WordSide entry={entry} english={english} answer={answerSide} v={v} />
   const hint = checkpoint
     ? (!answerable ? (loaded && 'error' in loaded ? 'The forms could not be loaded, so swipe to skip this one.' : '')
@@ -336,19 +337,18 @@ function CardHead({ label, lemma, listen }: { label?: string; lemma?: string; li
 }
 
 // A word on its own: its dictionary form one side, its meanings the other; the answer side
-// shows both, with its part of speech, root and binyan, the prepositions it takes, and for an expression whose words don't
-// plainly add up to its meaning, what it says word for word.
+// shows both, with its part of speech, root and binyan, and for an expression whose words don't
+// plainly add up to its meaning, what it says word for word. The prepositions it takes follow it
+// wherever it is shown in Hebrew (לְהִשְׁתַּמֵּשׁ + בְּ).
 function WordSide({ entry, english, answer: answerSide, v }: { entry: VocabEntry; english: boolean; answer: boolean; v: (text: string) => string }) {
-  const hebrew = <Text style={practice.word}>{v(entry.lemma)}</Text>
+  const plus = prepositionsOf(entry)
+  const hebrew = <Text style={practice.word}>{v(entry.lemma)}{!!plus && <Text style={practice.plus}> {v(plus)}</Text>}</Text>
   const meaning = <Text style={practice.meaning}>{entry.gloss}</Text>
   if (!answerSide) return english ? meaning : hebrew
   const grammar = [kindLabel(entry), entry.binyan, entry.root && `root ${entry.root}`].filter(Boolean).join(' · ')
   return <View style={{ gap: 8, alignItems: 'center', alignSelf: 'stretch' }}>
     {english ? <>{meaning}{hebrew}</> : <>{hebrew}{meaning}</>}
     {!!grammar && <Text style={practice.detail}>{grammar}</Text>}
-    {entry.governs?.map(item => <Text key={item.preposition} style={[practice.detail, { textAlign: 'center' }]}>
-      with <Text style={{ color: colors.ink }}>{v(item.preposition)}</Text> · {item.meaning}
-    </Text>)}
     {!!entry.literal && <Text style={[practice.detail, { fontStyle: 'italic', textAlign: 'center' }]}>Literally “{entry.literal}”</Text>}
   </View>
 }
@@ -360,8 +360,8 @@ const heardOf = (form: FormCard) => form.said || (form.stage === 'meanings' ? fo
 
 // One form in its sentence: the Hebrew sentence with the form marked, or its English with the
 // meaning marked. The answer side shows the Hebrew sentence, what the form means (with the form
-// alone to listen to), the form and the translation.
-function SentenceSide({ form, english, answer: answerSide, hideMark, v }: { form: FormCard; english: boolean; answer: boolean; hideMark: boolean; v: (text: string) => string }) {
+// alone to listen to), the form with the prepositions the word takes, and the translation.
+function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v }: { entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; hideMark: boolean; v: (text: string) => string }) {
   const hebrew = <Text style={practice.sentence}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} /></Text>
   if (!answerSide) return <>
     {english ? <Text style={practice.english}><Marked text={form.translation} mark={form.enMark} /></Text> : hebrew}
@@ -374,7 +374,7 @@ function SentenceSide({ form, english, answer: answerSide, hideMark, v }: { form
       <Text style={[practice.meaning, { flexShrink: 1 }]}>{form.en}</Text>
       {!!heard && <ListenButton text={heard} accessibilityLabel="Listen to the word" size={22} speed={false} />}
     </View>
-    <Text style={[practice.detail, { textAlign: 'center' }]}>{v(form.he)}</Text>
+    <Text style={[practice.detail, { textAlign: 'center' }]}>{v(form.he)}{!!prepositionsOf(entry) && <Text style={practice.plus}> {v(prepositionsOf(entry))}</Text>}</Text>
     {!!form.translation && <Text style={practice.detail}>{form.translation}</Text>}
   </View>
 }
@@ -488,6 +488,8 @@ const practice = StyleSheet.create({
   word: { fontSize: 34, lineHeight: 48, color: colors.ink, writingDirection: 'rtl', textAlign: 'center' },
   sentence: { fontSize: 22, lineHeight: 36, color: colors.ink, writingDirection: 'rtl', textAlign: 'center' },
   mark: { backgroundColor: colors.lime, fontWeight: '600' },
+  // The prepositions a word takes, after it (+ בְּ).
+  plus: { color: colors.green, fontWeight: '600' },
   english: { fontSize: 20, lineHeight: 30, color: colors.ink, textAlign: 'center' },
   blank: { textDecorationLine: 'underline', textDecorationColor: colors.green, color: colors.green },
   hint: { fontSize: 15, color: colors.muted, textAlign: 'center' },

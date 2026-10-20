@@ -64,6 +64,8 @@ export const expressionsWith = (entries: VocabEntry[], entry: VocabEntry) => {
     || !!item.built?.some(part => lemmaKey(part.lemmaPlain || part.lemma) === key)
   return entries.filter(item => item.partOfSpeech === 'expression' && item.id !== entry.id && builtOn(item))
 }
+// The prepositions a word takes, as they follow it: "+ בְּ", "+ עִם / עַל"; empty if none.
+export const prepositionsOf = (entry: Pick<VocabEntry, 'governs'>) => (entry.governs?.length ? `+ ${entry.governs.map(item => item.preposition).join(' / ')}` : '')
 // The words an expression is built from, each with the saved word it is, if it is saved.
 export const partsOf = (entries: VocabEntry[], entry: VocabEntry) => (entry.built || []).map(part => {
   const key = lemmaKey(part.lemmaPlain || part.lemma)
