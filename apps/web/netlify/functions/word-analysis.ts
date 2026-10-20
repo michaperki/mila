@@ -139,7 +139,9 @@ export const analysisRequest = (word: string, sentence: string) => ({
 const plainHebrew = (text: string) => text.replace(/[\u0591-\u05C7]/g, '').replace(/[\u05BE\-–…]/g, ' ').trim()
 // A pattern is the word, then only grammatical words and מישהו or משהו (with a prefix: בְּמַשֶּׁהוּ),
 // never another word of its own (לבקש סליחה ממישהו is an expression).
-const GRAMMATICAL = new Set(['את', 'אות', 'על', 'עם', 'אל', 'אחרי', 'אחר', 'אצל', 'בין', 'בעד', 'נגד', 'לפני', 'מפני', 'כלפי', 'לגבי', 'בשביל', 'מול', 'עד', 'כמו', 'לקראת', 'אודות', 'בגלל', 'מן'])
+const GRAMMATICAL = new Set(['את', 'אות', 'על', 'עם', 'אל', 'אחרי', 'אחר', 'אצל', 'בין', 'בעד', 'נגד', 'לפני', 'מפני', 'כלפי', 'לגבי', 'בשביל', 'מול', 'עד', 'כמו', 'לקראת', 'אודות', 'בגלל', 'מן',
+  // Words of prepositions of more than one word (על פני, על ידי, בתוך) and others that stand alone.
+  'פני', 'ידי', 'לפי', 'תוך', 'בתוך', 'מתוך', 'מתחת', 'מעל', 'דרך', 'בלי', 'ללא', 'למען', 'לשם', 'אלא', 'כנגד', 'לעבר', 'אצלו'])
 const placeholder = (word: string) => /^(ו|ב|ל|מ|מ־|כ)?(מישהו|משהו)$/.test(word) || /^(ב|ל|מ|כ)?(מי|מה)$/.test(word)
 const builtOnlyOfGrammar = (item: Construction, lemma: string) => {
   const words = plainHebrew(item.pattern).replace(/[()]/g, '').split(/\s+/).filter(Boolean)
