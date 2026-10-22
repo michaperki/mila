@@ -101,7 +101,7 @@ export default function Home() {
       router.push('/reader')
     } catch (failure) { setOpenError((failure as Error).message) } finally { setOpening(false) }
   }
-  const go = (path: '/camera' | '/compose') => { setReading(false); router.push(path) }
+  const go = (path: '/camera' | '/compose' | '/library') => { setReading(false); router.push(path) }
   const touched = useCallback((part: BonsaiPart) => feel(part === 'foliage' ? 'tick' : 'select'), [])
 
   // Said only once it is known, so it never shows a young tree's line that then changes;
@@ -143,13 +143,14 @@ export default function Home() {
     </View>
 
     {reading && <ReadSheet lastRead={session ? lastRead : null} opening={opening} onClose={() => setReading(false)}
-      onCamera={() => go('/camera')} onPaste={() => go('/compose')} onContinue={() => void continueReading()} />}
+      onCamera={() => go('/camera')} onPaste={() => go('/compose')} onStarters={session && !lastRead ? () => go('/library') : undefined} onContinue={() => void continueReading()} />}
   </View>
 }
 
 // The ways a new text comes in: a photo of a page, pasted text, or the passage being read.
-function ReadSheet({ lastRead, opening, onClose, onCamera, onPaste, onContinue }: {
-  lastRead: LastRead | null; opening: boolean; onClose: () => void; onCamera: () => void; onPaste: () => void; onContinue: () => void
+// Until something has been read, the starter passages every library begins with are offered too.
+function ReadSheet({ lastRead, opening, onClose, onCamera, onPaste, onStarters, onContinue }: {
+  lastRead: LastRead | null; opening: boolean; onClose: () => void; onCamera: () => void; onPaste: () => void; onStarters?: () => void; onContinue: () => void
 }) {
   const insets = useSafeAreaInsets()
   return <View style={StyleSheet.absoluteFill}>
@@ -158,6 +159,7 @@ function ReadSheet({ lastRead, opening, onClose, onCamera, onPaste, onContinue }
     </Animated.View>
     <DraggableSheet onDismiss={onClose} accessibilityViewIsModal style={[home.sheet, { paddingBottom: insets.bottom + 14 }]}
       handle={<Text style={home.sheetTitle}>Read</Text>}>
+      {onStarters && <Option icon="book-outline" title="Starter passages" detail="Beginner, intermediate and advanced" onPress={onStarters} />}
       <Option icon="camera-outline" title="Photograph a page" detail="A book, a sign, a letter" onPress={onCamera} />
       <Option icon="clipboard-outline" title="Paste text" detail="Hebrew from anywhere" onPress={onPaste} />
       {lastRead && <Option icon="book-outline" title="Continue reading" detail={lastRead.title} busy={opening} onPress={onContinue} />}

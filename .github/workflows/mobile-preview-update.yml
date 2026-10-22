@@ -44,6 +44,8 @@ jobs:
       - name: Publish update
         env:
           CHANNEL: ${{ inputs.channel || 'preview' }}
+          # Mila Preview has its own bundle ID (app.config.ts), which its updates' fingerprint must match.
+          APP_VARIANT: ${{ (inputs.channel || 'preview') == 'preview' && 'preview' || '' }}
           MESSAGE: ${{ github.event.head_commit.message }}
         # A run by hand has no pushed commit; it is named after the commit it publishes.
         run: |

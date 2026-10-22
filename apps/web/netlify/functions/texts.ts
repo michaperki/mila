@@ -2,6 +2,7 @@ import type { Handler } from '@netlify/functions'
 import { ObjectId } from 'mongodb'
 import { getDb } from './lib/mongo'
 import { verifyAuth } from './lib/auth'
+import { addStarters } from './lib/starters'
 
 const handler: Handler = async (event) => {
   try {
@@ -10,6 +11,7 @@ const handler: Handler = async (event) => {
     const texts = db.collection('texts')
 
     if (event.httpMethod === 'GET') {
+      await addStarters(db, auth.userId)
       const docs = await texts.find({ userId: auth.userId }).sort({ createdAt: -1 }).toArray()
       const sanitized = docs.map(({ _id, ...rest }) => normalizeDocument(rest))
       return {

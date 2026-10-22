@@ -14,8 +14,8 @@ import { RATES, speechPieces, type Rate } from './speech-text'
 // the same text again stops it. Speed (1×, ½×, ¼×) is one setting for the whole app.
 export type Voice = 'sarah' | 'charon'
 export const VOICES: { id: Voice; name: string; detail: string }[] = [
-  { id: 'sarah', name: 'Sarah', detail: 'Warm and clear (ElevenLabs)' },
-  { id: 'charon', name: 'Charon', detail: 'Calm and low (Google Gemini)' },
+  { id: 'sarah', name: 'Sarah', detail: 'Warm and clear' },
+  { id: 'charon', name: 'Charon', detail: 'Calm and low' },
 ]
 
 type State = { voice: Voice; rate: Rate; playing: string | null; loading: boolean }

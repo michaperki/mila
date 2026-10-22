@@ -81,8 +81,10 @@ export default function Account() {
     </View>
     <View style={styles.card}>
       <Text style={styles.heading}>Privacy</Text>
-      <Text style={styles.copy}>{'Photos are sent to Google to find the text and, when you read a page, to Anthropic\'s Claude to correct and translate it. Mila doesn\'t keep your photos.'}</Text>
+      <Text style={styles.copy}>{'Photos are sent to services that find, correct and translate the text. Mila doesn\'t keep your photos.'}</Text>
       {privacyOpen ? <>
+        {/* Who those services are stays here and in the policy, out of the everyday screens. */}
+        <Text style={styles.copy}>{'Photos go to Google to find the text and, when you read a page, to Anthropic\'s Claude to correct and translate it.'}</Text>
         <Text style={styles.copy}>Only passages you choose to save are added to your library.</Text>
         <Text style={styles.copy}>{'Words and sentences you look up are sent to Anthropic\'s Claude to explain them, and text you listen to is sent to ElevenLabs or Google to be read aloud.'}</Text>
         <Text style={styles.copy}>Live preview is off until you turn it on in the camera. It samples a few images instead of every video frame, needs internet, and pauses after a short session.</Text>

@@ -16,7 +16,10 @@
     "preview": {
       "distribution": "internal",
       "node": "22.23.3",
-      "channel": "preview"
+      "channel": "preview",
+      "env": {
+        "APP_VARIANT": "preview"
+      }
     },
     "production": {
       "autoIncrement": true,
