@@ -79,7 +79,11 @@ export default function Reader() {
   const undoAfterSave = useRef(new Set<string>())
   // Know which words are already saved so the card can say so instead of offering a duplicate,
   // and show a word saved from this sentence with what it was saved with.
-  const { entries: vocab } = useVocab(session)
+  const { entries: vocab, loaded: vocabLoaded } = useVocab(session)
+  // The first word ever saved: until then the drawer says why to save one, and once it is written,
+  // offers to study it, so the first save leads straight into the first practice.
+  const [firstSave, setFirstSave] = useState(false)
+  const noWordsYet = !!session && vocabLoaded && !vocab.length && !saving.size
   const savedWords = useMemo(() => savedKeysOf(vocab), [vocab])
   const savedTaps = useMemo(() => savedTapsOf(vocab), [vocab])
   const byLemma = useMemo(() => savedByLemma(vocab), [vocab])
@@ -340,6 +344,7 @@ export default function Reader() {
     const tapped = word, unit = phrase, dragged = isPhrase, quickNow = quickMeaning, version = selection.current
     const segment = segments[tapped.segment]
     const key = tapKey(asPhrase ? unit!.text : tapped.bare, segment.he)
+    if (noWordsYet) setFirstSave(true)
     setSaving(current => new Set(current).add(key)); setWordError(null); feel('saved')
     try {
       const explained: { analysis?: WordAnalysis; gloss: string } = wordBusy
@@ -482,22 +487,25 @@ export default function Reader() {
   // Sideways the screen is short, so the details scroll in less of it.
   const detailsHeight = landscape ? Math.max(90, screenHeight * 0.28) : Math.max(180, screenHeight * 0.4)
 
-  return <View ref={frame} style={{ flex: 1, backgroundColor: colors.paper }}>
-    <ScrollView ref={scroller} scrollEnabled={!dragRange} scrollEventThrottle={32} onScroll={event => { scrollY.current = event.nativeEvent.contentOffset.y }}
-      contentContainerStyle={[styles.content, { gap: 10, paddingTop: 14, paddingBottom: active !== null ? overlayHeight + 24 : 36, paddingLeft: 22 + insets.left, paddingRight: 22 + insets.right }]}>
-      {/* One row: whole-page listening is gone, since every sentence has its own Listen. */}
-      <View style={[styles.row, { gap: 8 }]}>
-        <Pill icon={english === 'off' ? 'eye-off-outline' : 'eye-outline'} label={englishLabel[english]} active={english !== 'off'} onPress={cycleEnglish} accessibilityLabel={`English ${englishSpoken[english]}. Change`} />
-        {vowelled && <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />}
-        <View style={reader.sizes}>
-          <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={`Smaller text, now ${Math.round(size * 100)}%`} onPress={() => resize(-1)} hitSlop={6} style={reader.size}><Text style={reader.sizeLabel}>A−</Text></Pressy>
-          <View style={reader.sizesRule} />
-          <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={`Larger text, now ${Math.round(size * 100)}%`} onPress={() => resize(1)} hitSlop={6} style={reader.size}><Text style={reader.sizeLabel}>A+</Text></Pressy>
-        </View>
-        <View style={{ marginLeft: 'auto' }}>
-          <FeedbackButton variant="icon" screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, active, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss, analysis })} />
-        </View>
+  return <View style={{ flex: 1, backgroundColor: colors.paper }}>
+    {/* The toolbar stays put while the passage scrolls under it. Whole-page listening is gone,
+        since every sentence has its own Listen. */}
+    <View style={[styles.row, reader.toolbar, { paddingLeft: 22 + insets.left, paddingRight: 22 + insets.right }]}>
+      <Pill icon={english === 'off' ? 'eye-off-outline' : 'eye-outline'} label={englishLabel[english]} active={english !== 'off'} onPress={cycleEnglish} accessibilityLabel={`English ${englishSpoken[english]}. Change`} />
+      {vowelled && <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />}
+      <View style={reader.sizes}>
+        <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={`Smaller text, now ${Math.round(size * 100)}%`} onPress={() => resize(-1)} hitSlop={6} style={reader.size}><Text style={reader.sizeLabel}>A−</Text></Pressy>
+        <View style={reader.sizesRule} />
+        <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={`Larger text, now ${Math.round(size * 100)}%`} onPress={() => resize(1)} hitSlop={6} style={reader.size}><Text style={reader.sizeLabel}>A+</Text></Pressy>
       </View>
+      <View style={{ marginLeft: 'auto' }}>
+        <FeedbackButton variant="icon" screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, active, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss, analysis })} />
+      </View>
+    </View>
+    {/* The scrolling area, measured to keep the active sentence in view. */}
+    <View ref={frame} style={{ flex: 1 }}>
+    <ScrollView ref={scroller} scrollEnabled={!dragRange} scrollEventThrottle={32} onScroll={event => { scrollY.current = event.nativeEvent.contentOffset.y }}
+      contentContainerStyle={[styles.content, { gap: 10, paddingTop: 10, paddingBottom: active !== null ? overlayHeight + 24 : 36, paddingLeft: 22 + insets.left, paddingRight: 22 + insets.right }]}>
       {active === null && hint && <Text style={[styles.copy, { fontSize: 13, lineHeight: 18 }]}>Tap a sentence to select it, then tap a word for its meaning or drag across words for a phrase.</Text>}
       {!!recognition.readError && <Text style={reader.edge}>Read with basic text recognition, so some letters may be wrong.</Text>}
       <View style={[styles.card, { gap: 0, paddingVertical: 6, paddingHorizontal: 14 }]}>
@@ -537,6 +545,7 @@ export default function Reader() {
       <Button title={saved ? 'Saved to library ✓' : 'Save passage'} disabled={saved} busy={busy} onPress={save} />
       {saved && <TextButton title="Remove from library" onPress={() => void remove()} />}
     </ScrollView>
+    </View>
 
     {/* Sentence bar: moving between sentences is separate from studying a word. */}
     {active !== null && !word && <Animated.View entering={SHEET_IN} exiting={SHEET_OUT} style={[reader.overlay, reader.bar, overlaySides, { paddingBottom: 10 + insets.bottom }]} onLayout={event => setOverlayHeight(event.nativeEvent.layout.height)}>
@@ -590,6 +599,7 @@ export default function Reader() {
         {moreBelow && <Text style={reader.more} pointerEvents="none">More below ↓</Text>}
       </Animated.View>}
       <ErrorNotice message={wordError} />
+      {noWordsYet && !wordBusy && <Text style={[styles.copy, { fontSize: 13, lineHeight: 18 }]}>Save it to practise it later: Mila makes flashcards for it, each with a sentence of its own.</Text>}
       <View style={[styles.row, { flexWrap: 'nowrap', gap: 10 }]}>
         {hasDetails && !wordBusy && <Pressable accessibilityRole="button" onPress={() => setDetails(value => !value)} style={reader.detailsToggle} hitSlop={6}>
           <Text style={reader.barLabel}>{details ? 'Less' : 'Details'}</Text><Ionicons name={details ? 'chevron-down' : 'chevron-up'} size={16} color={colors.green} />
@@ -604,6 +614,7 @@ export default function Reader() {
         onPress={() => (wordSaved ? unsave() : void saveWord())} />}
       {fillsPattern && <TextButton title={unsaving.has(tapKey(phrase!.text, sentence)) ? 'Undoing…' : phraseSaved ? 'Pattern saved ✓ · Undo' : `Save the pattern ${isolateHebrew(stripNiqqud(phrase!.pattern!))}`}
         onPress={() => (phraseSaved ? unsave(true) : void saveWord(true))} />}
+      {firstSave && (wordSaved || phraseSaved) && !saving.size && <TextButton title="Your first word is saved · Study it now" color={colors.green} onPress={() => { close(); router.push('/practice') }} />}
     </DraggableSheet>}
   </View>
 }
@@ -670,6 +681,7 @@ const reader = StyleSheet.create({
   size: { minHeight: 34, paddingHorizontal: 11, justifyContent: 'center' },
   sizeLabel: { fontSize: 14, fontWeight: '600', color: colors.green },
   sizesRule: { width: 1, height: 18, backgroundColor: colors.line },
+  toolbar: { gap: 8, paddingTop: 10, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, backgroundColor: colors.paper },
   paragraph: { paddingVertical: 7, gap: 2 },
   run: { gap: 2, paddingVertical: 2 },
   // The active sentence: a quiet band behind it; the selected word stands out on top.

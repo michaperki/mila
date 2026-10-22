@@ -79,8 +79,9 @@ export async function loadTree(session: Session): Promise<Tree> {
 
 // One quiet line under the tree: its state in words (and for VoiceOver).
 export function treeLine(tree: Tree, hasWords: boolean, signedIn: boolean) {
-  if (!signedIn) return 'A young tree. Sign in to tend it day by day.'
-  if (!hasWords && tree.growth < 12 && !tree.tendedToday) return 'A young tree. Read a page to begin.'
+  // A young tree says what makes it grow, since that is all there is to learn about it.
+  if (!signedIn) return 'A young tree that grows as you read and study. Sign in to plant yours.'
+  if (!hasWords && tree.growth < 12) return tree.tendedToday ? 'Tended today. Save words as you read, and studying them grows the tree.' : 'A young tree. It grows as you read and study the words you save.'
   if (tree.overgrowth >= 45) return 'It has grown wild. A short study will shape it.'
   if (tree.overgrowth >= 15) return 'A few shoots need trimming.'
   if (tree.vitality < 45) return 'Quiet lately. A page of reading brings back its colour.'
