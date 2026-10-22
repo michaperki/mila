@@ -13,7 +13,7 @@ import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, deckOf, firstSense, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
+import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, deckOf, firstSense, followUps, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
@@ -138,11 +138,12 @@ export default function Practice() {
 
   // Moving through the round. Past its end, the round is over. Every card comes back to its
   // question side, a quiz card to its choices; an answer it was given stays and is shown.
-  // `quiet` when an answer already made its sound. False when there was nowhere to go.
-  const go = (step: 1 | -1, quiet = false) => {
+  // `quiet` when an answer already made its sound; `added`, cards the answer just brought in
+  // behind it (not yet in `deck`). False when there was nowhere to go.
+  const go = (step: 1 | -1, quiet = false, added = 0) => {
     const to = position + step
     if (to < roundStart) return false
-    if (to >= deck.length) { setDone(true); return true }
+    if (to >= deck.length + added) { setDone(true); return true }
     if (!quiet) feel('advance')
     setWay(step === 1 ? 'next' : 'previous'); setPosition(to); setFlipped(false)
     setPicks(current => { const { [to]: _gone, ...rest } = current; return rest })
@@ -198,6 +199,7 @@ export default function Practice() {
   // An answer records the card's result (from its record before this session's answer, so
   // changing an answer replaces it). It never schedules anything: it shapes which stages Mila
   // brings in and how often the card comes round.
+  // Returns how many cards it brought in behind this one.
   const answer = (knew: boolean, felt = false) => {
     if (!felt) feel(knew ? 'gotIt' : 'graded')
     void noteStudyDay()
@@ -225,15 +227,27 @@ export default function Practice() {
       }
       void ensureForms(updated, session.token).then(ready => { share(session, ready); keep(ready) })
     }
-    // The round in front of the learner isn't reordered by an answer.
+    // The round in front of the learner isn't reordered by an answer, except that in smart order a
+    // word still being learned brings its next cards in right behind it (lib/forms.ts followUps),
+    // taking them from later in the round. Only on a card's first answer at the end of what has
+    // been answered: answers are kept by position, so nothing answered moves.
+    let added = 0
+    if (answered === undefined && settings.order === 'smart' && !Object.keys(answers).some(at => Number(at) > position)) {
+      // This card as it was just before the answer (the deck's copy may be older).
+      const asAnswered = deck.map((item, at) => (at === position ? { ...item, entry } : item))
+      const more = followUps(asAnswered, position, updated, knew, start, settings.include)
+      const keys = new Set(more.map(cardKey))
+      if (more.length) setDeck(current => current && [...current.slice(0, position + 1), ...more, ...current.slice(position + 1).filter(item => !keys.has(cardKey(item)))])
+      added = more.length
+    }
     setBefore(current => ({ ...current, [position]: start })); setAnswers(current => ({ ...current, [position]: knew }))
+    return added
   }
   // A swipe answers the card and moves on: right, knew it; left, still learning. A quiz card is
   // answered by its choice, so a swipe only moves on.
   const swiped = (side: Side) => {
     if (choices || !answerable) return go(1)
-    answer(side === 'right')
-    return go(1, true)
+    return go(1, true, answer(side === 'right'))
   }
 
   const listen = checkpoint ? undefined : form ? form.sentence : entry.lemma
@@ -252,6 +266,8 @@ export default function Practice() {
     <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: 'center', paddingBottom: 24 + insets.bottom }]}>
       <ErrorNotice message={error} />
       {why && !!card.why && <Text style={practice.why}>{card.why}</Text>}
+      {/* A card in a learning sequence says so: the same word again, just after the card before. */}
+      {card.sequence && !why && <Text style={[practice.eyebrow, { textAlign: 'center' }]}>{form ? 'Same word · in a sentence' : 'Same word · once more'}</Text>}
       {/* One swipe card for the whole deck; only what is on it changes (see SwipeCard). No exit
           animation: a swiped card has already left. */}
       <SwipeCard card={position} onSwipe={swiped} onDrag={onDrag} hints={choices || !answerable ? undefined : HINTS}>

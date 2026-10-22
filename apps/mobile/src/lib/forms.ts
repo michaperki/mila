@@ -12,13 +12,15 @@ import type { FormCard, Results, VocabEntry } from './types'
 // hard its cards get, never whether it can be studied, and the learner can study any stage
 // sooner. Stages and slots mirror apps/web/netlify/functions/word-forms.ts, which writes the cards.
 export type Kind = 'verb' | 'adjective' | 'noun' | 'other'
-export type Stage = { key: string; label: string; slots: Record<string, string>; withPrevious?: boolean }
+// `withPrevious`: opens together with the stage before it once the word is met; `fromSave` too: from
+// the moment the word is saved, so a new verb can be practised in the present at once.
+export type Stage = { key: string; label: string; slots: Record<string, string>; withPrevious?: boolean; fromSave?: boolean }
 const PERSONS = { '1sg': 'I', '2sg.m': 'you (m.)', '2sg.f': 'you (f.)', '3sg.m': 'he', '3sg.f': 'she', '1pl': 'we' }
 const MEANINGS: Stage = { key: 'meanings', label: 'Meanings', slots: { sense1: 'meaning 1', sense2: 'meaning 2', sense3: 'meaning 3' } }
 const STAGES: Record<Kind, Stage[]> = {
   verb: [
     MEANINGS,
-    { key: 'present', label: 'Present', withPrevious: true, slots: { 'm.sg': 'm. singular', 'f.sg': 'f. singular', 'm.pl': 'm. plural', 'f.pl': 'f. plural' } },
+    { key: 'present', label: 'Present', withPrevious: true, fromSave: true, slots: { 'm.sg': 'm. singular', 'f.sg': 'f. singular', 'm.pl': 'm. plural', 'f.pl': 'f. plural' } },
     { key: 'past', label: 'Past', slots: { ...PERSONS, '2pl.m': 'you (pl. m.)', '2pl.f': 'you (pl. f.)', '3pl': 'they' } },
     { key: 'future', label: 'Future', slots: { ...PERSONS, '2pl': 'you (pl.)', '3pl': 'they' } },
     { key: 'imperative', label: 'Imperative', slots: { 'm.sg': 'to a man', 'f.sg': 'to a woman', pl: 'to several' } },
@@ -64,6 +66,7 @@ export const ProgressRules = {
   newWordsMax: 10, // ...and at most, when little is being learned to fill the round
   deeperPerRound: 4, // new cards of words already met (their meanings, then their forms)
   familiarEvery: 3, // one familiar card for about this many others in a round
+  sequenceLongest: 3, // cards of one word back to back in a learning sequence, at most
 }
 
 export type CardState = 'new' | 'learning' | 'familiar'
@@ -111,14 +114,14 @@ export const isMet = (entry: VocabEntry) => !!entry.results?.some(Boolean)
   || formsIn(entry, 'meanings').some(form => form.results?.some(Boolean)) || isKnown(entry, 'meanings')
 
 // The stages Mila has brought in: the first always; a `withPrevious` stage with the one before
-// it once the word is met (or once it has been studied); any other once every stage brought in
-// so far is familiar (or marked known).
+// it once the word is met (or once it has been studied), or from the start if it is `fromSave`;
+// any other once every stage brought in so far is familiar (or marked known).
 export function recommendedStages(entry: VocabEntry): Stage[] {
   const stages = stagesOf(entry)
   const open = [stages[0]]
   for (let i = 1; i < stages.length; i++) {
     const comes = stages[i].withPrevious
-      ? isMet(entry) || practisedStage(entry, stages[i].key)
+      ? !!stages[i].fromSave || isMet(entry) || practisedStage(entry, stages[i].key)
       : open.every(stage => isFamiliarStage(entry, stage.key))
     if (!comes) break
     open.push(stages[i])
@@ -175,8 +178,9 @@ export function newCards(entry: VocabEntry) {
 
 // A study card: a saved word on its own (its dictionary form and meanings; `form` is null), one
 // of its form cards in a sentence, or a checkpoint on one of its stages (`checkpoint`). `why`
-// says why the round has it, for the learner who asks (practice.tsx).
-export type Card = { entry: VocabEntry; form: FormCard | null; checkpoint?: string; why?: string }
+// says why the round has it, for the learner who asks (practice.tsx); `sequence`, that it was
+// brought in behind the card before it (followUps).
+export type Card = { entry: VocabEntry; form: FormCard | null; checkpoint?: string; why?: string; sequence?: boolean }
 export const cardKey = ({ entry, form, checkpoint }: Card) => `${entry.id}:${checkpoint ? `checkpoint:${checkpoint}` : form ? form.key : 'word'}`
 const resultsOf = ({ entry, form, checkpoint }: Card): Results =>
   (checkpoint ? { results: checkpointsOf(entry, checkpoint), last: entry.checkpoints?.[checkpoint]?.last } : form ?? entry)
@@ -243,6 +247,31 @@ export function deckOf(entries: VocabEntry[], { include, order }: { include: Inc
   const some = explained(others.length ? familiar.slice(0, Math.ceil(others.length / rules.familiarEvery)) : familiar,
     card => `familiar · last seen ${ago(lastOf(card), now)}`)
   return spread([...mix(others, some), ...checkpoints])
+}
+// Learning sequences, in smart order: a card of a word still being learned can bring the word's
+// next cards in right behind it, whatever the deck's order, so a word is taught in a short run
+// instead of waiting to be known. A word not yet met is followed by its first meaning in a
+// sentence and, for a verb, its present, however it was answered; a sentence card missed is
+// followed by the word card. A familiar card, or a word already ProgressRules.sequenceLongest
+// cards in a row, brings nothing: once known, a word's cards are independent again. `round` is
+// the deck as answered so far, `entry` the word after this answer.
+export function followUps(round: Card[], at: number, entry: VocabEntry, knew: boolean, before: Results, include: Include): Card[] {
+  const card = round[at]
+  if (card.checkpoint || cardState(before.results) === 'familiar') return []
+  let run = 0
+  while (at - run >= 0 && round[at - run].entry.id === entry.id) run++
+  const seen = new Set(round.slice(at - run + 1, at + 1).map(cardKey))
+  const next: Card[] = !card.form
+    ? (include === 'words' || isMet(card.entry) ? [] : [firstOf(entry, 'meanings'), kindOfEntry(entry) === 'verb' ? firstOf(entry, 'present') : undefined]
+      .filter((form): form is FormCard => !!form && cardState(form.results) !== 'familiar').map(form => ({ entry, form })))
+    : (knew || include === 'sentences' ? [] : [{ entry, form: null }])
+  return next.filter(item => !seen.has(cardKey(item))).slice(0, Math.max(0, ProgressRules.sequenceLongest - run))
+    .map(item => ({ ...item, sequence: true, why: `in sequence · after ${card.form ? 'its sentence' : 'the word'}` }))
+}
+// A stage's first card, in the order of its slots (sense1, m.sg).
+const firstOf = (entry: VocabEntry, stage: string) => {
+  const slots = Object.keys(stagesOf(entry).find(item => item.key === stage)?.slots ?? {})
+  return formsIn(entry, stage).sort((a, b) => slots.indexOf(a.slot) - slots.indexOf(b.slot))[0]
 }
 const stageLabel = (entry: VocabEntry, stage: string) => stagesOf(entry).find(item => item.key === stage)?.label ?? stage
 // "today", "yesterday", "3 days ago", or "never".

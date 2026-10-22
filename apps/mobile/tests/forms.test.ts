@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, assess, cardKey, cardState, checkpointStages, choicesFor, countsOf, deckOf, freshStages, isKnownWord, isMet, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf } from '../src/lib/forms.ts'
+import { ago, assess, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, deckOf, followUps, freshStages, isKnownWord, isMet, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -41,9 +41,13 @@ test('a stage is familiar at half its cards, ready with all but one of four or m
   assert.equal(stageProgress(checked([true, false, true]), 'present'), 'ready')
 })
 
-test('a word is met once known once; then its present comes in with its meanings', () => {
-  // Saved, not yet studied: only its meanings are written, and it is studied as its word card.
-  assert.deepEqual(missingStages(verb([])), ['meanings'])
+test('a word is met once known once; a verb has its present from the start', () => {
+  // Saved, not yet studied: a verb's meanings and present are written, and in the deck it is its word card.
+  assert.deepEqual(missingStages(verb([])), ['meanings', 'present'])
+  // A noun's plural still waits until the noun is met.
+  const noun: VocabEntry = { id: 'n', lemma: 'סֵפֶר', gloss: 'book', createdAt: 1, partOfSpeech: 'noun' }
+  assert.deepEqual(missingStages(noun), ['meanings'])
+  assert.deepEqual(missingStages({ ...noun, results: [true], last: now }), ['meanings', 'plural'])
   assert.ok(!isMet(verb([form('meanings:sense1', { results: [false, false], last: now })])))
   assert.ok(isMet(verb([], { results: [true, false], last: now })))
   assert.ok(isMet(verb([form('meanings:sense1', { results: [false, true], last: now })])))
@@ -204,4 +208,31 @@ test('Home suggests a stage Mila has just brought in and nothing in it has been 
   assert.deepEqual(freshStages([verb([form('meanings:sense1')])]), [])
   // A stage marked known isn't suggested, and marking it known brings in the next.
   assert.deepEqual(freshStages([{ ...ready, known: ['past'] }]).map(item => item.label), ['Future'])
+})
+
+test('in a learning sequence a new word is followed by its sentences, and a missed sentence by the word', () => {
+  const fresh = verb([form('meanings:sense2'), form('meanings:sense1'), ...present([])])
+  const other: VocabEntry = { ...verb([]), id: 'other' }
+  const keys = (cards: Card[]) => cards.map(cardKey)
+  const round: Card[] = [{ entry: other, form: null }, { entry: fresh, form: null }]
+  // Whichever way the word card went: its first meaning, then its present (m.sg).
+  const after = (knew: boolean) => followUps(round, 1, { ...fresh, ...assess(fresh, knew, now) }, knew, fresh, 'both')
+  assert.deepEqual(keys(after(false)), ['open:meanings:sense1', 'open:present:m.sg'])
+  assert.deepEqual(keys(after(true)), ['open:meanings:sense1', 'open:present:m.sg'])
+  assert.ok(after(false).every(card => card.sequence))
+  // Words only: nothing follows a word card. A word already met: its cards come in their own time.
+  assert.deepEqual(followUps(round, 1, fresh, false, fresh, 'words'), [])
+  const met = { ...fresh, results: [true], last: now - DAY }
+  assert.deepEqual(followUps([{ entry: met, form: null }], 0, met, true, met, 'both'), [])
+  // A sentence card missed brings the word card back, unless the word card was just in this run.
+  const sentence = fresh.forms![2]
+  assert.deepEqual(keys(followUps([{ entry: other, form: null }, { entry: met, form: sentence }], 1, met, false, sentence, 'both')), ['open:word'])
+  assert.deepEqual(followUps([{ entry: met, form: sentence }], 0, met, true, sentence, 'both'), [])
+  assert.deepEqual(followUps([{ entry: met, form: null }, { entry: met, form: sentence }], 1, met, false, sentence, 'both'), [])
+  assert.deepEqual(followUps([{ entry: met, form: sentence }], 0, met, false, sentence, 'sentences'), [])
+  // At most three of one word in a row, and nothing behind a familiar card.
+  const long: Card[] = [{ entry: fresh, form: fresh.forms![0] }, { entry: fresh, form: null }]
+  assert.deepEqual(keys(followUps(long, 1, fresh, false, fresh, 'both')), ['open:meanings:sense1'])
+  const known = { ...form('present:f.sg'), ...familiar }
+  assert.deepEqual(followUps([{ entry: met, form: known }], 0, met, false, known, 'both'), [])
 })
