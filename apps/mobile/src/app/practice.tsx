@@ -22,6 +22,7 @@ import type { FormCard, Results, Session, VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
 import { constructionsOf } from '../lib/words'
 import { Constructions } from '../components/Constructions'
+import { useWordLookup, WordDrawer, type WordLookup } from '../components/WordDrawer'
 import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
 import { cachedVocab, putEntry, vocabFor } from '../state/vocab'
@@ -74,6 +75,9 @@ export default function Practice() {
   const tapped = () => !drag.current.on && Date.now() - drag.current.ended > 300
   const onDrag = (dragging: boolean) => { drag.current = { on: dragging, ended: dragging ? drag.current.ended : Date.now() } }
   const keep = (ready: VocabEntry) => setWords(current => ({ ...current, [ready.id]: withNewForms(current[ready.id], ready) }))
+  // A word of a card's sentence looked up on its answer side, in the reader's drawer over the
+  // card: saving it keeps it for later study and leaves this round as it is.
+  const lookup = useWordLookup(session, { onLostError: setError })
 
   useEffect(() => {
     if (!session) return
@@ -143,6 +147,7 @@ export default function Practice() {
   const go = (step: 1 | -1, quiet = false, added = 0) => {
     const to = position + step
     if (to < roundStart) return false
+    lookup.close()
     if (to >= deck.length + added) { setDone(true); return true }
     if (!quiet) feel('advance')
     setWay(step === 1 ? 'next' : 'previous'); setPosition(to); setFlipped(false)
@@ -252,7 +257,7 @@ export default function Practice() {
 
   const listen = checkpoint ? undefined : form ? form.sentence : entry.lemma
   const side = (english: boolean, answerSide: boolean) => form
-    ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={v} />
+    ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={v} lookup={answerSide ? lookup : undefined} />
     : <WordSide entry={entry} english={english} answer={answerSide} v={v} />
   const hint = checkpoint
     ? (!answerable ? (loaded && 'error' in loaded ? 'The forms could not be loaded, so swipe to skip this one.' : '')
@@ -304,6 +309,7 @@ export default function Practice() {
       {/* Room for the line is kept while there is none, so the card doesn't move when it appears. */}
       <Text style={[practice.hint, { minHeight: 22 }]}>{hint}</Text>
     </ScrollView>
+    <WordDrawer lookup={lookup} v={v} style={{ paddingBottom: 12 + insets.bottom }} />
   </View>
 }
 
@@ -384,8 +390,14 @@ const heardOf = (form: FormCard) => form.said || (form.stage === 'meanings' ? fo
 // One form in its sentence: the Hebrew sentence with the form marked, or its English with the
 // meaning marked. The answer side shows the Hebrew sentence, what the form means (with the form
 // alone to listen to), the form with the constructions the word is used in, and the translation.
-function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v }: { entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; hideMark: boolean; v: (text: string) => string }) {
-  const hebrew = <Text style={practice.sentence}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} /></Text>
+// On the answer side each word of the sentence can be tapped to look it up (`lookup`); the
+// question side is only turned over by a tap, so a lookup never gives the answer away.
+function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, lookup }: {
+  entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; hideMark: boolean; v: (text: string) => string; lookup?: WordLookup
+}) {
+  const onWord = lookup && ((word: string) => { feel('select'); void lookup.open({ text: word, sentence: form.sentence, translation: form.translation }) })
+  const looked = lookup?.tap?.sentence === form.sentence ? lookup.tap.text : undefined
+  const hebrew = <Text style={practice.sentence}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} onWord={onWord} looked={looked} /></Text>
   if (!answerSide) return <>
     {english ? <Text style={practice.english}><Marked text={form.translation} mark={form.enMark} /></Text> : hebrew}
     {hideMark && <Text style={practice.hint}>{form.en}</Text>}
@@ -405,14 +417,21 @@ function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v }:
 
 // The sentence with the form marked (every word of an expression, even where others come
 // between, lib/marks.ts), or blanked for a quiz (an attached prefix such as ו or ש stays).
-function MarkedHebrew({ sentence, mark, form, blank }: { sentence: string; mark: string; form: string; blank: boolean }) {
+// With `onWord`, a tap on a word looks it up (as written, without its punctuation), and the word
+// `looked` up is shown as selected.
+function MarkedHebrew({ sentence, mark, form, blank, onWord, looked }: {
+  sentence: string; mark: string; form: string; blank: boolean; onWord?: (word: string) => void; looked?: string
+}) {
   const formWords = form.split(/\s+/)
   let k = 0
   return <>{hebrewPieces(sentence, mark).map((piece, i) => {
-    if (!piece.marked) return <Text key={i}>{piece.text}</Text>
+    const word = bareWord(piece.text)
+    const tap = onWord && word ? { onPress: () => onWord(word), suppressHighlighting: true } : {}
+    const selected = !!looked && word === looked && practice.looked
+    if (!piece.marked) return <Text key={i} {...tap} style={selected}>{piece.text}</Text>
     const own = formWords[k++] ?? ''
     if (blank) return <Text key={i}>{prefixOf(piece.text, own)}<Text style={practice.blank}>{' '.repeat(6)}</Text></Text>
-    return <Text key={i} style={practice.mark}>{piece.text}</Text>
+    return <Text key={i} {...tap} style={[practice.mark, selected]}>{piece.text}</Text>
   })}</>
 }
 
@@ -514,6 +533,8 @@ const practice = StyleSheet.create({
   mark: { backgroundColor: colors.lime, fontWeight: '600' },
   english: { fontSize: 20, lineHeight: 30, color: colors.ink, textAlign: 'center' },
   blank: { textDecorationLine: 'underline', textDecorationColor: colors.green, color: colors.green },
+  // A word of the sentence looked up on the answer side.
+  looked: { color: colors.green, textDecorationLine: 'underline', textDecorationColor: colors.green },
   hint: { fontSize: 15, color: colors.muted, textAlign: 'center' },
   option: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   optionRight: { borderColor: colors.green, backgroundColor: colors.lime },
