@@ -28,7 +28,8 @@ import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
-import { isVowelled, withVowels } from '../lib/vowels'
+import { isVowelled, pageWithVowels, withVowels } from '../lib/vowels'
+import { plainSpelling } from '../lib/spelling'
 
 // Runs reflow (REFLOW) when a sentence is selected and its English opens beneath it.
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
@@ -529,7 +530,7 @@ export default function Reader() {
                       return <Pressable key={item.i} accessibilityRole="button" accessibilityLabel={`Explain ${item.bare}`} onPress={() => (s === active ? void select(item.i) : chooseSentence(s))}
                         onLayout={event => { wordBoxes.current.set(item.i, event.nativeEvent.layout) }}
                         style={[reader.wordBox, inSelection && reader.selectedWord]}>
-                        <Text style={[reader.word, sized.word, segments[s].heading && reader.heading]}>{v(item.surface)}</Text>
+                        <Text style={[reader.word, sized.word, segments[s].heading && reader.heading]}>{pageWithVowels(item.surface, showNiqqud)}</Text>
                       </Pressable>
                     }),
                   ])}
@@ -612,7 +613,7 @@ export default function Reader() {
       </View>
       {leadPhrase && !phraseIsWord && <TextButton title={unsaving.has(tapKey(word.bare, sentence)) ? 'Undoing…' : wordSaved ? `${isolateHebrew(word.bare)} saved on its own ✓ · Undo` : `Save just ${isolateHebrew(word.bare)}`}
         onPress={() => (wordSaved ? unsave() : void saveWord())} />}
-      {fillsPattern && <TextButton title={unsaving.has(tapKey(phrase!.text, sentence)) ? 'Undoing…' : phraseSaved ? 'Pattern saved ✓ · Undo' : `Save the pattern ${isolateHebrew(stripNiqqud(phrase!.pattern!))}`}
+      {fillsPattern && <TextButton title={unsaving.has(tapKey(phrase!.text, sentence)) ? 'Undoing…' : phraseSaved ? 'Pattern saved ✓ · Undo' : `Save the pattern ${isolateHebrew(plainSpelling(phrase!.pattern!))}`}
         onPress={() => (phraseSaved ? unsave(true) : void saveWord(true))} />}
       {firstSave && (wordSaved || phraseSaved) && !saving.size && <TextButton title="Your first word is saved · Study it now" color={colors.green} onPress={() => { close(); router.push('/practice') }} />}
     </DraggableSheet>}

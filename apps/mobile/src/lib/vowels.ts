@@ -1,8 +1,13 @@
 import { stripNiqqud } from './ocr-cleanup.ts'
+import { plainSpelling } from './spelling.ts'
 
 // One vowels setting (`showNiqqud`) governs every screen: the reader text, word explanations,
-// flashcards and the vocabulary list. Explanations always arrive vowelled, so they follow it too.
-export const withVowels = (text: string, show: boolean) => (show ? text : stripNiqqud(text))
+// flashcards and the vocabulary list. Explanations and cards always arrive vowelled, so they
+// follow it too, and without vowels they are shown in full spelling (לשנוא, not לִשְׂנֹא with its
+// marks taken off: lib/spelling.ts).
+export const withVowels = (text: string, show: boolean) => (show ? text : plainSpelling(text))
+// A page as it was printed: without vowels, only its marks come off.
+export const pageWithVowels = (text: string, show: boolean) => (show ? text : stripNiqqud(text))
 
 // Vowel points and cantillation, not the maqaf, paseq or sof pasuq punctuation in that block.
 const MARK = /[֑-ׇֽֿׁׂׅׄ]/
