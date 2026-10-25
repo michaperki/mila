@@ -5,11 +5,13 @@ import { isolateHebrew } from '../lib/bidi'
 import { hebrewPieces } from '../lib/marks'
 import type { Encounter } from '../lib/types'
 import { withVowels } from '../lib/vowels'
+import { useHebrew } from '../state/script'
 
 // One place a saved word was met: the form on the page and what it meant there, then the
 // sentence with the word marked (every word of an expression, even apart). A card shows the
 // short excerpt; tapping shows the whole sentence.
 export function EncounterView({ encounter, showVowels, footer }: { encounter: Encounter; showVowels: boolean; footer?: ReactNode }) {
+  const he = useHebrew()
   const [whole, setWhole] = useState(false)
   const v = (text: string) => withVowels(text, showVowels)
   const short = !!encounter.excerpt && !whole
@@ -23,7 +25,7 @@ export function EncounterView({ encounter, showVowels, footer }: { encounter: En
     <Pressable disabled={!encounter.excerpt} accessibilityRole={encounter.excerpt ? 'button' : undefined}
       accessibilityHint={encounter.excerpt ? (whole ? 'Shows the short excerpt' : 'Shows the whole sentence') : undefined}
       onPress={() => setWhole(value => !value)} style={{ gap: 4 }}>
-      <Text style={encounterStyles.sentence}>{short ? '… ' : ''}{hebrewPieces(sentence, encounter.mark || encounter.surface).map((piece, i) =>
+      <Text style={[encounterStyles.sentence, he]}>{short ? '… ' : ''}{hebrewPieces(sentence, encounter.mark || encounter.surface).map((piece, i) =>
         <Text key={i} style={piece.marked ? encounterStyles.mark : undefined}>{piece.text}</Text>)}{short ? ' …' : ''}</Text>
       {!!translation && <Text style={encounterStyles.line}>{translation}</Text>}
     </Pressable>

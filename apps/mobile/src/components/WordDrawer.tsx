@@ -20,6 +20,7 @@ import type { Built, Encounter, Phrase, Session, VocabEntry, WordAnalysis } from
 import { constructionsOf, encountersOf, lemmaKey, patternLabel, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
 import { ensureForms } from '../lib/word-forms'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
+import { useHebrew } from '../state/script'
 
 // A word or phrase looked up in its sentence, its explanation, and saving it: the reader's word
 // drawer, and the same drawer over a flashcard for a word in the card's sentence. `phrase` is a
@@ -227,6 +228,7 @@ export type WordLookup = ReturnType<typeof useWordLookup>
 export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close }: {
   lookup: WordLookup; v: (text: string) => string; style?: StyleProp<ViewStyle>; onLayout?: (event: LayoutChangeEvent) => void; onClose?: () => void
 }) {
+  const he = useHebrew()
   const { height: screenHeight, width: screenWidth } = useWindowDimensions()
   const [moreBelow, setMoreBelow] = useState(false)
   const { tap, analysis, gloss, busy, quickMeaning, isPhrase, phrase, isPattern, fillsPattern, patternFirst, leadPhrase, phraseIsWord, inYourWords, wordSaved, phraseSaved, saving, unsaving, details } = lookup
@@ -253,11 +255,11 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close 
   const unitBox = phrase && !busy ? <Animated.View entering={APPEAR} style={[drawer.phrase, { flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingRight: 10, paddingVertical: 8 }]}>
     <Text style={drawer.label}>{!isPattern ? 'Part of an expression' : fillsPattern ? 'Used here in a pattern' : 'A pattern'}</Text>
     {patternFirst
-      ? <><Text style={drawer.pattern}>{v(patternLabel(phrase.pattern!))}</Text><Text style={drawer.fact}>{isolateHebrew(v(phrase.meaning))}</Text></>
-      : <Text style={drawer.fact}><Text style={drawer.factHebrew}>{isolateHebrew(v((isPattern && phrase.pattern && patternLabel(phrase.pattern)) || phrase.lemma || phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>}
-    {isPattern && phrase.examples?.map(example => <Text key={example.text} style={drawer.fact}><Text style={drawer.factHebrew}>{isolateHebrew(v(example.text))}</Text> · {isolateHebrew(v(example.meaning))}</Text>)}
+      ? <><Text style={[drawer.pattern, he]}>{v(patternLabel(phrase.pattern!))}</Text><Text style={drawer.fact}>{isolateHebrew(v(phrase.meaning))}</Text></>
+      : <Text style={drawer.fact}><Text style={[drawer.factHebrew, he]}>{isolateHebrew(v((isPattern && phrase.pattern && patternLabel(phrase.pattern)) || phrase.lemma || phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>}
+    {isPattern && phrase.examples?.map(example => <Text key={example.text} style={drawer.fact}><Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(example.text))}</Text> · {isolateHebrew(v(example.meaning))}</Text>)}
     {!isPattern && !!phrase.literal && <Text style={drawer.fact}>Literally “{phrase.literal}”</Text>}
-    {isPattern && !!phrase.textMeaning && <Text style={drawer.fact}>Here <Text style={drawer.factHebrew}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.textMeaning))}</Text>}
+    {isPattern && !!phrase.textMeaning && <Text style={drawer.fact}>Here <Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.textMeaning))}</Text>}
   </Animated.View> : null
 
   return <DraggableSheet onDismiss={onClose} style={[drawer.sheet, style]} accessibilityViewIsModal onLayout={onLayout}
@@ -265,7 +267,7 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close 
       <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={10}><Ionicons name="close" size={22} color={colors.muted} /></Pressable>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 }}>
         <ListenButton text={analysis?.vocalized || tap.text} accessibilityLabel={isPhrase ? 'Hear this phrase' : 'Hear this word'} />
-        <Text style={drawer.word}>{v(analysis?.vocalized || tap.text)}</Text>
+        <Text style={[drawer.word, he]}>{v(analysis?.vocalized || tap.text)}</Text>
       </View>
     </View>}>
     {patternFirst && unitBox}
@@ -282,16 +284,16 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close 
     {!patternFirst && unitBox}
     {inYourWords && !busy && <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/word', params: { id: inYourWords.id } })} hitSlop={6} style={[styles.row, { gap: 4 }]}>
       <Ionicons name="bookmark" size={14} color={colors.green} />
-      <Text style={drawer.saved}>In your words · <Text style={drawer.factHebrew}>{isolateHebrew(v(inYourWords.lemma))}</Text></Text>
+      <Text style={drawer.saved}>In your words · <Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(inYourWords.lemma))}</Text></Text>
       <Ionicons name="chevron-forward" size={14} color={colors.green} />
     </Pressable>}
     {details && !busy && analysis && <Animated.View entering={APPEAR}>
       <ScrollView style={{ maxHeight: detailsHeight }} contentContainerStyle={{ gap: 12, paddingBottom: 4 }} scrollEventThrottle={64}
         onScroll={event => measureMore(event.nativeEvent)}
         onContentSizeChange={(_, contentHeight) => setMoreBelow(contentHeight > detailsHeight + 8)}>
-        {!isPhrase && !!analysis.readAs && stripNiqqud(analysis.readAs) !== tap.text && <Text style={drawer.fact}>The photo text reads <Text style={drawer.factHebrew}>{isolateHebrew(tap.text)}</Text>; this is probably <Text style={drawer.factHebrew}>{isolateHebrew(v(analysis.readAs))}</Text>.</Text>}
+        {!isPhrase && !!analysis.readAs && stripNiqqud(analysis.readAs) !== tap.text && <Text style={drawer.fact}>The photo text reads <Text style={[drawer.factHebrew, he]}>{isolateHebrew(tap.text)}</Text>; this is probably <Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(analysis.readAs))}</Text>.</Text>}
         {analysis.parts.length > 1 && <Section label="Breakdown"><View style={drawer.parts}>
-          {analysis.parts.map((part, i) => <View key={i} style={drawer.part}><Text style={drawer.partHebrew}>{v(part.text)}</Text><Text style={drawer.partMeaning}>{isolateHebrew(v(part.meaning))}</Text></View>)}
+          {analysis.parts.map((part, i) => <View key={i} style={drawer.part}><Text style={[drawer.partHebrew, he]}>{v(part.text)}</Text><Text style={drawer.partMeaning}>{isolateHebrew(v(part.meaning))}</Text></View>)}
         </View></Section>}
         <WordFacts analysis={analysis} gloss={gloss} v={v} />
       </ScrollView>
@@ -323,15 +325,16 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
 
 // Dictionary entry (form, other senses, root, grammar) and an optional note, always in this order.
 function WordFacts({ analysis, gloss, v }: { analysis: WordAnalysis; gloss: string; v: (text: string) => string }) {
+  const he = useHebrew()
   const grammar = [analysis.partOfSpeech, analysis.binyan, analysis.form].filter(Boolean).join(' · ')
   const showLemma = !!analysis.lemma && stripNiqqud(analysis.lemma) !== stripNiqqud(analysis.vocalized || analysis.word)
   const senses = otherSenses(analysis.lemmaMeaning || '', gloss)
   const hasEntry = showLemma || !!senses || !!analysis.root || !!grammar
   return <>
     {hasEntry && <Section label="Dictionary">
-      {showLemma && <Text style={drawer.fact}><Text style={drawer.factHebrew}>{isolateHebrew(v(analysis.lemma))}</Text>{senses ? ` · ${isolateHebrew(v(senses))}` : ''}</Text>}
+      {showLemma && <Text style={drawer.fact}><Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(analysis.lemma))}</Text>{senses ? ` · ${isolateHebrew(v(senses))}` : ''}</Text>}
       {!showLemma && !!senses && <Text style={drawer.fact}>Other senses: {isolateHebrew(v(senses))}</Text>}
-      {(!!analysis.root || !!grammar) && <Text style={drawer.fact}>{analysis.root ? <>Root <Text style={drawer.factHebrew}>{isolateHebrew(analysis.root)}</Text>{grammar ? ' · ' : ''}</> : null}{grammar}</Text>}
+      {(!!analysis.root || !!grammar) && <Text style={drawer.fact}>{analysis.root ? <>Root <Text style={[drawer.factHebrew, he]}>{isolateHebrew(analysis.root)}</Text>{grammar ? ' · ' : ''}</> : null}{grammar}</Text>}
     </Section>}
     {!!analysis.note && <Section label="Note"><Text style={drawer.fact}>{isolateHebrew(v(analysis.note))}</Text></Section>}
   </>

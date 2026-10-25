@@ -23,11 +23,13 @@ import { quickMeanings } from '../lib/recognition'
 import { useSession } from '../state/session'
 import { useVowels } from '../state/vowels'
 import { isVowelled, pageWithVowels, withVowels } from '../lib/vowels'
+import { useHebrew } from '../state/script'
 
 // Runs reflow (REFLOW) when a sentence is selected and its English opens beneath it.
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 
 export default function Reader() {
+  const he = useHebrew()
   const { recognition, session } = useSession()
   const insets = useSafeAreaInsets()
   const { height: screenHeight, width: screenWidth } = useWindowDimensions()
@@ -297,7 +299,8 @@ export default function Reader() {
         since every sentence has its own Listen. */}
     <View style={[styles.row, reader.toolbar, { paddingLeft: 22 + insets.left, paddingRight: 22 + insets.right }]}>
       <Pill icon={english === 'off' ? 'eye-off-outline' : 'eye-outline'} label={englishLabel[english]} active={english !== 'off'} onPress={cycleEnglish} accessibilityLabel={`English ${englishSpoken[english]}. Change`} />
-      {vowelled && <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />}
+      {/* Cursive is written without vowels, so it has no Vowels button. */}
+      {vowelled && !he && <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />}
       <View style={reader.sizes}>
         <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={`Smaller text, now ${Math.round(size * 100)}%`} onPress={() => resize(-1)} hitSlop={6} style={reader.size}><Text style={reader.sizeLabel}>A−</Text></Pressy>
         <View style={reader.sizesRule} />
@@ -328,13 +331,13 @@ export default function Reader() {
                 <View style={reader.line} ref={view => { if (view) lines.current.set(key, view); else lines.current.delete(key) }} {...dragHandlers(key, runWords.map(item => item.i))}>
                   {run.segments.map(s => [
                     segments[s].marker ? <Text key={`m${s}`} style={[reader.word, sized.word, reader.marker]}>{segments[s].marker}.</Text> : null,
-                    indexOfFirstWord[s] === undefined ? <Text key={`t${s}`} style={[reader.word, sized.word]}>{segments[s].he}</Text> : null,
+                    indexOfFirstWord[s] === undefined ? <Text key={`t${s}`} style={[reader.word, sized.word, he]}>{segments[s].he}</Text> : null,
                     ...wordsOf(s).map(item => {
                       const inSelection = highlighted && item.i >= highlighted.from && item.i <= highlighted.to
                       return <Pressable key={item.i} accessibilityRole="button" accessibilityLabel={`Explain ${item.bare}`} onPress={() => (s === active ? void select(item.i) : chooseSentence(s))}
                         onLayout={event => { wordBoxes.current.set(item.i, event.nativeEvent.layout) }}
                         style={[reader.wordBox, inSelection && reader.selectedWord]}>
-                        <Text style={[reader.word, sized.word, segments[s].heading && reader.heading]}>{pageWithVowels(item.surface, showNiqqud)}</Text>
+                        <Text style={[reader.word, sized.word, segments[s].heading && reader.heading, he]}>{pageWithVowels(item.surface, showNiqqud)}</Text>
                       </Pressable>
                     }),
                   ])}

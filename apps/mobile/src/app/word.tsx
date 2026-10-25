@@ -23,6 +23,7 @@ import { Constructions } from '../components/Constructions'
 import { useSession } from '../state/session'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
+import { useHebrew } from '../state/script'
 
 const STATE: Record<StageState, string> = { known: 'Known', ready: 'Ready', familiar: 'Familiar', learning: 'Learning', new: 'New', later: 'Later' }
 
@@ -32,6 +33,7 @@ const STATE: Record<StageState, string> = { known: 'Known', ready: 'Ready', fami
 // "Mark word as known" takes it out of studying; "Mark known" marks one stage known. Nothing is
 // quizzed here.
 export default function Word() {
+  const he = useHebrew()
   const { id } = useLocalSearchParams<{ id: string }>()
   const { session, setRecognition } = useSession()
   const [showVowels] = useVowels()
@@ -106,10 +108,10 @@ export default function Word() {
     <View style={{ gap: 2 }}>
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
         <ListenButton text={entry.lemma} accessibilityLabel="Hear this word" size={24} />
-        <Text style={word.lemma}>{v(entry.lemma)}</Text>
+        <Text style={[word.lemma, he]}>{v(entry.lemma)}</Text>
       </View>
       {/* Learned as a pattern: how the word is used (נָטוּל + noun), its meaning below. */}
-      {!!entry.pattern && <Text style={word.pattern}>{v(patternLabel(entry.pattern))}</Text>}
+      {!!entry.pattern && <Text style={[word.pattern, he]}>{v(patternLabel(entry.pattern))}</Text>}
       {/* The constructions it is used in, smaller under it; what each means is in How it's used. */}
       {constructions.length > 0 && <View style={{ marginBottom: 4 }}><Constructions items={constructions} v={v} size={17} align="end" /></View>}
       <Text style={word.gloss}>{isolateHebrew(v(entry.gloss))}</Text>
@@ -136,9 +138,9 @@ export default function Word() {
       {constructions.map(item => <View key={item.pattern} style={{ gap: 2 }}>
         <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 10 }]}>
           <Text style={[word.meaning, { flex: 1 }]}>{item.meaning}{item.preposition === 'optional' ? ' (preposition optional)' : ''}</Text>
-          <Text style={word.construction}>{v(item.pattern)}</Text>
+          <Text style={[word.construction, he]}>{v(item.pattern)}</Text>
         </View>
-        {!!item.example && <Text style={word.example}>{v(item.example)}</Text>}
+        {!!item.example && <Text style={[word.example, he]}>{v(item.example)}</Text>}
         {!!item.exampleMeaning && <Text style={word.translation}>{item.exampleMeaning}</Text>}
       </View>)}
     </View>}
@@ -150,7 +152,7 @@ export default function Word() {
       {parts.map(({ part, saved }) => {
         const row = <>
           <Text style={[word.meaning, { flex: 1 }]}>{isolateHebrew(part.meaning)}</Text>
-          <Text style={word.form}>{v(part.lemma)}</Text>
+          <Text style={[word.form, he]}>{v(part.lemma)}</Text>
           {saved && <Ionicons name="chevron-forward" size={16} color={colors.muted} />}
         </>
         return saved
@@ -205,7 +207,7 @@ export default function Word() {
       <Text style={word.stage}>Expressions with this word</Text>
       {expressions.map(item => <Pressable key={item.id} accessibilityRole="button" onPress={() => router.push({ pathname: '/word', params: { id: item.id } })} style={word.formRow}>
         <Text style={[word.meaning, { flex: 1 }]}>{isolateHebrew(item.gloss)}</Text>
-        <Text style={word.form}>{v(item.lemma)}</Text>
+        <Text style={[word.form, he]}>{v(item.lemma)}</Text>
       </Pressable>)}
     </View>}
 
@@ -223,12 +225,13 @@ const Dot = ({ form }: { form: FormCard }) => <View style={[word.dot, !!form.res
 // One meaning: what it means, and the sentence it is practised in with its English. The Hebrew is the word at the
 // top, so it is only shown when this meaning uses another form of it.
 function MeaningRow({ form, lemma, v }: { form: FormCard; lemma: string; v: (text: string) => string }) {
+  const he = useHebrew()
   const other = stripNiqqud(form.he) !== stripNiqqud(lemma)
   return <View style={word.formRow}>
     <Dot form={form} />
     <View style={{ flex: 1, gap: 2 }}>
       <Text style={word.meaning}>{form.en}{other ? <Text style={word.formInline}>{`  ${isolateHebrew(v(form.he))}`}</Text> : null}</Text>
-      {!!form.sentence && <Text style={word.example}>{v(form.sentence)}</Text>}
+      {!!form.sentence && <Text style={[word.example, he]}>{v(form.sentence)}</Text>}
       {!!form.translation && <Text style={word.translation}>{form.translation}</Text>}
     </View>
   </View>
@@ -237,13 +240,14 @@ function MeaningRow({ form, lemma, v }: { form: FormCard; lemma: string; v: (tex
 // One form: who or what it is for, its English, and the Hebrew, which can be heard. The dot says
 // how it's going (hollow: not practised yet, lime: learning, green: familiar).
 function FormRow({ label, form, v }: { label: string; form: FormCard; v: (text: string) => string }) {
+  const he = useHebrew()
   return <View style={word.formRow}>
     <Dot form={form} />
     <View style={{ flex: 1 }}>
       <Text style={word.formLabel}>{label}</Text>
       <Text style={word.meta} numberOfLines={1}>{form.en}</Text>
     </View>
-    <Text style={word.form}>{v(form.he)}</Text>
+    <Text style={[word.form, he]}>{v(form.he)}</Text>
     <ListenButton text={form.he} accessibilityLabel={`Hear ${form.he}`} size={18} speed={false} />
   </View>
 }

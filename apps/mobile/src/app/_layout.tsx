@@ -2,12 +2,14 @@ import { useEffect } from 'react'
 import type { ErrorBoundaryProps } from 'expo-router'
 import { router, Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
+import { useFonts } from 'expo-font'
 import { ActivityIndicator, Text, View } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { startFeedback } from '../lib/feedback'
 import { startSpeech } from '../lib/speech'
 import { SessionProvider, useSession } from '../state/session'
+import { CURSIVE_FONT } from '../state/script'
 import { Button, colors, styles } from '../components/ui'
 import { identify, reportCrash, startCrashReporting, wrapRoot } from '../lib/crashes'
 
@@ -48,6 +50,8 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 }
 function RootLayout() {
   useEffect(() => { void startFeedback(); void startSpeech() }, [])
+  // The cursive Hebrew font, for when it is chosen in Account; nothing waits for it.
+  useFonts({ [CURSIVE_FONT]: require('../../assets/fonts/GveretLevin-Regular.ttf') })
   return <GestureHandlerRootView style={{ flex: 1 }}><SafeAreaProvider><SessionProvider><Navigator /></SessionProvider></SafeAreaProvider></GestureHandlerRootView>
 }
 export default wrapRoot(RootLayout)

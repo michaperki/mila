@@ -16,12 +16,14 @@ import { vocabId } from '../lib/words'
 import { useSession } from '../state/session'
 import { cachedVocab, putEntry, useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
+import { useHebrew } from '../state/script'
 
 // A root's family: the idea its letters carry and the everyday words built on it, verbs first.
 // A word already saved opens its page; any other can be saved from here to study like any word.
 // `word` is the saved word the family was opened from, which picks the family when a root has
 // several unrelated ones.
 export default function RootScreen() {
+  const he = useHebrew()
   const { root: param, word: from } = useLocalSearchParams<{ root: string; word?: string }>()
   const root = rootOf(param || '')
   const { session } = useSession()
@@ -84,7 +86,7 @@ export default function RootScreen() {
               <Text style={root_.meaning}>{word.meaning}</Text>
               {!!detail && <Text style={root_.detail}>{detail}</Text>}
             </View>
-            <Text style={root_.word}>{v(word.lemma)}</Text>
+            <Text style={[root_.word, he]}>{v(word.lemma)}</Text>
             {saved ? <Ionicons name="chevron-forward" size={18} color={colors.muted} accessibilityLabel="Saved" />
               : saving.has(word.lemma) ? <ActivityIndicator color={colors.green} style={root_.add} />
                 : <Pressable accessibilityRole="button" accessibilityLabel={`Save ${word.lemma}`} onPress={() => void save(word)} hitSlop={8} style={root_.add}>

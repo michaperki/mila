@@ -27,6 +27,7 @@ import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
 import { cachedVocab, putEntry, vocabFor } from '../state/vocab'
 import { useVowels } from '../state/vowels'
+import { useHebrew } from '../state/script'
 
 const bare = (text: string) => stripNiqqud(bareWord(text))
 type Settings = { front: Front; order: Order; include: Include; quiz: boolean }
@@ -353,8 +354,9 @@ function Arrow({ icon, label, disabled, onPress }: { icon: 'chevron-back' | 'che
 }
 
 function CardHead({ label, lemma, listen }: { label?: string; lemma?: string; listen?: string }) {
+  const he = useHebrew()
   return <View style={[styles.row, { justifyContent: 'space-between', alignSelf: 'stretch', flexWrap: 'nowrap', minHeight: 28 }]}>
-    <Text style={practice.stage}>{label}{lemma ? <> · <Text style={practice.lemma}>{lemma}</Text></> : null}</Text>
+    <Text style={practice.stage}>{label}{lemma ? <> · <Text style={[practice.lemma, he]}>{lemma}</Text></> : null}</Text>
     {!!listen && <ListenButton text={listen} accessibilityLabel="Listen" size={24} />}
   </View>
 }
@@ -364,8 +366,9 @@ function CardHead({ label, lemma, listen }: { label?: string; lemma?: string; li
 // plainly add up to its meaning, what it says word for word. The constructions it is used in are
 // chips under it wherever it is shown in Hebrew (components/Constructions.tsx).
 function WordSide({ entry, english, answer: answerSide, v }: { entry: VocabEntry; english: boolean; answer: boolean; v: (text: string) => string }) {
+  const he = useHebrew()
   const constructions = constructionsOf(entry)
-  const lemma = <Text style={practice.word}>{v(entry.lemma)}</Text>
+  const lemma = <Text style={[practice.word, he]}>{v(entry.lemma)}</Text>
   // Its constructions under it as chips, and on the answer side what it means in each, when it
   // has more than one (with one, that is the meaning shown).
   const hebrew = !constructions.length ? lemma : <View style={{ gap: 6, alignItems: 'center', alignSelf: 'stretch' }}>
@@ -395,9 +398,10 @@ const heardOf = (form: FormCard) => form.said || (form.stage === 'meanings' ? fo
 function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, lookup }: {
   entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; hideMark: boolean; v: (text: string) => string; lookup?: WordLookup
 }) {
+  const he = useHebrew()
   const onWord = lookup && ((word: string) => { feel('select'); void lookup.open({ text: word, sentence: form.sentence, translation: form.translation }) })
   const looked = lookup?.tap?.sentence === form.sentence ? lookup.tap.text : undefined
-  const hebrew = <Text style={practice.sentence}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} onWord={onWord} looked={looked} /></Text>
+  const hebrew = <Text style={[practice.sentence, he]}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} onWord={onWord} looked={looked} /></Text>
   if (!answerSide) return <>
     {english ? <Text style={practice.english}>{cueOf(form) ? `${cueOf(form)} ` : ''}<Marked text={form.translation} mark={form.enMark} /></Text> : hebrew}
     {hideMark && <Text style={practice.hint}>{form.en}</Text>}
@@ -449,6 +453,7 @@ function Marked({ text, mark }: { text: string; mark?: string }) {
 function CheckpointSide({ entry, stage, rows, loading, answer: answerSide, v }: {
   entry: VocabEntry; stage: string; rows: Table['groups'][number]['rows']; loading: boolean; answer: boolean; v: (text: string) => string
 }) {
+  const he = useHebrew()
   const label = stagesOf(entry).find(item => item.key === stage)?.label ?? stage
   const binyan = entry.binyan || entry.head?.binyan
   const slots = rows.length ? rows.map(row => row.label) : Object.values(stagesOf(entry).find(item => item.key === stage)?.slots ?? {})
@@ -456,14 +461,14 @@ function CheckpointSide({ entry, stage, rows, loading, answer: answerSide, v }: 
     <Text style={practice.eyebrow}>{kindOfEntry(entry) === 'verb' ? 'Conjugation checkpoint' : 'Forms checkpoint'}</Text>
     <Text style={practice.stage}>{label}{binyan ? ` · ${binyan}` : ''}</Text>
     <Text style={practice.meaning}>{firstSense(tableMeaning(entry))}</Text>
-    <Text style={practice.word}>{v(entry.lemma)}</Text>
+    <Text style={[practice.word, he]}>{v(entry.lemma)}</Text>
     {!answerSide && <Text style={practice.hint}>Recall the {label.toLowerCase()} forms</Text>}
     <View style={{ alignSelf: 'stretch', gap: 2 }}>
       {answerSide && loading && <ActivityIndicator color={colors.green} />}
       {(answerSide ? rows : slots.map(slot => ({ slot, label: slot, he: '', en: '' }))).map(row => <View key={row.slot} style={practice.checkRow}>
         <Text style={practice.checkLabel}>{row.label}</Text>
         {answerSide && <View style={[styles.row, { gap: 6, flexWrap: 'nowrap' }]}>
-          <Text style={practice.checkForm}>{v(row.he)}</Text>
+          <Text style={[practice.checkForm, he]}>{v(row.he)}</Text>
           <ListenButton text={row.he} accessibilityLabel={`Hear ${row.he}`} size={18} speed={false} />
         </View>}
       </View>)}
@@ -473,6 +478,7 @@ function CheckpointSide({ entry, stage, rows, loading, answer: answerSide, v }: 
 
 // Quiz mode: the blank is filled by choosing among the word's own forms.
 function Choices({ choices, answer: correct, picked, v, onPick }: { choices: string[]; answer: string; picked: string | null; v: (text: string) => string; onPick: (option: string) => void }) {
+  const he = useHebrew()
   return <View style={{ gap: 8, alignSelf: 'stretch' }}>
     {choices.map(option => {
       const isAnswer = bare(option) === bare(correct)
@@ -480,7 +486,7 @@ function Choices({ choices, answer: correct, picked, v, onPick }: { choices: str
       return <Shake key={option} on={chosen && !isAnswer}>
         <Pressy moment={null} accessibilityRole="button" disabled={picked !== null} onPress={() => onPick(option)}
           style={[practice.option, picked !== null && isAnswer && practice.optionRight, chosen && !isAnswer && practice.optionWrong]}>
-          <Text style={practice.optionText}>{v(option)}</Text>
+          <Text style={[practice.optionText, he]}>{v(option)}</Text>
         </Pressy>
       </Shake>
     })}

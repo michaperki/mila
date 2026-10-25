@@ -9,6 +9,7 @@ import { matches } from '../lib/words'
 import { useSession } from '../state/session'
 import { useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
+import { useHebrew } from '../state/script'
 
 type Filter = 'all' | Status
 const FILTERS: { key: Filter; label: string }[] = [
@@ -56,6 +57,7 @@ export default function Vocabulary() {
 }
 
 function WordRow({ entry, showVowels, first, onOpen }: { entry: VocabEntry; showVowels: boolean; first: boolean; onOpen: () => void }) {
+  const he = useHebrew()
   const v = (text: string) => withVowels(text, showVowels)
   // Where the word is: the newest open stage and how many of its forms are familiar.
   const stage = openStages(entry).at(-1)!
@@ -67,7 +69,7 @@ function WordRow({ entry, showVowels, first, onOpen }: { entry: VocabEntry; show
       <Text style={vocab.meaning} numberOfLines={1}>{v(entry.gloss)}</Text>
       <Text style={vocab.meta} numberOfLines={1}>{[entry.partOfSpeech, progress].filter(Boolean).join(' · ')}</Text>
     </View>
-    <Text style={vocab.hebrew} numberOfLines={1}>{v(entry.lemma)}</Text>
+    <Text style={[vocab.hebrew, he]} numberOfLines={1}>{v(entry.lemma)}</Text>
   </Pressy>
 }
 

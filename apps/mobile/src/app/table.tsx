@@ -16,12 +16,14 @@ import { sameId } from '../lib/words'
 import { useSession } from '../state/session'
 import { useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
+import { useHebrew } from '../state/script'
 
 // A saved word's whole table of forms, to look at rather than study: every person and tense of a
 // verb, an adjective's four forms, a noun's plural and construct forms. English can be hidden to
 // test yourself; a row then shows its English when tapped. A form the learner practises has its
 // dot (lime: practised, green: familiar), as on the word page.
 export default function TableScreen() {
+  const he = useHebrew()
   const { id } = useLocalSearchParams<{ id: string }>()
   const { session } = useSession()
   const [showVowels] = useVowels()
@@ -77,7 +79,7 @@ export default function TableScreen() {
                 <Text style={table_.label}>{row.label}</Text>
                 <Text style={[table_.english, !shown && table_.hidden]} numberOfLines={2}>{shown ? row.en : 'Tap to show'}</Text>
               </View>
-              <Text style={table_.form}>{v(row.he)}</Text>
+              <Text style={[table_.form, he]}>{v(row.he)}</Text>
               <ListenButton text={row.he} accessibilityLabel={`Hear ${row.he}`} size={18} speed={false} />
             </Pressable>
           })}

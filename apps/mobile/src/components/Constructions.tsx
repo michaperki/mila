@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native'
 import { colors } from './ui'
 import type { Construction } from '../lib/types'
+import { useHebrew } from '../state/script'
 
 // The constructions a word is used in, as small chips under it (בְּ־  אַחֲרֵי), in the order Hebrew
 // reads, the most common on the right. Each chip stays on one line; chips wrap only when the row
@@ -12,12 +13,13 @@ import type { Construction } from '../lib/types'
 export function Constructions({ items, v, size = 19, meanings = false, align = 'center' }: {
   items: Construction[]; v: (text: string) => string; size?: number; meanings?: boolean; align?: 'center' | 'start' | 'end'
 }) {
+  const he = useHebrew()
   if (!items.length) return null
   // The row runs right to left, so its start is on the right.
   return <View style={[box.row, { justifyContent: align === 'center' ? 'center' : align === 'start' ? 'flex-end' : 'flex-start' }]}>
     {items.map(item => <View key={item.pattern} accessible accessibilityLabel={`${item.chip}: ${item.meaning}`} style={box.item}>
       <View style={[box.chip, item.preposition === 'optional' && box.optional]}>
-        <Text style={[box.text, { fontSize: size, lineHeight: Math.round(size * 1.45) }]} numberOfLines={1}>{v(item.chip)}</Text>
+        <Text style={[box.text, { fontSize: size, lineHeight: Math.round(size * 1.45) }, he]} numberOfLines={1}>{v(item.chip)}</Text>
       </View>
       {meanings && <Text style={box.meaning} numberOfLines={2}>{item.short || item.meaning}</Text>}
     </View>)}
