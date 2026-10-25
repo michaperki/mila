@@ -100,6 +100,9 @@ export type FormCard = {
   key: string; stage: string; slot: string; he: string; en: string; sentence: string; mark: string; translation: string
   // The words of `translation` that render the card's word, marked on English → Hebrew cards.
   enMark?: string; said?: string
+  // Who the form is for when its English doesn't say and the Hebrew depends on it (👨 👩 👦 👧
+  // 👬 👭 👥), empty when it does; missing on cards written before (lib/forms.ts cueOf).
+  cue?: string
 } & Results
 // What studying has shown about a card, and nothing about when to see it again: its last few
 // results (true: knew it) and when it was last answered (lib/forms.ts).

@@ -9,7 +9,7 @@ vi.mock('@anthropic-ai/sdk', () => {
 })
 vi.mock('../netlify/functions/lib/auth', () => ({ verifyAuth: () => ({ userId: 'user' }) }))
 vi.mock('../netlify/functions/lib/mongo', () => ({ getDb: async () => ({ collection: () => ({ findOne, updateOne }) }) }))
-vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn() }))
+vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn(), checkDailySpend: vi.fn() }))
 import { handler } from '../netlify/functions/word-forms'
 
 const entry = { lemma: 'לִפְתֹּחַ', gloss: 'to open', partOfSpeech: 'verb', binyan: "pa'al", forms: [{ stage: 'meanings', sentence: 'אני רוצה לפתוח חלון' }], encounters: [{ surface: 'פתח', context: 'הוא פתח את הדלת' }] }
@@ -43,6 +43,17 @@ describe('word forms', () => {
     expect(filter).toEqual({ userId: 'user', id: 'native-x', 'forms.stage': { $ne: 'past' } })
     expect(update.$push.forms.$each[0]).toMatchObject({ key: 'past:1sg', stage: 'past', slot: '1sg', he: 'פָּתַחְתִּי', mark: 'פתחתי', enMark: 'I opened' })
     expect(prompt).toContain('do not reuse these sentences')
+  })
+  it('keeps who a form is for, empty when the English says it, and nothing else', async () => {
+    findOne.mockResolvedValueOnce(entry).mockResolvedValueOnce(null)
+    create.mockResolvedValue(generated([
+      { slot: '2sg.f', form: 'פָּתַחְתְּ', english: 'you opened (f.)', sentence: 'פתחת את החלון?', inSentence: ['פתחת'], said: '', translation: 'Did you open the window?', inTranslation: ['open'], cue: '👩' },
+      { slot: '3sg.m', form: 'פָּתַח', english: 'he opened', sentence: 'הוא פתח את הדלת', inSentence: ['פתח'], said: '', translation: 'He opened the door', inTranslation: ['opened'], cue: '' },
+      { slot: '3sg.f', form: 'פָּתְחָה', english: 'she opened', sentence: 'היא פתחה חנות', inSentence: ['פתחה'], said: '', translation: 'She opened a shop', inTranslation: ['opened'], cue: 'woman' },
+    ]))
+    const result = await invoke({ id: 'native-x', stage: 'past' })
+    expect(result.forms.map((form: any) => form.cue)).toEqual(['👩', '', ''])
+    expect(create.mock.calls[0][0].output_config.format.schema.properties.forms.items.required).toContain('cue')
   })
   it('returns a stage that already exists without calling the model', async () => {
     findOne.mockResolvedValueOnce(entry)

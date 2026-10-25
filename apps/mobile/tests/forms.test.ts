@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, assess, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, deckOf, followUps, freshStages, isKnownWord, isMet, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf } from '../src/lib/forms.ts'
+import { ago, assess, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, deckOf, followUps, freshStages, isKnownWord, isMet, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -235,4 +235,17 @@ test('in a learning sequence a new word is followed by its sentences, and a miss
   assert.deepEqual(keys(followUps(long, 1, fresh, false, fresh, 'both')), ['open:meanings:sense1'])
   const known = { ...form('present:f.sg'), ...familiar }
   assert.deepEqual(followUps([{ entry: met, form: known }], 0, met, false, known, 'both'), [])
+})
+
+test('a card says who its form is for only where its English leaves it open', () => {
+  // Written with the card: kept, even when empty because the English already says.
+  assert.equal(cueOf({ stage: 'present', slot: 'f.sg', cue: '👧' }), '👧')
+  assert.equal(cueOf({ stage: 'past', slot: '2sg.f', cue: '' }), '')
+  // Written before: "you" and commands from their slot, everything else nothing.
+  assert.equal(cueOf({ stage: 'past', slot: '2sg.m' }), '👨')
+  assert.equal(cueOf({ stage: 'future', slot: '2pl' }), '👥')
+  assert.equal(cueOf({ stage: 'imperative', slot: 'f.sg' }), '👩')
+  assert.equal(cueOf({ stage: 'past', slot: '3sg.m' }), '')
+  assert.equal(cueOf({ stage: 'present', slot: 'm.sg' }), '')
+  assert.equal(cueOf({ stage: 'meanings', slot: 'sense1' }), '')
 })

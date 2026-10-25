@@ -56,6 +56,10 @@ export const kindOf = (partOfSpeech?: string) =>
 // An expression is learned as the kind of word that inflects in it.
 export const kindOfEntry = (entry: Pick<Entry, 'partOfSpeech' | 'head'>) => kindOf(entry.partOfSpeech === 'expression' ? entry.head?.partOfSpeech : entry.partOfSpeech)
 
+// Who a form is for, shown beside a card's English when the English doesn't say and the Hebrew
+// depends on it: a man, a woman, a boy, a girl, men, women, several people.
+const CUES = ['', '👨', '👩', '👦', '👧', '👬', '👭', '👥'] as const
+
 const schema = {
   type: 'object', additionalProperties: false, required: ['forms'],
   properties: {
@@ -63,7 +67,7 @@ const schema = {
       type: 'array',
       items: {
         type: 'object', additionalProperties: false,
-        required: ['slot', 'form', 'english', 'sentence', 'inSentence', 'said', 'translation', 'inTranslation'],
+        required: ['slot', 'form', 'english', 'sentence', 'inSentence', 'said', 'translation', 'inTranslation', 'cue'],
         properties: {
           slot: { type: 'string' },
           form: { type: 'string', description: 'The form, fully vocalized.' },
@@ -73,6 +77,7 @@ const schema = {
           said: { type: 'string', description: 'The same words as inSentence, fully vocalized as pronounced in this sentence, separated by spaces (e.g. "עוֹבְרִים דֶּרֶךְ").' },
           translation: { type: 'string', description: 'Natural English translation of the sentence.' },
           inTranslation: { type: 'array', items: { type: 'string' }, description: 'The words of the translation that render this form, each copied exactly from it, in order.' },
+          cue: { type: 'string', enum: [...CUES], description: 'Who the form is for, only when the translation leaves it open and the form depends on it (see Who); otherwise empty.' },
         },
       },
     },
@@ -91,12 +96,14 @@ Constructions: when you are told the constructions the word is used in (לְהַ
 
 Patterns: when the word is learned as a pattern (נָטוּל + [שֵׁם עֶצֶם], "free of [noun]"), every card uses the pattern, with a different everyday word in its open place each time (נטול סוכר, נטולת דאגות, נטולי שומן), so the pattern is what is learned and not one example of it. "english" is the pattern's meaning with that card's word in its open place, marked for the form as usual ("free of sugar (f.)"), and inSentence and inTranslation list only the pattern's own words, not the word in its open place.
 
+Who: the learner sees the English translation and must produce the Hebrew, and English often doesn't say what the Hebrew form depends on. Set "cue" only when the translation alone leaves open the gender (or, for "you", the number) of the person or people this card's form agrees with, and the form would be written differently otherwise: "you were tired" said to one man is 👨 and to one woman 👩, to several men 👬, women 👭, a mixed or unspecified group 👥; "the child was tired" is 👦 or 👧; "I am tired" is 👨 or 👩 when the form is the present or an adjective, which agree with the speaker. Use 👦 or 👧 for a child, 👨 or 👩 for an adult. Leave it empty whenever the English already says it (he, she, my sister, the boys), when the form is the same for everyone (past "I slept", "we went", "they went", the infinitive), and for things, whose gender is grammar the learner is expected to know ("the table is big" has no cue).
+
 Sentences must differ from each other and from the sentences already used for this word: vary who acts, the setting, the objects and the sentence shape, so no two read as the same sentence with the person changed. Keep the rest of each sentence simple, common vocabulary, so the target word is the only hard part and its meaning is clear from the sentence.`
 
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 let client: Anthropic | null = null
 
-type Generated = { slot: string; form: string; english: string; sentence: string; inSentence: string[]; said: string; translation: string; inTranslation: string[] }
+type Generated = { slot: string; form: string; english: string; sentence: string; inSentence: string[]; said: string; translation: string; inTranslation: string[]; cue?: string }
 type Entry = {
   lemma: string; gloss: string; partOfSpeech?: string; binyan?: string; head?: { lemma: string; partOfSpeech?: string; binyan?: string }; pattern?: string
   constructions?: { pattern: string; meaning: string }[]
@@ -168,6 +175,8 @@ export const handler: Handler = async (event) => {
       return item ? [{
         key: `${stage}:${slot}`, stage, slot, he: item.form.trim(), en: item.english.trim(), sentence: item.sentence.trim(),
         mark: words(item.inSentence), ...(item.said.trim() ? { said: item.said.trim() } : {}), translation: item.translation.trim(), enMark: words(item.inTranslation),
+        // Kept even when empty: the card was written knowing whether its English says who.
+        cue: item.cue && (CUES as readonly string[]).includes(item.cue) ? item.cue : '',
       }] : []
     })
     if (!forms.length) return reply(422, { message: 'These forms could not be written.', requestId })

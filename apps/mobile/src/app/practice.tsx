@@ -13,7 +13,7 @@ import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, deckOf, firstSense, followUps, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
+import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, cueOf, deckOf, firstSense, followUps, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
@@ -399,7 +399,7 @@ function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, l
   const looked = lookup?.tap?.sentence === form.sentence ? lookup.tap.text : undefined
   const hebrew = <Text style={practice.sentence}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} onWord={onWord} looked={looked} /></Text>
   if (!answerSide) return <>
-    {english ? <Text style={practice.english}><Marked text={form.translation} mark={form.enMark} /></Text> : hebrew}
+    {english ? <Text style={practice.english}>{cueOf(form) ? `${cueOf(form)} ` : ''}<Marked text={form.translation} mark={form.enMark} /></Text> : hebrew}
     {hideMark && <Text style={practice.hint}>{form.en}</Text>}
   </>
   const heard = heardOf(form)
