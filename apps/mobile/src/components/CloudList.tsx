@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from 'react'
-import { ActionSheetIOS, Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ActionSheetIOS, ActivityIndicator, Alert, Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { AccountGate, colors, ErrorNotice, Loading, Page, Pill, styles } from './ui'
@@ -11,6 +11,7 @@ import { textFromDocument } from '../lib/documents'
 import { isHebrew, type LibrarySort, matchesDoc, previewOf, progressOf, sortDocs, titleOf } from '../lib/library'
 import { getPref, setPref } from '../lib/prefs'
 import { parseLastRead } from '../lib/today'
+import { dropScan, imageOf, isReading, readScan, type Scan, useScans } from '../lib/scans'
 
 // The Library (opened from Home, under Read): saved passages as compact rows (title, a line of preview, when, how long and
 // how far read), searchable and sorted by recently read or date added. "…" or a long press on a
@@ -38,6 +39,14 @@ export default function CloudList({ kind }: { kind: 'texts' }) {
     void load(controller.signal)
     return () => controller.abort()
   }, [load]))
+  // Photos still being read (lib/scans.ts); as each is done it is one of the passages, so the
+  // list is loaded again.
+  const scans = useScans(owner)
+  const waiting = useRef(scans.length)
+  useEffect(() => {
+    if (scans.length < waiting.current) void load()
+    waiting.current = scans.length
+  }, [scans.length, load])
   const visible = useMemo(() => sortDocs(items.filter(doc => matchesDoc(doc, query)), sort), [items, query, sort])
 
   // Changes are shown at once and sent; a failure puts the list back as the server has it.
@@ -75,11 +84,19 @@ export default function CloudList({ kind }: { kind: 'texts' }) {
   }
 
   // The big introduction only shows while there is nothing else to look at.
-  const empty = !session || (loaded && !error && items.length === 0)
+  const empty = !session || (loaded && !error && items.length === 0 && !scans.length)
   return <Page onRefresh={() => load()}>
     {empty && <><Text style={styles.eyebrow}>KEEP THE CONTEXT</Text><Text style={styles.title}>Your reading shelf.</Text></>}
     {!session ? <AccountGate /> : <><ErrorNotice message={error} />{!loaded && !error && <Loading />}
       {empty && <View style={styles.card}><Text style={styles.heading}>A fresh start.</Text><Text style={styles.copy}>Save a passage from the reader and it will appear here.</Text></View>}
+      {!!scans.length && <View style={library.list}>
+        {scans.map((scan, i) => <ScanRow key={scan.id} scan={scan} first={i === 0}
+          onRetry={() => { if (session) void readScan(scan.id, session).catch(() => {}) }}
+          onDelete={() => Alert.alert('Delete this photo?', 'It hasn\'t been read yet, so nothing from it is in your library.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', style: 'destructive', onPress: () => dropScan(scan.id) },
+          ])} />)}
+      </View>}
       {items.length > 0 && <View style={{ gap: 10 }}>
         <TextInput value={query} onChangeText={setQuery} placeholder="Search titles and text" placeholderTextColor={colors.muted} style={[styles.input, { minHeight: 44, paddingVertical: 10 }]}
           autoCorrect={false} autoCapitalize="none" clearButtonMode="while-editing" returnKeyType="search" />
@@ -97,6 +114,26 @@ export default function CloudList({ kind }: { kind: 'texts' }) {
       </View>}
     </>}
   </Page>
+}
+
+// A photo kept on the phone until its page is read: being read, or why it isn't yet.
+function ScanRow({ scan, first, onRetry, onDelete }: { scan: Scan; first: boolean; onRetry: () => void; onDelete: () => void }) {
+  const reading = isReading(scan.id)
+  const taken = new Date(scan.takenAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  return <View style={[library.row, !first && library.divider]}>
+    <Image source={{ uri: imageOf(scan).uri }} style={library.thumb} accessibilityIgnoresInvertColors />
+    <View style={{ flex: 1, gap: 3 }}>
+      <Text style={library.title} numberOfLines={1}>Photo · {taken}</Text>
+      <Text style={library.details} numberOfLines={2}>{reading ? 'Reading the page…' : `Not read yet. ${scan.failed ?? ''}`.trim()}</Text>
+    </View>
+    {reading ? <ActivityIndicator color={colors.green} />
+      : <Pressable accessibilityRole="button" accessibilityLabel="Read it again" onPress={onRetry} hitSlop={10} style={library.more}>
+        <Ionicons name="refresh" size={20} color={colors.green} />
+      </Pressable>}
+    <Pressable accessibilityRole="button" accessibilityLabel="Delete this photo" onPress={onDelete} hitSlop={10} style={library.more}>
+      <Ionicons name="trash-outline" size={20} color={colors.muted} />
+    </Pressable>
+  </View>
 }
 
 function PassageRow({ doc, first, onOpen, onMenu }: { doc: TextDoc; first: boolean; onOpen: () => void; onMenu: () => void }) {
@@ -135,4 +172,5 @@ const library = StyleSheet.create({
   track: { height: 3, borderRadius: 2, backgroundColor: colors.line, overflow: 'hidden', marginTop: 4 },
   fill: { height: 3, borderRadius: 2, backgroundColor: colors.green },
   more: { padding: 6 },
+  thumb: { width: 40, height: 52, borderRadius: 6, backgroundColor: colors.line },
 })

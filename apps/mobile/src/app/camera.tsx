@@ -13,6 +13,7 @@ import { FeedbackButton } from '../components/Feedback'
 import { useSession } from '../state/session'
 import { recognizeImage } from '../lib/recognition'
 import { createLiveSession, skip } from '../lib/live-session'
+import { dropScan, keepScan, NoText, type Scan, waitForScan } from '../lib/scans'
 import { getPref, setPref } from '../lib/prefs'
 import type { CapturedImage, Recognition } from '../lib/types'
 
@@ -38,72 +39,91 @@ export default function Camera() {
   const [reading, setReading] = useState<CapturedImage | null>(null)
   const liveSession = useRef<{ stop: () => void } | null>(null)
   const userStopped = useRef(false)
-  const requestController = useRef<AbortController | null>(null)
-  const cancel = useCallback(() => {
+  // The page this screen is reading (lib/scans.ts): the photo is kept the moment it is taken, and
+  // the read goes on if Mila is left or the phone locked; the reader opens if this screen is
+  // still where the learner is when it is done, and otherwise the page is in the Library.
+  const scanning = useRef<string | null>(null)
+  // Stops the live preview (leaving the screen or the app); a page being read goes on.
+  const stopLive = useCallback(() => {
     liveSession.current?.stop(); liveSession.current = null
-    requestController.current?.abort()
-    setLive(false); setBusy(false); setResult(null); setCameraReady(false); setReading(null)
+    setLive(false); setResult(null); setCameraReady(false)
   }, [])
   useFocusEffect(useCallback(() => {
     setFocused(true)
-    return () => { setFocused(false); cancel() }
-  }, [cancel]))
+    return () => {
+      setFocused(false); stopLive()
+      scanning.current = null; setReading(null); setBusy(false); setCapturing(false)
+    }
+  }, [stopLive]))
   useEffect(() => {
     const subscription = AppState.addEventListener('change', state => {
       setForeground(state === 'active')
-      if (state !== 'active') cancel()
+      if (state !== 'active') stopLive()
     })
     return () => subscription.remove()
-  }, [cancel])
+  }, [stopLive])
   // Every camera passage the learner opens is kept in their library automatically.
-  const openReader = (value: Recognition) => { setRecognition({ ...value, library: 'auto' }); router.push('/reader') }
+  const openReader = (value: Recognition) => { setRecognition(value.library === 'saved' ? value : { ...value, library: 'auto' }); router.push('/reader') }
   const present = (value: Recognition) => {
     setResult(value.text ? value : null)
     setMessage(value.text ? 'Translation of the last sampled image.' : 'No text found. Move closer and hold steady.')
   }
   const READING_PAGE = 'Reading the page… this takes a few seconds.'
-  const sample = async (signal: AbortSignal, read = false) => {
+  // A live preview frame: quick OCR, not kept.
+  const sample = async (signal: AbortSignal) => {
     if (!camera.current || !session || locked.current) throw new Error('Camera is not ready yet.')
-    locked.current = true; setBusy(true); setResult(null); setMessage(read ? READING_PAGE : 'Reading Hebrew…')
+    locked.current = true; setBusy(true); setResult(null); setMessage('Reading Hebrew…')
     try {
       const picture = await camera.current.takePictureAsync({ quality: 0.85, shutterSound: false })
       if (signal.aborted) throw new Error('Canceled')
       if (!picture) throw new Error('The camera could not capture this passage. Try again.')
-      const image = { uri: picture.uri, width: picture.width, height: picture.height }
-      if (read) setReading(image)
-      return await recognizeImage(image, session.token, { signal, read })
+      return await recognizeImage({ uri: picture.uri, width: picture.width, height: picture.height }, session.token, { signal })
     } finally { locked.current = false; if (!signal.aborted) setBusy(false) }
   }
-  const capture = async () => {
-    if (locked.current || !session) return
-    const controller = new AbortController(); requestController.current = controller
-    setError(null); setCapturing(true)
+  // Keeps a photo and reads it in full. `fallback`, a live result to read instead if that fails.
+  const readPage = async (image: CapturedImage, fallback?: Recognition) => {
+    if (!session) return
+    setError(null); setResult(null); setBusy(true); setMessage(READING_PAGE); setReading(image)
+    let scan: Scan
+    try { scan = await keepScan(image, session.user.id) } catch {
+      // Without room to keep it, the photo is still read; it just isn't kept meanwhile.
+      scan = { id: '', owner: '', file: '', width: 0, height: 0, takenAt: 0, attempts: 0 }
+    }
+    scanning.current = scan.id || image.uri
+    const mine = () => scanning.current === (scan.id || image.uri)
     try {
-      const value = await sample(controller.signal, true)
-      if (controller.signal.aborted) return
-      present(value)
-      if (value.text) openReader(value)
-    } catch (failure) { if (!controller.signal.aborted) setError((failure as Error).message) }
-    finally { setCapturing(false); setReading(null) }
+      const value = scan.id ? await waitForScan(scan.id, session) : await recognizeImage(image, session.token, { read: true })
+      if (!value.text) throw new NoText('No text found. Move closer and hold steady.')
+      if (mine()) openReader(value)
+    } catch (failure) {
+      if (!mine()) return
+      if (fallback) { if (scan.id) dropScan(scan.id); openReader(fallback); return }
+      const message = (failure as Error).message
+      setError(failure instanceof NoText || !scan.id ? message : `${message} The photo is kept in your Library and will be read again when you're back.`)
+    } finally { if (mine()) { scanning.current = null; setReading(null); setBusy(false); setMessage('Point at a short Hebrew passage.') } }
+  }
+  const capture = async () => {
+    if (locked.current || !session || !camera.current) return
+    setError(null); setCapturing(true); locked.current = true
+    try {
+      const picture = await camera.current.takePictureAsync({ quality: 0.85, shutterSound: false })
+      if (!picture) throw new Error('The camera could not capture this passage. Try again.')
+      locked.current = false
+      await readPage({ uri: picture.uri, width: picture.width, height: picture.height })
+    } catch (failure) { setError((failure as Error).message) }
+    finally { locked.current = false; setCapturing(false) }
   }
   // A live result is quick OCR of one frame; reading it in full re-reads that frame with
   // the vision model. If that fails, the learner still gets the live result.
   const readPassage = async (value: Recognition) => {
     userStopped.current = true; liveSession.current?.stop()
     if (value.source === 'page' || !value.image || !session || locked.current) { openReader(value); return }
-    const controller = new AbortController(); requestController.current = controller
-    locked.current = true; setBusy(true); setError(null); setMessage(READING_PAGE); setReading(value.image)
-    let next = value
-    try {
-      const read = await recognizeImage(value.image, session.token, { signal: controller.signal, read: true })
-      if (read.text) next = read
-    } catch { /* keep the live result */ } finally { locked.current = false; setReading(null); if (!controller.signal.aborted) setBusy(false) }
-    if (!controller.signal.aborted) openReader(next)
+    await readPage(value.image, value)
   }
-  // Stops a page read in progress and brings the camera back.
+  // Stops a page read in progress, lets its photo go and brings the camera back.
   const cancelReading = () => {
-    requestController.current?.abort()
-    locked.current = false
+    if (scanning.current) dropScan(scanning.current)
+    scanning.current = null
     setReading(null); setBusy(false); setCapturing(false); setMessage('Point at a short Hebrew passage.')
   }
   const startLive = () => {
@@ -137,22 +157,14 @@ export default function Camera() {
   }, [cameraReady])
   const importPhoto = async () => {
     if (live) { userStopped.current = true; liveSession.current?.stop() }
-    if (locked.current || !session) return
+    if (locked.current || !session || reading) return
     setError(null)
     try {
       const selected = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 1 })
       if (selected.canceled) return
-      const controller = new AbortController(); requestController.current = controller
       const asset = selected.assets[0]
-      const image = { uri: asset.uri, width: asset.width, height: asset.height }
-      locked.current = true; setBusy(true); setResult(null); setMessage(READING_PAGE); setReading(image)
-      try {
-        const value = await recognizeImage(image, session.token, { signal: controller.signal, read: true })
-        if (controller.signal.aborted) return
-        present(value)
-        if (value.text) openReader(value)
-      } finally { locked.current = false; setReading(null); if (!controller.signal.aborted) setBusy(false) }
-    } catch (failure) { if (!requestController.current?.signal.aborted) setError((failure as Error).message) }
+      await readPage({ uri: asset.uri, width: asset.width, height: asset.height })
+    } catch (failure) { setError((failure as Error).message) }
   }
 
   if (!session) return <Page>
@@ -193,7 +205,7 @@ export default function Camera() {
       </Pressable>
     </View>
     {info && <View style={cameraStyles.infoCard}>
-      <Text style={cameraStyles.infoText}>Photos you translate are sent to Google for recognition and are not stored by Mila. Live preview is off until you turn it on. It reads up to 6 images over 30 seconds, then pauses to save battery.</Text>
+      <Text style={cameraStyles.infoText}>Photos you translate are sent to Google for recognition and are not stored by Mila; a page’s photo stays on your phone only until it has been read. Live preview is off until you turn it on. It reads up to 6 images over 30 seconds, then pauses to save battery.</Text>
       <Button secondary title="Got it" onPress={() => setInfo(false)} />
     </View>}
 

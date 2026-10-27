@@ -12,11 +12,14 @@ import { SessionProvider, useSession } from '../state/session'
 import { CURSIVE_FONT } from '../state/script'
 import { Button, colors, styles } from '../components/ui'
 import { identify, reportCrash, startCrashReporting, wrapRoot } from '../lib/crashes'
+import { watchScans } from '../lib/scans'
 
 startCrashReporting()
 function Navigator() {
   const { ready, session } = useSession()
   useEffect(() => identify(session?.user.id ?? null), [session?.user.id])
+  // Photos of pages not read yet are read again now and whenever Mila comes back (lib/scans.ts).
+  useEffect(() => (session ? watchScans(session) : undefined), [session])
   if (!ready) return <View style={{ flex: 1, justifyContent: 'center', backgroundColor: colors.paper }}><ActivityIndicator color={colors.green} /></View>
   return <><StatusBar style="dark" /><Stack screenOptions={{ headerTintColor: colors.ink, headerStyle: { backgroundColor: colors.paper }, headerShadowVisible: false, headerBackButtonDisplayMode: 'minimal', contentStyle: { backgroundColor: colors.paper }, orientation: 'portrait_up' }}>
     {/* Home is the tree with Read and Study; everything else opens from it. */}
