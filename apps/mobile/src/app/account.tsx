@@ -9,7 +9,7 @@ import { ChangePassword, ResetPassword } from '../components/Passwords'
 import { useSession } from '../state/session'
 import { clearVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
-import { useCursive, useHebrew } from '../state/script'
+import { CURSIVE_FONT, useCursive } from '../state/script'
 import { feedbackSettings, setFeedback } from '../lib/feedback'
 import { setVoice, speak, useSpeech, VOICES, type Voice } from '../lib/speech'
 import { ListenButton } from '../components/Listen'
@@ -35,9 +35,9 @@ export default function Account() {
     try { if (!(await applyLatestUpdate())) setUpdateStatus('You have the latest version.') }
     catch { setUpdateStatus('Could not check for updates. Try again with a connection.') } finally { setChecking(false) }
   }
-  const [showVowels, setShowVowels] = useVowels()
-  const [cursive, setCursive] = useCursive()
-  const he = useHebrew()
+  const [, setShowVowels, showVowels] = useVowels()
+  const [cursive, setCursive] = useCursive('reader')
+  const [cursiveAnswers, setCursiveAnswers] = useCursive('answers')
   const [feelings, setFeelings] = useState(feedbackSettings)
   const toggle = (name: 'sounds' | 'haptics', value: boolean) => { setFeedback(name, value); setFeelings(feedbackSettings()) }
   const { voice } = useSpeech()
@@ -99,18 +99,25 @@ export default function Account() {
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={styles.heading}>Vowel marks (niqqud)</Text>
-          <Text style={styles.copy}>In the reader, word explanations, flashcards and your word list.</Text>
+          <Text style={styles.copy}>In the reader, word explanations, flashcards and your word list. Cursive Hebrew has none.</Text>
         </View>
-        <Switch value={showVowels} onValueChange={setShowVowels} disabled={cursive} trackColor={{ true: colors.green }} accessibilityLabel="Vowel marks" />
+        <Switch value={showVowels} onValueChange={setShowVowels} trackColor={{ true: colors.green }} accessibilityLabel="Vowel marks" />
       </View>
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
         <View style={{ flex: 1, gap: 2 }}>
-          <Text style={styles.heading}>Cursive Hebrew (כתב יד)</Text>
-          <Text style={styles.copy}>Hebrew as it is handwritten, everywhere it is shown. Handwriting has no vowels, so they are hidden while it is on.</Text>
-          {cursive && <Text style={[styles.hebrew, { fontSize: 22, lineHeight: 34 }, he]}>שלום, מה שלומך?</Text>}
+          <Text style={styles.heading}>Cursive for reading (כתב יד)</Text>
+          <Text style={styles.copy}>Hebrew as it is handwritten in the reader, word explanations, word pages and your word list. Also the כתב יד button in the reader.</Text>
         </View>
-        <Switch value={cursive} onValueChange={setCursive} trackColor={{ true: colors.green }} accessibilityLabel="Cursive Hebrew" />
+        <Switch value={cursive} onValueChange={setCursive} trackColor={{ true: colors.green }} accessibilityLabel="Cursive for reading" />
       </View>
+      <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={styles.heading}>Cursive for card answers</Text>
+          <Text style={styles.copy}>A flashcard’s answer side in handwriting, to check answers written by hand; the question side stays in print. Also a chip in Study.</Text>
+        </View>
+        <Switch value={cursiveAnswers} onValueChange={setCursiveAnswers} trackColor={{ true: colors.green }} accessibilityLabel="Cursive for card answers" />
+      </View>
+      {(cursive || cursiveAnswers) && <Text style={[styles.hebrew, { fontSize: 22, lineHeight: 34, fontFamily: CURSIVE_FONT, fontWeight: 'normal' }]}>שלום, מה שלומך?</Text>}
     </View>
     <View style={styles.card}>
       <Text style={styles.heading}>Voice</Text>

@@ -23,13 +23,14 @@ import { quickMeanings } from '../lib/recognition'
 import { useSession } from '../state/session'
 import { useVowels } from '../state/vowels'
 import { isVowelled, pageWithVowels, withVowels } from '../lib/vowels'
-import { useHebrew } from '../state/script'
+import { useCursive, useHebrew } from '../state/script'
 
 // Runs reflow (REFLOW) when a sentence is selected and its English opens beneath it.
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 
 export default function Reader() {
   const he = useHebrew()
+  const [cursive, setCursive] = useCursive('reader')
   const { recognition, session } = useSession()
   const insets = useSafeAreaInsets()
   const { height: screenHeight, width: screenWidth } = useWindowDimensions()
@@ -299,8 +300,9 @@ export default function Reader() {
         since every sentence has its own Listen. */}
     <View style={[styles.row, reader.toolbar, { paddingLeft: 22 + insets.left, paddingRight: 22 + insets.right }]}>
       <Pill icon={english === 'off' ? 'eye-off-outline' : 'eye-outline'} label={englishLabel[english]} active={english !== 'off'} onPress={cycleEnglish} accessibilityLabel={`English ${englishSpoken[english]}. Change`} />
-      {/* Cursive is written without vowels, so it has no Vowels button. */}
-      {vowelled && !he && <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />}
+      {/* Print or cursive (state/script.ts); cursive is written without vowels, so it has no Vowels button. */}
+      <Pill label="כתב יד" active={cursive} onPress={() => setCursive(!cursive)} accessibilityLabel={cursive ? 'Cursive. Show in print' : 'Print. Show in cursive'} />
+      {vowelled && !cursive && <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />}
       <View style={reader.sizes}>
         <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={`Smaller text, now ${Math.round(size * 100)}%`} onPress={() => resize(-1)} hitSlop={6} style={reader.size}><Text style={reader.sizeLabel}>A−</Text></Pressy>
         <View style={reader.sizesRule} />

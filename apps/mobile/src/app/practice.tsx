@@ -27,7 +27,7 @@ import { ensureForms } from '../lib/word-forms'
 import { useSession } from '../state/session'
 import { cachedVocab, putEntry, vocabFor } from '../state/vocab'
 import { useVowels } from '../state/vowels'
-import { useHebrew } from '../state/script'
+import { ScriptContext, useCursive, useHebrew } from '../state/script'
 
 const bare = (text: string) => stripNiqqud(bareWord(text))
 type Settings = { front: Front; order: Order; include: Include; quiz: boolean }
@@ -48,8 +48,13 @@ type Loaded = Table | { error: string }
 export default function Practice() {
   const { session } = useSession()
   const insets = useSafeAreaInsets()
-  const [showVowels] = useVowels()
+  // A card's question side is in print with the vowels setting; its answer side in cursive
+  // (without vowels) unless print is chosen for answers; the word drawer is as in the reader.
+  const [showVowels, , vowelSetting] = useVowels()
+  const [cursiveAnswers, setCursiveAnswers] = useCursive('answers')
   const v = (text: string) => withVowels(text, showVowels)
+  const vQuestion = (text: string) => withVowels(text, vowelSetting)
+  const vAnswer = (text: string) => withVowels(text, vowelSetting && !cursiveAnswers)
   const [settings, setSettings] = useState<Settings | null>(null)
   const [why, setWhy] = useState(false)
   useEffect(() => { void getPref('studyWhy').then(setWhy) }, [])
@@ -175,7 +180,7 @@ export default function Practice() {
   const card = deck[position]
   const progress = { at: position - roundStart + 1, of: deck.length - roundStart }
   if (!card) return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <TopBar settings={settings} change={change} progress={null} canGoBack={false} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} />
+    <TopBar settings={settings} change={change} progress={null} canGoBack={false} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)} />
     <View style={[styles.content, { gap: 12 }]}>
       <Text style={styles.copy}>{settings.include === 'sentences' ? 'No sentence cards yet. They are written for each word as you save it.' : 'Nothing to study with these settings.'}</Text>
       <Button title="Study words and sentences" onPress={() => change({ include: 'both' })} />
@@ -257,9 +262,11 @@ export default function Practice() {
   }
 
   const listen = checkpoint ? undefined : form ? form.sentence : entry.lemma
-  const side = (english: boolean, answerSide: boolean) => form
-    ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={v} lookup={answerSide ? lookup : undefined} />
-    : <WordSide entry={entry} english={english} answer={answerSide} v={v} />
+  const side = (english: boolean, answerSide: boolean) => <ScriptContext.Provider value={answerSide ? 'answers' : 'print'}>
+    {form
+      ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={answerSide ? vAnswer : vQuestion} lookup={answerSide ? lookup : undefined} />
+      : <WordSide entry={entry} english={english} answer={answerSide} v={answerSide ? vAnswer : vQuestion} />}
+  </ScriptContext.Provider>
   const hint = checkpoint
     ? (!answerable ? (loaded && 'error' in loaded ? 'The forms could not be loaded, so swipe to skip this one.' : '')
       : flipped ? 'Swipe right if you knew them all, left if not.' : 'Say them to yourself, then tap to check.')
@@ -268,7 +275,7 @@ export default function Practice() {
         : Object.keys(answers).length < 3 ? 'Swipe right if you knew it, left if you\'re still learning.' : ''
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <TopBar settings={settings} change={change} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onWhy={toggleWhy} />
+    <TopBar settings={settings} change={change} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onWhy={toggleWhy} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)} />
     <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: 'center', paddingBottom: 24 + insets.bottom }]}>
       <ErrorNotice message={error} />
       {why && !!card.why && <Text style={practice.why}>{card.why}</Text>}
@@ -281,18 +288,18 @@ export default function Practice() {
           {checkpoint
             ? <FlipCard flipped={flipped} onPress={() => { if (tapped()) { feel('reveal'); setFlipped(value => !value) } }} style={[styles.card, practice.card]}
               accessibilityLabel={flipped ? 'Answer side' : 'Question side'}
-              front={<CheckpointSide entry={entry} stage={checkpoint} rows={rows} loading={!loaded} answer={false} v={v} />}
-              back={<CheckpointSide entry={entry} stage={checkpoint} rows={rows} loading={!loaded} answer v={v} />} />
+              front={<ScriptContext.Provider value="print"><CheckpointSide entry={entry} stage={checkpoint} rows={rows} loading={!loaded} answer={false} v={vQuestion} /></ScriptContext.Provider>}
+              back={<ScriptContext.Provider value="answers"><CheckpointSide entry={entry} stage={checkpoint} rows={rows} loading={!loaded} answer v={vAnswer} /></ScriptContext.Provider>} />
             : choices
               ? <View style={[styles.card, practice.card]}>
-                <CardHead label={stage?.label} lemma={v(entry.lemma)} listen={picked !== null ? listen : undefined} />
+                <ScriptContext.Provider value="print"><CardHead label={stage?.label} lemma={vQuestion(entry.lemma)} listen={picked !== null ? listen : undefined} /></ScriptContext.Provider>
                 {side(!form && englishFirst, picked !== null)}
-                <Choices choices={choices} answer={quiz!.answer} picked={picked} v={v} onPick={option => {
+                <ScriptContext.Provider value="print"><Choices choices={choices} answer={quiz!.answer} picked={picked} v={vQuestion} onPick={option => {
                   if (!tapped()) return
                   const isRight = bare(option) === bare(quiz!.answer)
                   setPicks(current => ({ ...current, [position]: option })); feel(isRight ? 'right' : 'wrong')
                   answer(isRight, true)
-                }} />
+                }} /></ScriptContext.Provider>
                 {picked !== null && <Text style={[practice.verdict, { color: right ? colors.green : colors.red }]}>{right ? 'Right' : 'Not quite'}</Text>}
               </View>
               : <FlipCard flipped={flipped} onPress={() => { if (tapped()) { feel('reveal'); setFlipped(value => !value) } }} style={[styles.card, practice.card]}
@@ -302,7 +309,7 @@ export default function Practice() {
                   {side(englishFirst, false)}
                 </>}
                 back={<>
-                  <CardHead label={form ? stage?.label : 'Word'} lemma={form ? v(entry.lemma) : undefined} listen={listen} />
+                  <ScriptContext.Provider value="answers"><CardHead label={form ? stage?.label : 'Word'} lemma={form ? vAnswer(entry.lemma) : undefined} listen={listen} /></ScriptContext.Provider>
                   {side(englishFirst, true)}
                 </>} />}
         </Animated.View>
@@ -326,8 +333,9 @@ const HINTS: Record<Side, ReactNode> = {
 }
 
 // Done, the arrows and where the round is; below, the settings as chips.
-function TopBar({ settings, change, progress, canGoBack, onBack, onNext, onDone, onWhy }: {
+function TopBar({ settings, change, progress, canGoBack, onBack, onNext, onDone, onWhy, cursive, onCursive }: {
   settings: Settings; change: (patch: Partial<Settings>) => void; progress: { at: number; of: number } | null; canGoBack: boolean; onBack: () => void; onNext: () => void; onDone: () => void; onWhy?: () => void
+  cursive: boolean; onCursive: () => void
 }) {
   return <View style={practice.top}>
     <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
@@ -343,6 +351,8 @@ function TopBar({ settings, change, progress, canGoBack, onBack, onNext, onDone,
       <Pill label={settings.order === 'shuffle' ? 'Shuffled' : 'Smart order'} icon="shuffle" active={settings.order === 'shuffle'} onPress={() => change({ order: settings.order === 'shuffle' ? 'smart' : 'shuffle' })} />
       <Pill label={INCLUDES[settings.include]} onPress={() => change({ include: next(INCLUDES, settings.include) })} accessibilityLabel={`${INCLUDES[settings.include]}. Change which cards`} />
       <Pill label="Quiz forms" active={settings.quiz} onPress={() => change({ quiz: !settings.quiz })} />
+      {/* Answers in cursive (כתב יד) or print; questions are always in print (state/script.ts). */}
+      <Pill label="Answers in כתב יד" active={cursive} onPress={onCursive} accessibilityLabel={cursive ? 'Answers in cursive. Show them in print' : 'Answers in print. Show them in cursive'} />
     </ScrollView>
   </View>
 }
