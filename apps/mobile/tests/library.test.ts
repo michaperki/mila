@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { matchesDoc, previewOf, progressOf, sortDocs, titleOf } from '../src/lib/library.ts'
+import { latestRead, matchesDoc, previewOf, progressOf, sortDocs, titleOf } from '../src/lib/library.ts'
 import type { TextDoc } from '../src/lib/types'
 
 const doc = (id: string, extra: Partial<TextDoc> = {}): TextDoc => ({
@@ -31,4 +31,16 @@ test('search covers both languages and ignores vowels', () => {
   assert.ok(matchesDoc(doc('a'), 'goodbye'))
   assert.ok(matchesDoc(doc('a', { name: 'Kafka' }), 'kaf'))
   assert.ok(!matchesDoc(doc('a'), 'banana'))
+})
+
+test('Continue reading goes to the passage opened last, before any starter passage', () => {
+  assert.equal(latestRead([doc('a'), doc('b')]), null)
+  const read = latestRead([doc('a', { openedAt: 5, lastSegment: 2, title: 'Mine' }), doc('b', { openedAt: 3 })])
+  assert.deepEqual(read, { id: 'a', segment: 2, title: 'Mine', at: 5 })
+  // A starter opened since doesn't take its place; on its own, it is where reading goes on.
+  assert.equal(latestRead([doc('s', { openedAt: 9, lastSegment: 1, starter: true }), doc('a', { openedAt: 5 })])?.id, 'a')
+  assert.equal(latestRead([doc('s', { openedAt: 9, lastSegment: 1, starter: true }), doc('a')])?.id, 's')
+  // Opened but not read at a sentence yet: from the start; a sentence past the end, the last one.
+  assert.equal(latestRead([doc('a', { openedAt: 5 })])?.segment, 0)
+  assert.equal(latestRead([doc('a', { openedAt: 5, lastSegment: 40 })])?.segment, 3)
 })

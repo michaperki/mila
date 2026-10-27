@@ -13,6 +13,7 @@ import { textFromDocument } from '../lib/documents'
 import { feel } from '../lib/feedback'
 import { freshStages } from '../lib/forms'
 import { APPEAR, DISAPPEAR } from '../lib/motion'
+import { latestRead } from '../lib/library'
 import { getPref, setPref } from '../lib/prefs'
 import { type LastRead, parseLastRead } from '../lib/today'
 import { lastShown, loadTree, rememberTree, SAPLING, takeTended, type Tree, treeLine } from '../lib/tree'
@@ -42,12 +43,25 @@ export default function Home() {
   const [lastRead, setLastRead] = useState<LastRead | null>(null)
   const [opening, setOpening] = useState(false)
   const [openError, setOpenError] = useState<string | null>(null)
+  // The library as last loaded on this visit, for Continue reading.
+  const library = useRef<TextDoc[] | null>(null)
+  const sessionNow = useRef(session)
+  useEffect(() => { sessionNow.current = session }, [session])
   // What Mila suggests studying next: a stage it has just brought in. A suggestion, never a count.
   const next = useMemo(() => freshStages(entries, 1)[0], [entries])
 
   useFocusEffect(useCallback(() => {
     setFocused(true); setVisit(value => value + 1); setHour(hourNow())
+    // Where reading stopped as this phone remembers it, at once; then as the library has it.
     void getPref('lastRead').then(value => setLastRead(parseLastRead(value)))
+    const signedIn = sessionNow.current
+    if (signedIn) void request<{ texts?: TextDoc[] }>('texts', { token: signedIn.token }).then(({ texts = [] }) => {
+      library.current = texts
+      void getPref('lastRead').then(value => {
+        const read = continueFrom(texts, parseLastRead(value))
+        setLastRead(read); setPref('lastRead', read ? JSON.stringify(read) : '')
+      })
+    }, () => {})
     void getPref('treeMotion').then(setSway)
     // The light follows the clock while Home is open.
     const clock = setInterval(() => setHour(hourNow()), 5 * 60 * 1000)
@@ -91,8 +105,8 @@ export default function Home() {
     if (!session || !lastRead) return
     setOpening(true); setOpenError(null)
     try {
-      const { texts } = await request<{ texts?: TextDoc[] }>('texts', { token: session.token })
-      const doc = texts?.find(item => item.id === lastRead.id)
+      const doc = library.current?.find(item => item.id === lastRead.id)
+        ?? (await request<{ texts?: TextDoc[] }>('texts', { token: session.token })).texts?.find(item => item.id === lastRead.id)
       if (!doc) { setPref('lastRead', ''); setLastRead(null); setOpenError('That passage is no longer in your library.'); return }
       const recognition = textFromDocument(doc)
       const startAt = lastRead.segment < (recognition.segments?.length ?? 0) ? lastRead.segment : undefined
@@ -145,6 +159,18 @@ export default function Home() {
     {reading && <ReadSheet lastRead={session ? lastRead : null} opening={opening} onClose={() => setReading(false)}
       onCamera={() => go('/camera')} onPaste={() => go('/compose')} onStarters={session && !lastRead ? () => go('/library') : undefined} onContinue={() => void continueReading()} />}
   </View>
+}
+
+// Where Continue reading goes: the passage the library says was opened last (lib/library.ts
+// latestRead), or the one this phone remembers if it was read since and the library hasn't heard
+// yet (the sentence is sent as it is selected), unless that is a starter passage and one of the
+// learner's own has been read.
+function continueFrom(texts: TextDoc[], remembered: LastRead | null): LastRead | null {
+  const read = latestRead(texts)
+  const doc = remembered && texts.find(item => item.id === remembered.id)
+  if (!doc || !remembered) return read
+  if (read && (remembered.at <= read.at || (doc.starter && !texts.find(item => item.id === read.id)?.starter))) return read
+  return { ...remembered, title: read?.id === doc.id ? read.title : remembered.title }
 }
 
 // The ways a new text comes in: a photo of a page, pasted text, or the passage being read.

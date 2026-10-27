@@ -1,5 +1,6 @@
 import { stripNiqqud } from './ocr-cleanup.ts'
 import type { TextDoc } from './types'
+import type { LastRead } from './today.ts'
 
 // The Library's view of a saved passage.
 
@@ -38,4 +39,16 @@ export function matchesDoc(doc: TextDoc, query: string) {
   if (!wanted) return true
   const haystack = [doc.name, doc.title, ...doc.chunks.flatMap(chunk => [chunk.text, chunk.translation])].filter(Boolean).join('\n')
   return stripNiqqud(haystack).toLowerCase().includes(wanted)
+}
+
+// Where Continue reading goes: the passage opened last, at the sentence last selected in it, as
+// the library has it (so it is the same on every phone). The starter passages only count until
+// one of the learner's own has been opened: what they read themselves comes first.
+export function latestRead(docs: TextDoc[]): LastRead | null {
+  const opened = docs.filter(doc => doc.openedAt !== undefined && doc.chunks.length)
+  const own = opened.filter(doc => !doc.starter)
+  const latest = (own.length ? own : opened).sort((a, b) => b.openedAt! - a.openedAt!)[0]
+  if (!latest) return null
+  const segment = Math.min(latest.lastSegment ?? 0, latest.chunks.length - 1)
+  return { id: latest.id, segment, title: titleOf(latest), at: latest.openedAt! }
 }

@@ -160,11 +160,16 @@ export default function Reader() {
   // Sentences flow together within a paragraph, like a page in a book.
   const paragraphs = useMemo(() => paragraphsOf(segments, paged), [segments, paged])
 
-  // Upserts by id, so re-opening the same capture can't create a duplicate.
+  // Upserts by id, so re-opening the same capture can't create a duplicate. A passage just saved
+  // is the one being read, so Continue reading goes to it even before a sentence is selected.
   const persist = () => {
     const doc = documentFromRecognition(recognition!, docId.current)
     return request('texts', { token: session!.token, body: { ...doc, textId: doc.id } })
-      .then(() => setSaved(true), (failure: Error) => setError(`This passage wasn't saved. ${failure.message}`))
+      .then(() => {
+        setSaved(true)
+        rememberRead(doc.id, active ?? 0, recognition!.title || titleFrom(recognition!.text))
+        void request('texts', { token: session!.token, method: 'PATCH', body: { textId: doc.id, read: active ?? 0 } }).catch(() => {})
+      }, (failure: Error) => setError(`This passage wasn't saved. ${failure.message}`))
       .finally(() => setBusy(false))
   }
   const save = () => {

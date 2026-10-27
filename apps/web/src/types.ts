@@ -32,6 +32,8 @@ export type TextDoc = {
   lastSegment?: number;
   furthestSegment?: number;
   openedAt?: number;
+  // One of the starter passages every library begins with (netlify/functions/lib/starters.ts).
+  starter?: boolean;
   chunks: Chunk[];
   createdAt: number;
   thumbnail?: string;
