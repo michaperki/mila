@@ -1,14 +1,14 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import Animated from 'react-native-reanimated'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { stop as stopSpeaking } from '../lib/speech'
 import { ListenButton } from '../components/Listen'
-import { Button, colors, ErrorNotice, Loading, Page, Pill, Pressy, styles } from '../components/ui'
-import { FlipCard, Shake, type Side, SwipeCard } from '../components/Motion'
-import { CARD_BACK_IN, CARD_IN } from '../lib/motion'
+import { Button, colors, ErrorNotice, Loading, Page, Pressy, styles } from '../components/ui'
+import { DraggableSheet, FlipCard, Shake, type Side, SwipeCard } from '../components/Motion'
+import { APPEAR, CARD_BACK_IN, CARD_IN, DISAPPEAR } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { type Table, tableMeaning } from '../lib/explore'
@@ -33,7 +33,8 @@ const bare = (text: string) => stripNiqqud(bareWord(text))
 type Settings = { front: Front; order: Order; include: Include; quiz: boolean }
 const FRONTS: Record<Front, string> = { he: 'Hebrew first', en: 'English first', mixed: 'Mixed' }
 const INCLUDES: Record<Include, string> = { both: 'Words & sentences', words: 'Words', sentences: 'Sentences' }
-const next = <T extends string>(options: Record<T, string>, value: T) => { const keys = Object.keys(options) as T[]; return keys[(keys.indexOf(value) + 1) % keys.length] }
+const ORDERS: Record<Order, string> = { smart: 'Smart', shuffle: 'Shuffled' }
+const SHOW_FIRST: Record<Front, string> = { he: 'Hebrew', en: 'English', mixed: 'Mixed' }
 // A word's table of forms for its checkpoints, or why it couldn't be had.
 type Loaded = Table | { error: string }
 
@@ -62,6 +63,7 @@ export default function Practice() {
   const [deck, setDeck] = useState<Card[] | null>(null)
   // Temporary, for checking cues: only cards whose English shows one, English first.
   const [cuesOnly, setCuesOnly] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // Where the round being studied starts in the deck (rounds are appended as they go round).
   const [roundStart, setRoundStart] = useState(0)
   const [position, setPosition] = useState(0)
@@ -187,14 +189,20 @@ export default function Practice() {
     setDeck([...deck.slice(0, position + 1), ...rest])
   }
 
+  const summary = [FRONTS[settings.front], settings.order === 'shuffle' ? 'Shuffled' : 'Smart order', INCLUDES[settings.include],
+    settings.quiz && 'Quiz forms', cursiveAnswers && 'Answers in כתב יד', cuesOnly && 'Emoji only'].filter(Boolean).join(' · ')
+  const sheet = settingsOpen && <SettingsSheet settings={settings} change={change} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)}
+    cuesOnly={cuesOnly} onCues={toggleCues} onClose={() => setSettingsOpen(false)} />
+
   const card = deck[position]
   const progress = { at: position - roundStart + 1, of: deck.length - roundStart }
   if (!card) return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <TopBar settings={settings} change={change} progress={null} canGoBack={false} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)} />
+    <TopBar summary={summary} progress={null} canGoBack={false} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onSettings={() => setSettingsOpen(true)} />
     <View style={[styles.content, { gap: 12 }]}>
       <Text style={styles.copy}>{settings.include === 'sentences' ? 'No sentence cards yet. They are written for each word as you save it.' : 'Nothing to study with these settings.'}</Text>
       <Button title="Study words and sentences" onPress={() => change({ include: 'both' })} />
     </View>
+    {sheet}
   </View>
 
   const entry = words[card.entry.id] || card.entry
@@ -271,7 +279,8 @@ export default function Practice() {
     return go(1, true, answer(side === 'right'))
   }
 
-  const listen = checkpoint ? undefined : form ? form.sentence : entry.lemma
+  // A noun for a person with both forms is heard as both (מַזְכִּיר, מַזְכִּירָה).
+  const listen = checkpoint ? undefined : form ? form.sentence : entry.feminine ? `${entry.lemma}, ${entry.feminine}` : entry.lemma
   const side = (english: boolean, answerSide: boolean) => <ScriptContext.Provider value={answerSide ? 'answers' : 'print'}>
     {form
       ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={answerSide ? vAnswer : vQuestion} lookup={answerSide ? lookup : undefined} />
@@ -285,7 +294,7 @@ export default function Practice() {
         : Object.keys(answers).length < 3 ? 'Swipe right if you knew it, left if you\'re still learning.' : ''
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <TopBar settings={settings} change={change} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onWhy={toggleWhy} cuesOnly={cuesOnly} onCues={toggleCues} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)} />
+    <TopBar summary={summary} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onWhy={toggleWhy} onSettings={() => setSettingsOpen(true)} />
     <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: 'center', paddingBottom: 24 + insets.bottom }]}>
       <ErrorNotice message={error} />
       {why && !!card.why && <Text style={practice.why}>{card.why}</Text>}
@@ -328,6 +337,7 @@ export default function Practice() {
       <Text style={[practice.hint, { minHeight: 22 }]}>{hint}</Text>
     </ScrollView>
     <WordDrawer lookup={lookup} v={v} style={{ paddingBottom: 12 + insets.bottom }} />
+    {sheet}
   </View>
 }
 
@@ -342,10 +352,10 @@ const HINTS: Record<Side, ReactNode> = {
   left: <Text style={[practiceHint.tag, practiceHint.learning]}>Still learning</Text>,
 }
 
-// Done, the arrows and where the round is; below, the settings as chips.
-function TopBar({ settings, change, progress, canGoBack, onBack, onNext, onDone, onWhy, cuesOnly, onCues, cursive, onCursive }: {
-  settings: Settings; change: (patch: Partial<Settings>) => void; progress: { at: number; of: number } | null; canGoBack: boolean; onBack: () => void; onNext: () => void; onDone: () => void; onWhy?: () => void
-  cuesOnly?: boolean; onCues?: () => void; cursive: boolean; onCursive: () => void
+// Done, the arrows and where the round is, and the settings button; below, the settings in force
+// in one quiet line, which opens them too (SettingsSheet).
+function TopBar({ summary, progress, canGoBack, onBack, onNext, onDone, onWhy, onSettings }: {
+  summary: string; progress: { at: number; of: number } | null; canGoBack: boolean; onBack: () => void; onNext: () => void; onDone: () => void; onWhy?: () => void; onSettings: () => void
 }) {
   return <View style={practice.top}>
     <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
@@ -354,18 +364,67 @@ function TopBar({ settings, change, progress, canGoBack, onBack, onNext, onDone,
         <Arrow icon="chevron-back" label="Previous card" disabled={!canGoBack} onPress={onBack} />
         <Text style={practice.progress} onLongPress={onWhy} accessibilityLabel={progress ? `Card ${progress.at} of ${progress.of}` : undefined}>{progress ? `${progress.at} / ${progress.of}` : ''}</Text>
         <Arrow icon="chevron-forward" label="Next card" onPress={onNext} />
+        <Pressy moment="tick" accessibilityRole="button" accessibilityLabel={`Study settings: ${summary}`} onPress={onSettings} style={practice.arrow}>
+          <Ionicons name="options-outline" size={22} color={colors.ink} />
+        </Pressy>
       </View>
     </View>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -22, flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 22 }}>
-      <Pill label={FRONTS[settings.front]} icon="swap-horizontal" onPress={() => change({ front: next(FRONTS, settings.front) })} accessibilityLabel={`${FRONTS[settings.front]}. Change which side shows first`} />
-      <Pill label={settings.order === 'shuffle' ? 'Shuffled' : 'Smart order'} icon="shuffle" active={settings.order === 'shuffle'} onPress={() => change({ order: settings.order === 'shuffle' ? 'smart' : 'shuffle' })} />
-      <Pill label={INCLUDES[settings.include]} onPress={() => change({ include: next(INCLUDES, settings.include) })} accessibilityLabel={`${INCLUDES[settings.include]}. Change which cards`} />
+    <Pressable accessibilityRole="button" accessibilityLabel={`Study settings: ${summary}`} onPress={onSettings} hitSlop={6}>
+      <Text style={practice.summary} numberOfLines={1}>{summary}</Text>
+    </Pressable>
+  </View>
+}
+
+// The settings, grouped: what is studied and how (Study) and how answers look (Display). Each
+// shows its choices with the one in force selected; changes apply as they do from the top bar
+// (the order and which cards from the next card, which side first at once).
+function SettingsSheet({ settings, change, cursive, onCursive, cuesOnly, onCues, onClose }: {
+  settings: Settings; change: (patch: Partial<Settings>) => void; cursive: boolean; onCursive: () => void; cuesOnly: boolean; onCues: () => void; onClose: () => void
+}) {
+  const insets = useSafeAreaInsets()
+  return <View style={StyleSheet.absoluteFill}>
+    <Animated.View entering={APPEAR} exiting={DISAPPEAR} style={[StyleSheet.absoluteFill, practice.scrim]}>
+      <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Close settings" onPress={onClose} />
+    </Animated.View>
+    <DraggableSheet onDismiss={onClose} accessibilityViewIsModal style={[practice.sheet, { paddingBottom: insets.bottom + 18 }]}
+      handle={<View style={[styles.row, { justifyContent: 'space-between' }]}>
+        <Text style={practice.sheetTitle}>Settings</Text>
+        <Pressable accessibilityRole="button" onPress={onClose} hitSlop={10}><Text style={practice.done}>Done</Text></Pressable>
+      </View>}>
+      <Text style={practice.group}>Study</Text>
+      <Choice label="Show first" options={SHOW_FIRST} value={settings.front} onChange={front => change({ front })} />
+      <Choice label="Order" options={ORDERS} value={settings.order} onChange={order => change({ order })} />
+      <Choice label="Cards" options={INCLUDES} value={settings.include} onChange={include => change({ include })} />
+      <Toggle label="Quiz forms" detail="Choose a sentence's missing form from the word's forms" value={settings.quiz} onChange={() => change({ quiz: !settings.quiz })} />
+      <Text style={practice.group}>Display</Text>
+      <Toggle label="Answers in כתב יד" detail="Cursive on the answer side; questions stay in print" value={cursive} onChange={onCursive} />
       {/* Temporary: for checking cues. */}
-      {onCues && <Pill label="Emoji only" active={cuesOnly} onPress={onCues} />}
-      <Pill label="Quiz forms" active={settings.quiz} onPress={() => change({ quiz: !settings.quiz })} />
-      {/* Answers in cursive (כתב יד) or print; questions are always in print (state/script.ts). */}
-      <Pill label="Answers in כתב יד" active={cursive} onPress={onCursive} accessibilityLabel={cursive ? 'Answers in cursive. Show them in print' : 'Answers in print. Show them in cursive'} />
-    </ScrollView>
+      <Text style={practice.group}>Testing</Text>
+      <Toggle label="Emoji only" detail="Only cards whose English shows a gender emoji" value={cuesOnly} onChange={onCues} />
+    </DraggableSheet>
+  </View>
+}
+
+// One setting with a few choices, side by side, the one in force filled.
+function Choice<T extends string>({ label, options, value, onChange }: { label: string; options: Record<T, string>; value: T; onChange: (value: T) => void }) {
+  return <View style={{ gap: 6 }}>
+    <Text style={practice.settingLabel}>{label}</Text>
+    <View style={practice.segments} accessibilityRole="radiogroup" accessibilityLabel={label}>
+      {(Object.keys(options) as T[]).map(key => <Pressy key={key} moment="tick" depth={0.96} accessibilityRole="radio" accessibilityState={{ checked: key === value }}
+        onPress={() => { if (key !== value) onChange(key) }} style={[practice.segment, key === value && practice.segmentOn]}>
+        <Text style={[practice.segmentText, key === value && practice.segmentTextOn]} numberOfLines={1} adjustsFontSizeToFit>{options[key]}</Text>
+      </Pressy>)}
+    </View>
+  </View>
+}
+
+function Toggle({ label, detail, value, onChange }: { label: string; detail: string; value: boolean; onChange: () => void }) {
+  return <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
+    <View style={{ flex: 1, gap: 1 }}>
+      <Text style={practice.settingLabel}>{label}</Text>
+      <Text style={practice.settingDetail}>{detail}</Text>
+    </View>
+    <Switch value={value} onValueChange={onChange} trackColor={{ true: colors.green }} accessibilityLabel={label} />
   </View>
 }
 
@@ -546,7 +605,19 @@ function Summary({ answered, words, unlocked, error, onMore }: { answered: numbe
 
 
 const practice = StyleSheet.create({
-  top: { gap: 10, paddingHorizontal: 22, paddingTop: 12 },
+  top: { gap: 4, paddingHorizontal: 22, paddingTop: 12 },
+  summary: { fontSize: 13, color: colors.muted },
+  scrim: { backgroundColor: '#2A252038' },
+  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: 10, paddingHorizontal: 22, gap: 14, backgroundColor: colors.paper, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  sheetTitle: { fontSize: 18, fontWeight: '700', color: colors.ink },
+  group: { fontSize: 12, fontWeight: '700', letterSpacing: 1.5, color: colors.muted, textTransform: 'uppercase', marginTop: 6 },
+  settingLabel: { fontSize: 16, fontWeight: '600', color: colors.ink },
+  settingDetail: { fontSize: 13, lineHeight: 18, color: colors.muted },
+  segments: { flexDirection: 'row', padding: 3, gap: 3, borderRadius: 12, backgroundColor: colors.line },
+  segment: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 38, paddingHorizontal: 6, borderRadius: 9 },
+  segmentOn: { backgroundColor: colors.white, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } },
+  segmentText: { fontSize: 14, fontWeight: '600', color: colors.muted },
+  segmentTextOn: { color: colors.green },
   done: { fontSize: 16, fontWeight: '600', color: colors.green },
   progress: { fontSize: 14, color: colors.muted, minWidth: 52, textAlign: 'center', fontVariant: ['tabular-nums'] },
   why: { fontSize: 12, color: colors.muted, textAlign: 'center', fontVariant: ['tabular-nums'] },
