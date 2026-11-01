@@ -1,5 +1,6 @@
 import type { Handler } from '@netlify/functions'
 import Anthropic from '@anthropic-ai/sdk'
+import { CUE_RULES, CUES, isCue } from './lib/cues'
 import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
 import { getDb } from './lib/mongo'
@@ -56,10 +57,6 @@ export const kindOf = (partOfSpeech?: string) =>
 // An expression is learned as the kind of word that inflects in it.
 export const kindOfEntry = (entry: Pick<Entry, 'partOfSpeech' | 'head'>) => kindOf(entry.partOfSpeech === 'expression' ? entry.head?.partOfSpeech : entry.partOfSpeech)
 
-// Who a form is for, shown beside a card's English when the English doesn't say and the Hebrew
-// depends on it: a man, a woman, a boy, a girl, men, women, several people.
-const CUES = ['', '👨', '👩', '👦', '👧', '👬', '👭', '👥'] as const
-
 const schema = {
   type: 'object', additionalProperties: false, required: ['forms'],
   properties: {
@@ -96,7 +93,7 @@ Constructions: when you are told the constructions the word is used in (לְהַ
 
 Patterns: when the word is learned as a pattern (נָטוּל + [שֵׁם עֶצֶם], "free of [noun]"), every card uses the pattern, with a different everyday word in its open place each time (נטול סוכר, נטולת דאגות, נטולי שומן), so the pattern is what is learned and not one example of it. "english" is the pattern's meaning with that card's word in its open place, marked for the form as usual ("free of sugar (f.)"), and inSentence and inTranslation list only the pattern's own words, not the word in its open place.
 
-Who: the learner sees the English translation and must produce the Hebrew, and English often doesn't say what the Hebrew form depends on. Set "cue" only when the translation alone leaves open the gender (or, for "you", the number) of the person or people this card's form agrees with, and the form would be written differently otherwise: "you were tired" said to one man is 👨 and to one woman 👩, to several men 👬, women 👭, a mixed or unspecified group 👥; "the child was tired" is 👦 or 👧; "I am tired" is 👨 or 👩 when the form is the present or an adjective, which agree with the speaker. Use 👦 or 👧 for a child, 👨 or 👩 for an adult. Leave it empty whenever the English already says it (he, she, my sister, the boys), when the form is the same for everyone (past "I slept", "we went", "they went", the infinitive), and for things, whose gender is grammar the learner is expected to know ("the table is big" has no cue).
+${CUE_RULES}
 
 Sentences must differ from each other and from the sentences already used for this word: vary who acts, the setting, the objects and the sentence shape, so no two read as the same sentence with the person changed. Keep the rest of each sentence simple, common vocabulary, so the target word is the only hard part and its meaning is clear from the sentence.`
 
@@ -176,7 +173,7 @@ export const handler: Handler = async (event) => {
         key: `${stage}:${slot}`, stage, slot, he: item.form.trim(), en: item.english.trim(), sentence: item.sentence.trim(),
         mark: words(item.inSentence), ...(item.said.trim() ? { said: item.said.trim() } : {}), translation: item.translation.trim(), enMark: words(item.inTranslation),
         // Kept even when empty: the card was written knowing whether its English says who.
-        cue: item.cue && (CUES as readonly string[]).includes(item.cue) ? item.cue : '',
+        cue: isCue(item.cue) ? item.cue : '',
       }] : []
     })
     if (!forms.length) return reply(422, { message: 'These forms could not be written.', requestId })
