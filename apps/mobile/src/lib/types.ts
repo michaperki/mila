@@ -104,7 +104,7 @@ export type FormCard = {
   // The words of `translation` that render the card's word, marked on English → Hebrew cards.
   enMark?: string; said?: string
   // Who the form is for when its English doesn't say and the Hebrew depends on it (👨 👩 👦 👧
-  // 👬 👭 👥), empty when it does; missing on cards written before (lib/forms.ts cueOf).
+  // or two faces for a group: 👨👨 👩👩 👨👩 👦👦 👧👧 👦👧), empty when it does; missing on cards written before (lib/forms.ts cueOf).
   cue?: string
   // The word of `translation` the cue is about, which it is shown right after ("secretary", "you").
   cueAfter?: string

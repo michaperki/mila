@@ -45,8 +45,9 @@ async function cuesFor(entry, forms) {
   })
 }
 
-// Without a cue yet, or with one that doesn't say which word it goes after.
-const unchecked = form => !('cue' in form) || (!!form.cue && !form.cueAfter)
+// Without a cue yet, with one that doesn't say which word it goes after, or one no longer in use
+// (the silhouettes 👬 👭 👥 groups had before they were two faces).
+const unchecked = form => !('cue' in form) || (!!form.cue && (!form.cueAfter || !isCue(form.cue)))
 
 const client = new MongoClient(env.MONGODB_URI)
 try {

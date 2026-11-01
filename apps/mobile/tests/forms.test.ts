@@ -243,7 +243,7 @@ test('a card says who its form is for only where its English leaves it open', ()
   assert.equal(cueOf({ stage: 'past', slot: '2sg.f', cue: '' }), '')
   // Written before: "you" and commands from their slot, everything else nothing.
   assert.equal(cueOf({ stage: 'past', slot: '2sg.m' }), '👨')
-  assert.equal(cueOf({ stage: 'future', slot: '2pl' }), '👥')
+  assert.equal(cueOf({ stage: 'future', slot: '2pl' }), '👨👩')
   assert.equal(cueOf({ stage: 'imperative', slot: 'f.sg' }), '👩')
   assert.equal(cueOf({ stage: 'past', slot: '3sg.m' }), '')
   assert.equal(cueOf({ stage: 'present', slot: 'm.sg' }), '')
@@ -256,7 +256,7 @@ test('a cue is shown right after the English word it is about', () => {
   assert.equal(cuedTranslation({ ...card, translation: 'Why are you tired?', cue: '👨', cueAfter: 'you' }), 'Why are you 👨 tired?')
   // After the whole of a contraction, before punctuation; not inside another word.
   assert.equal(cuedTranslation({ ...card, translation: "I'm sorry I'm late.", cue: '👩', cueAfter: 'I' }), "I'm 👩 sorry I'm late.")
-  assert.equal(cuedTranslation({ ...card, translation: 'Are you coming, you?', cue: '👥', cueAfter: 'you' }), 'Are you 👥 coming, you?')
+  assert.equal(cuedTranslation({ ...card, translation: 'Are you coming, you?', cue: '👨👩', cueAfter: 'you' }), 'Are you 👨👩 coming, you?')
   assert.equal(cuedTranslation({ ...card, translation: 'Your kids, are they tired?', cue: '👦', cueAfter: 'kids' }), 'Your kids 👦, are they tired?')
   // Not found, or not said: first. No cue: the translation as it is.
   assert.equal(cuedTranslation({ ...card, cueAfter: 'nurse' }), "👩 The doctor's secretary made me an appointment.")

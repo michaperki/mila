@@ -45,8 +45,8 @@ export const stagesOf = (entry: VocabEntry) => STAGES[kindOfEntry(entry)]
 // Who a card's form is for, shown beside its English when the English doesn't say and the Hebrew
 // depends on it ("you were tired" to a woman: 👩). Cards say so when written; cards written before
 // say it only where English never can, from their slot: "you" in the past and future, and commands.
-const PERSON_CUES: Record<string, string> = { '2sg.m': '👨', '2sg.f': '👩', '2pl.m': '👬', '2pl.f': '👭', '2pl': '👥' }
-const COMMAND_CUES: Record<string, string> = { 'm.sg': '👨', 'f.sg': '👩', pl: '👥' }
+const PERSON_CUES: Record<string, string> = { '2sg.m': '👨', '2sg.f': '👩', '2pl.m': '👨👨', '2pl.f': '👩👩', '2pl': '👨👩' }
+const COMMAND_CUES: Record<string, string> = { 'm.sg': '👨', 'f.sg': '👩', pl: '👨👩' }
 export const cueOf = (form: Pick<FormCard, 'stage' | 'slot' | 'cue'>) => form.cue
   ?? ((form.stage === 'past' || form.stage === 'future' ? PERSON_CUES[form.slot] : form.stage === 'imperative' ? COMMAND_CUES[form.slot] : undefined) || '')
 
@@ -231,6 +231,11 @@ export type Order = 'smart' | 'shuffle'
 // play, shuffled. Either way, a word not yet met shows only its word card (in sentences only, its
 // meanings), and two cards of one word aren't back to back where another can go between.
 // Nothing here is ever due.
+// For finding them while cues are being checked (Study's temporary "Emoji only" chip): every
+// card of every word whose English shows a cue, whatever stage it is at, shuffled.
+export const cueCards = (entries: VocabEntry[], seed: string): Card[] =>
+  shuffle(entries.flatMap(entry => (entry.forms || []).filter(form => !!cueOf(form) && !!form.translation).map(form => ({ entry, form, why: `cue ${cueOf(form)}` }))), seed)
+
 export function deckOf(entries: VocabEntry[], { include, order }: { include: Include; order: Order }, now = Date.now(), seed = String(now)): Card[] {
   const studied = entries.filter(entry => !isKnownWord(entry))
   const deeper = (entry: VocabEntry) => (include === 'sentences' || isMet(entry) ? newCards(entry) : [])

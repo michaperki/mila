@@ -13,7 +13,7 @@ import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, cuedTranslation, deckOf, firstSense, followUps, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
+import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, cueCards, cuedTranslation, cueOf, deckOf, firstSense, followUps, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
@@ -60,6 +60,8 @@ export default function Practice() {
   useEffect(() => { void getPref('studyWhy').then(setWhy) }, [])
   const toggleWhy = () => { feel('tick'); setPref('studyWhy', !why); setWhy(!why) }
   const [deck, setDeck] = useState<Card[] | null>(null)
+  // Temporary, for checking cues: only cards whose English shows one, English first.
+  const [cuesOnly, setCuesOnly] = useState(false)
   // Where the round being studied starts in the deck (rounds are appended as they go round).
   const [roundStart, setRoundStart] = useState(0)
   const [position, setPosition] = useState(0)
@@ -136,7 +138,7 @@ export default function Practice() {
 
   // Another round, from the latest copy of each word (its order reflects what was just studied).
   const newRound = () => {
-    const again = deckOf(Object.values(words), settings, Date.now(), `${Date.now()}`)
+    const again = cuesOnly ? cueCards(Object.values(words), `${Date.now()}`) : deckOf(Object.values(words), settings, Date.now(), `${Date.now()}`)
     // Don't show the card just studied twice in a row.
     const last = deck[deck.length - 1]
     if (again.length > 1 && last && cardKey(again[0]) === cardKey(last)) again.push(again.shift()!)
@@ -177,6 +179,14 @@ export default function Practice() {
     }
   }
 
+  const toggleCues = () => {
+    const on = !cuesOnly
+    setCuesOnly(on)
+    const here = deck[position]
+    const rest = (on ? cueCards(Object.values(words), `${Date.now()}`) : deckOf(Object.values(words), settings, Date.now(), `${Date.now()}`)).filter(card => !here || cardKey(card) !== cardKey(here))
+    setDeck([...deck.slice(0, position + 1), ...rest])
+  }
+
   const card = deck[position]
   const progress = { at: position - roundStart + 1, of: deck.length - roundStart }
   if (!card) return <View style={{ flex: 1, backgroundColor: colors.paper }}>
@@ -196,7 +206,7 @@ export default function Practice() {
   const rows = checkpoint && loaded && 'groups' in loaded ? loaded.groups.find(group => group.key === checkpointGroup(entry, checkpoint))?.rows ?? [] : []
   // Mixed: each card shows one side or the other first, settled per card and position.
   const front: 'he' | 'en' = settings.front === 'mixed' ? ([...`${cardKey(card)}${position}`].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 ? 'en' : 'he') : settings.front
-  const englishFirst = front === 'en' && (!form || !!form.translation)
+  const englishFirst = (front === 'en' || (cuesOnly && !!form && !!cueOf(form))) && (!form || !!form.translation)
   // Quiz mode: a word card shown in Hebrew asks for its meaning, shown in English for the word.
   // A checkpoint is always recalled and turned over.
   const quiz = settings.quiz && !checkpoint ? quizOf(Object.values(words), { entry, form }, !englishFirst, `${cardKey(card)}-${record.results?.length ?? 0}`) : null
@@ -275,7 +285,7 @@ export default function Practice() {
         : Object.keys(answers).length < 3 ? 'Swipe right if you knew it, left if you\'re still learning.' : ''
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <TopBar settings={settings} change={change} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onWhy={toggleWhy} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)} />
+    <TopBar settings={settings} change={change} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onWhy={toggleWhy} cuesOnly={cuesOnly} onCues={toggleCues} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)} />
     <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: 'center', paddingBottom: 24 + insets.bottom }]}>
       <ErrorNotice message={error} />
       {why && !!card.why && <Text style={practice.why}>{card.why}</Text>}
@@ -333,9 +343,9 @@ const HINTS: Record<Side, ReactNode> = {
 }
 
 // Done, the arrows and where the round is; below, the settings as chips.
-function TopBar({ settings, change, progress, canGoBack, onBack, onNext, onDone, onWhy, cursive, onCursive }: {
+function TopBar({ settings, change, progress, canGoBack, onBack, onNext, onDone, onWhy, cuesOnly, onCues, cursive, onCursive }: {
   settings: Settings; change: (patch: Partial<Settings>) => void; progress: { at: number; of: number } | null; canGoBack: boolean; onBack: () => void; onNext: () => void; onDone: () => void; onWhy?: () => void
-  cursive: boolean; onCursive: () => void
+  cuesOnly?: boolean; onCues?: () => void; cursive: boolean; onCursive: () => void
 }) {
   return <View style={practice.top}>
     <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
@@ -350,6 +360,8 @@ function TopBar({ settings, change, progress, canGoBack, onBack, onNext, onDone,
       <Pill label={FRONTS[settings.front]} icon="swap-horizontal" onPress={() => change({ front: next(FRONTS, settings.front) })} accessibilityLabel={`${FRONTS[settings.front]}. Change which side shows first`} />
       <Pill label={settings.order === 'shuffle' ? 'Shuffled' : 'Smart order'} icon="shuffle" active={settings.order === 'shuffle'} onPress={() => change({ order: settings.order === 'shuffle' ? 'smart' : 'shuffle' })} />
       <Pill label={INCLUDES[settings.include]} onPress={() => change({ include: next(INCLUDES, settings.include) })} accessibilityLabel={`${INCLUDES[settings.include]}. Change which cards`} />
+      {/* Temporary: for checking cues. */}
+      {onCues && <Pill label="Emoji only" active={cuesOnly} onPress={onCues} />}
       <Pill label="Quiz forms" active={settings.quiz} onPress={() => change({ quiz: !settings.quiz })} />
       {/* Answers in cursive (כתב יד) or print; questions are always in print (state/script.ts). */}
       <Pill label="Answers in כתב יד" active={cursive} onPress={onCursive} accessibilityLabel={cursive ? 'Answers in cursive. Show them in print' : 'Answers in print. Show them in cursive'} />
