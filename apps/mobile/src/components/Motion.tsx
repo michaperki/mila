@@ -1,12 +1,12 @@
 import { type ComponentProps, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
+import { Pressable, StyleSheet, useWindowDimensions, View, type StyleProp, type ViewStyle } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import Animated, { Easing, interpolate, ReduceMotion, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { scheduleOnRN } from 'react-native-worklets'
 import { colors } from './ui'
 import { feel } from '../lib/feedback'
-import { DURATION, settle, SHEET_IN, SHEET_OUT } from '../lib/motion'
+import { DURATION, settle, SHEET_OUT } from '../lib/motion'
 
 // A thin bar that fills smoothly as a session moves on.
 export function ProgressBar({ value }: { value: number }) {
@@ -110,7 +110,12 @@ export function DraggableSheet({ onDismiss, handle, children, style, onLayout, .
   onDismiss: () => void; handle: ReactNode; children: ReactNode; style?: StyleProp<ViewStyle>
   onLayout?: ComponentProps<typeof View>['onLayout']; accessibilityViewIsModal?: boolean
 }) {
-  const y = useSharedValue(0)
+  // It comes in from below the screen by a transform, not an entering layout animation: those
+  // hold the view at the size it had when they began, so content that arrived while it slid in
+  // (an explanation already cached, with its expression) was cut off and stayed cut off.
+  const { height } = useWindowDimensions()
+  const y = useSharedValue(height)
+  useEffect(() => { y.set(settle(0)) }, [y])
   const pan = Gesture.Pan().activeOffsetY(10).failOffsetX([-20, 20])
     .onUpdate(event => { y.set(Math.max(0, event.translationY)) })
     .onEnd(event => {
@@ -118,7 +123,7 @@ export function DraggableSheet({ onDismiss, handle, children, style, onLayout, .
       y.set(withTiming(600, { duration: DURATION.quick, reduceMotion: ReduceMotion.System }, done => { if (done) scheduleOnRN(onDismiss) }))
     })
   const moving = useAnimatedStyle(() => ({ transform: [{ translateY: y.get() }] }))
-  return <Animated.View {...props} onLayout={onLayout} entering={SHEET_IN} exiting={SHEET_OUT} style={[style, moving]}>
+  return <Animated.View {...props} onLayout={onLayout} exiting={SHEET_OUT} style={[style, moving]}>
     <GestureDetector gesture={pan}>
       <View><View style={motion.grabber} />{handle}</View>
     </GestureDetector>

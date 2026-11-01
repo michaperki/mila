@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, type LayoutChangeEvent, type NativeScrollEvent, Pressable, ScrollView, type StyleProp, StyleSheet, Text, useWindowDimensions, View, type ViewStyle } from 'react-native'
 import { router } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Animated from 'react-native-reanimated'
 import { ListenButton } from './Listen'
 import { Button, colors, ErrorNotice, styles, TextButton } from './ui'
@@ -229,16 +230,23 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close 
   lookup: WordLookup; v: (text: string) => string; style?: StyleProp<ViewStyle>; onLayout?: (event: LayoutChangeEvent) => void; onClose?: () => void
 }) {
   const he = useHebrew()
-  const { height: screenHeight, width: screenWidth } = useWindowDimensions()
+  const { height: screenHeight } = useWindowDimensions()
+  const insets = useSafeAreaInsets()
   const [moreBelow, setMoreBelow] = useState(false)
+  const scroller = useRef<ScrollView>(null)
+  const scrollHeight = useRef(0)
+  // Where Details begins in the scrolling part, to bring it into view when it is opened.
+  const openedDetails = useRef(false)
   const { tap, analysis, gloss, busy, quickMeaning, isPhrase, phrase, isPattern, fillsPattern, patternFirst, leadPhrase, phraseIsWord, inYourWords, wordSaved, phraseSaved, saving, unsaving, details } = lookup
   if (!tap) return null
   const sentence = tap.sentence
-  // Sideways the screen is short, so the details scroll in less of it.
-  const detailsHeight = screenWidth > screenHeight ? Math.max(90, screenHeight * 0.28) : Math.max(180, screenHeight * 0.4)
+  // The sheet stays below the top of the screen (and the reader's toolbar): what doesn't fit
+  // scrolls, between the word at the top and Save at the bottom, which are always in view.
+  const maxHeight = Math.min(screenHeight * 0.82, screenHeight - insets.top - 56)
   const hasDetails = !!analysis && (analysis.parts.length > 1 || !!analysis.note || !!analysis.root || !!analysis.lemmaMeaning || !!analysis.partOfSpeech || (!!analysis.readAs && stripNiqqud(analysis.readAs) !== tap.text))
   // Shows a "More below" hint until the explanation is scrolled to its end.
   const measureMore = ({ layoutMeasurement, contentOffset, contentSize }: NativeScrollEvent) => setMoreBelow(contentOffset.y + layoutMeasurement.height < contentSize.height - 8)
+  const toggleDetails = () => lookup.setDetails(value => { openedDetails.current = !value; return !value })
   // How the tapped word was read: its pieces, its form and the dictionary form it comes from
   // (וְ + צָעַק · past, he · from לִצְעֹק), so each occurrence is seen as a form of one word. The
   // pieces' meanings are in the meaning above and under Details (Breakdown), not repeated here,
@@ -262,7 +270,7 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close 
     {isPattern && !!phrase.textMeaning && <Text style={drawer.fact}>Here <Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.textMeaning))}</Text>}
   </Animated.View> : null
 
-  return <DraggableSheet onDismiss={onClose} style={[drawer.sheet, style]} accessibilityViewIsModal onLayout={onLayout}
+  return <DraggableSheet onDismiss={onClose} style={[drawer.sheet, style, { maxHeight }]} accessibilityViewIsModal onLayout={onLayout}
     handle={<View style={drawer.header}>
       <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={10}><Ionicons name="close" size={22} color={colors.muted} /></Pressable>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 }}>
@@ -270,6 +278,11 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close 
         <Text style={[drawer.word, he]}>{v(analysis?.vocalized || tap.text)}</Text>
       </View>
     </View>}>
+    <View style={{ flexShrink: 1 }}>
+    <ScrollView ref={scroller} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 10 }} scrollEventThrottle={64} alwaysBounceVertical={false}
+      onScroll={event => measureMore(event.nativeEvent)}
+      onLayout={event => { scrollHeight.current = event.nativeEvent.layout.height }}
+      onContentSizeChange={(_, contentHeight) => setMoreBelow(contentHeight > scrollHeight.current + 8)}>
     {patternFirst && unitBox}
     {busy && !quickMeaning ? <View style={[styles.row, { gap: 8 }]}><ActivityIndicator color={colors.green} /><Text style={styles.copy}>Reading it in context…</Text></View>
       : <View style={[styles.row, { gap: 8, flexWrap: 'nowrap' }]}>
@@ -287,22 +300,21 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close 
       <Text style={drawer.saved}>In your words · <Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(inYourWords.lemma))}</Text></Text>
       <Ionicons name="chevron-forward" size={14} color={colors.green} />
     </Pressable>}
-    {details && !busy && analysis && <Animated.View entering={APPEAR}>
-      <ScrollView style={{ maxHeight: detailsHeight }} contentContainerStyle={{ gap: 12, paddingBottom: 4 }} scrollEventThrottle={64}
-        onScroll={event => measureMore(event.nativeEvent)}
-        onContentSizeChange={(_, contentHeight) => setMoreBelow(contentHeight > detailsHeight + 8)}>
+    {details && !busy && analysis && <Animated.View entering={APPEAR} style={{ gap: 12, paddingBottom: 4 }}
+      onLayout={event => { if (openedDetails.current) { openedDetails.current = false; scroller.current?.scrollTo({ y: event.nativeEvent.layout.y, animated: true }) } }}>
         {!isPhrase && !!analysis.readAs && stripNiqqud(analysis.readAs) !== tap.text && <Text style={drawer.fact}>The photo text reads <Text style={[drawer.factHebrew, he]}>{isolateHebrew(tap.text)}</Text>; this is probably <Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(analysis.readAs))}</Text>.</Text>}
         {analysis.parts.length > 1 && <Section label="Breakdown"><View style={drawer.parts}>
           {analysis.parts.map((part, i) => <View key={i} style={drawer.part}><Text style={[drawer.partHebrew, he]}>{v(part.text)}</Text><Text style={drawer.partMeaning}>{isolateHebrew(v(part.meaning))}</Text></View>)}
         </View></Section>}
         <WordFacts analysis={analysis} gloss={gloss} v={v} />
-      </ScrollView>
-      {moreBelow && <Text style={drawer.more} pointerEvents="none">More below ↓</Text>}
     </Animated.View>}
+    </ScrollView>
+    {moreBelow && <Text style={drawer.more} pointerEvents="none">More below ↓</Text>}
+    </View>
     <ErrorNotice message={lookup.error} />
     {lookup.noWordsYet && !busy && <Text style={[styles.copy, { fontSize: 13, lineHeight: 18 }]}>Save it to practise it later: Mila makes flashcards for it, each with a sentence of its own.</Text>}
     <View style={[styles.row, { flexWrap: 'nowrap', gap: 10 }]}>
-      {hasDetails && !busy && <Pressable accessibilityRole="button" onPress={() => lookup.setDetails(value => !value)} style={drawer.detailsToggle} hitSlop={6}>
+      {hasDetails && !busy && <Pressable accessibilityRole="button" onPress={toggleDetails} style={drawer.detailsToggle} hitSlop={6}>
         <Text style={drawer.toggleLabel}>{details ? 'Less' : 'Details'}</Text><Ionicons name={details ? 'chevron-down' : 'chevron-up'} size={16} color={colors.green} />
       </Pressable>}
       {leadPhrase
