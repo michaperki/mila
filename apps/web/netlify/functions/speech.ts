@@ -3,13 +3,18 @@ import { createHash, randomUUID } from 'node:crypto'
 import { Binary } from 'mongodb'
 import { verifyAuth } from './lib/auth'
 import { getDb } from './lib/mongo'
-import { checkDailySpend, recordElevenLabs, recordGeminiSpeech } from './lib/ai-usage'
+import Anthropic from '@anthropic-ai/sdk'
+import { checkDailySpend, recordClaude, recordElevenLabs, recordGeminiSpeech } from './lib/ai-usage'
 
 // Hebrew read aloud in the voice chosen in Account (Sarah, the default, or Charon). The app sends
 // one sentence or word at a time and plays the clips in order, so each answer stays small and
 // starts quickly. Clips are kept in the `speech` collection by voice and exact text: the same
 // sentence is only paid for once, for every learner. Picked in a listening test of real Mila
 // sentences (2026-10-17) over OpenAI and the phone's built-in voice.
+// Hebrew without vowels is ambiguous (מורה is mo-REH, a man, or mo-RAH, a woman), and the voices
+// guess, so Hebrew sent without vowels (a card's sentence, a photographed page) is vowelled first
+// by Claude, reading each word as the sentence's grammar says (הַמּוֹרָה עֲיֵפָה), and the voice
+// reads that. Vowelled Hebrew (a word card, a form) is read as it is.
 export const VOICES = {
   sarah: { provider: 'elevenlabs', model: 'eleven_v3', id: 'EXAVITQu4vr4xnSDxMaL' },
   charon: { provider: 'gemini', model: 'gemini-3.8-flash-tts', id: 'Charon' },
@@ -35,16 +40,19 @@ export const handler: Handler = async (event) => {
     if (text.length > MAX_CHARACTERS) return reply(400, { message: 'This is too long to read in one go.' })
 
     const spec = VOICES[voice]
-    const key = createHash('sha256').update(`${spec.model}|${spec.id}|${text}`).digest('hex')
+    // Clips of unvowelled text read before it was vowelled first are not reused.
+    const vowelled = !needsVowels(text)
+    const key = createHash('sha256').update(`${spec.model}|${spec.id}|${vowelled ? '' : 'vowelled|'}${text}`).digest('hex')
     const clips = (await getDb()).collection<{ _id: string; audio: Binary; mime: string; voice: Voice; at: Date }>('speech')
     const cached = await clips.findOne({ _id: key })
     if (cached) return reply(200, { audio: Buffer.from(cached.audio.buffer).toString('base64'), mime: cached.mime })
 
     await checkDailySpend(auth)
     const started = Date.now()
+    const read = vowelled ? text : await withVowels(text, auth.userId)
     const clip = spec.provider === 'elevenlabs'
-      ? await elevenLabs(text, spec.id, spec.model, auth.userId, started)
-      : await gemini(text, spec.id, spec.model, auth.userId, started)
+      ? await elevenLabs(read, spec.id, spec.model, auth.userId, started)
+      : await gemini(read, spec.id, spec.model, auth.userId, started)
     await clips.updateOne({ _id: key }, { $setOnInsert: { audio: new Binary(clip.audio), mime: clip.mime, voice, at: new Date() } }, { upsert: true })
       .catch(error => console.error('Speech cache write failed', { requestId, name: (error as Error).name }))
     return reply(200, { audio: clip.audio.toString('base64'), mime: clip.mime })
@@ -56,6 +64,33 @@ export const handler: Handler = async (event) => {
     console.error('Speech failed', { requestId, name: (error as Error).name, message: (error as Error).message.slice(0, 300) })
     return reply(502, { message: 'Listening is unavailable right now.', requestId })
   }
+}
+
+// Hebrew with few vowel marks for its letters (none, or only a word or two marked).
+const HEBREW_LETTER = /[\u05D0-\u05EA]/g, VOWEL_POINT = /[\u05B0-\u05BB\u05C7]/g
+export const needsVowels = (text: string) => {
+  const letters = text.match(HEBREW_LETTER)?.length ?? 0
+  return letters > 0 && (text.match(VOWEL_POINT)?.length ?? 0) < letters * 0.4
+}
+const bare = (text: string) => text.normalize('NFC').replace(/[\u0591-\u05C7]/g, '')
+
+const VOWELS_SYSTEM = `You add niqqud to Modern Hebrew so a voice can read it aloud correctly. Return exactly the text you are given, with the same letters, words, spaces and punctuation, and full niqqud on every Hebrew word, nothing else. Read each word as the sentence's grammar and meaning require: a noun's gender and number from what agrees with it (הַמּוֹרָה עֲיֵפָה, not הַמּוֹרֶה, since עייפה is feminine), a verb's tense, person and binyan, the construct state, and a prefix's vowel before the word it is on. Give the pronunciation of standard modern Israeli speech. Leave anything that isn't Hebrew as it is.`
+let anthropic: Anthropic | null = null
+// The text vowelled, or as it was if that can't be done (the letters must come back unchanged).
+async function withVowels(text: string, userId: string) {
+  if (!process.env.ANTHROPIC_API_KEY) return text
+  try {
+    anthropic ??= new Anthropic()
+    const started = Date.now()
+    const response = await anthropic.beta.messages.create({
+      model: 'claude-sonnet-5-5', max_tokens: 2000, output_config: { effort: 'low' },
+      system: [{ type: 'text', text: VOWELS_SYSTEM, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: text }],
+    }, { timeout: 15000, maxRetries: 1 })
+    await recordClaude(userId, 'speech', response, Date.now() - started)
+    const vowelled = response.content.flatMap(block => (block.type === 'text' ? [block.text] : [])).join('').trim()
+    return bare(vowelled).replace(/\s+/g, ' ') === bare(text).replace(/\s+/g, ' ') ? vowelled : text
+  } catch { return text }
 }
 
 async function elevenLabs(text: string, voice: string, model: string, userId: string, started: number): Promise<Clip> {

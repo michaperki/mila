@@ -100,7 +100,8 @@ function clip(text: string, voice: Voice, token: string) {
   return pending
 }
 async function fetchClip(text: string, voice: Voice, token: string) {
-  const hash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `${voice}|${text}`)
+  // `vowelled`: clips kept from before the server vowelled Hebrew first (functions/speech.ts) aren't replayed.
+  const hash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `${voice}|vowelled|${text}`)
   for (const extension of ['mp3', 'wav']) {
     const file = new File(clips, `${hash}.${extension}`)
     if (file.exists) return file.uri
