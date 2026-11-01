@@ -19,6 +19,7 @@ export type WordAnalysis = {
   root: string
   partOfSpeech: string
   gender: string
+  feminine: string
   binyan: string
   form: string
   note: string
@@ -36,7 +37,7 @@ export type Construction = { pattern: string; chip: string; preposition: 'requir
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['word', 'vocalized', 'meaning', 'parts', 'lemma', 'lemmaPlain', 'lemmaMeaning', 'root', 'partOfSpeech', 'gender', 'binyan', 'form', 'note', 'readAs', 'constructions', 'phrase', 'excerpt'],
+  required: ['word', 'vocalized', 'meaning', 'parts', 'lemma', 'lemmaPlain', 'lemmaMeaning', 'root', 'partOfSpeech', 'gender', 'feminine', 'binyan', 'form', 'note', 'readAs', 'constructions', 'phrase', 'excerpt'],
   properties: {
     word: { type: 'string', description: 'The word exactly as given.' },
     vocalized: { type: 'string', description: 'The word with full niqqud as read in this sentence.' },
@@ -52,12 +53,13 @@ const schema = {
         },
       },
     },
-    lemma: { type: 'string', description: 'Dictionary form, vocalized: verbs always as the infinitive with ל (לְהַדְבִּיק for הִדְבִּיק, never a past-tense form); adjectives masculine singular (יָפֶה for יָפוֹת); nouns singular without prefixes or possessive suffixes, unless the word only exists in the plural. A word that is a dictionary entry in its own right, such as an adverb or fixed expression written as one word (לְמַעֲשֶׂה, בְּעֶצֶם, לְפָחוֹת), is its own lemma; do not reduce it to the noun it came from. partOfSpeech, lemmaMeaning and root describe this lemma.' },
+    lemma: { type: 'string', description: 'Dictionary form, vocalized: verbs always as the infinitive with ל (לְהַדְבִּיק for הִדְבִּיק, never a past-tense form); adjectives masculine singular (יָפֶה for יָפוֹת); nouns singular without prefixes or possessive suffixes, unless the word only exists in the plural; a noun for a person that has a masculine and a feminine form (מַזְכִּיר and מַזְכִּירָה) is its masculine singular even when the sentence has the feminine (see feminine). A word that is a dictionary entry in its own right, such as an adverb or fixed expression written as one word (לְמַעֲשֶׂה, בְּעֶצֶם, לְפָחוֹת), is its own lemma; do not reduce it to the noun it came from. partOfSpeech, lemmaMeaning and root describe this lemma.' },
     lemmaPlain: { type: 'string', description: 'The same lemma without niqqud, in standard full spelling (כתיב מלא) as an Israeli newspaper prints it: לכתוב, not לכתב; it identifies the word, so always spell the same lemma the same way.' },
     lemmaMeaning: { type: 'string', description: 'The lemma\'s common English senses on its own, comma-separated, most common first; at most five. Verbs as "to …" ("to stick, to attach"). Leave out senses that only exist together with other words (those belong to the expression in "phrase"): להעמיד is "to stand (something) up, to set up", never "to pretend", which is להעמיד פנים.' },
     root: { type: 'string', description: 'Root letters joined with ־ (e.g. ח־ש־ב), or empty if none applies.' },
     partOfSpeech: { type: 'string', description: 'noun, verb, adjective, adverb, preposition, pronoun, number, name, or phrase.' },
     gender: { type: 'string', description: 'Nouns only: the lemma\'s grammatical gender, "masculine" or "feminine" (also for nouns whose form misleads, like שֻׁלְחָן masculine or עִיר feminine); otherwise empty.' },
+    feminine: { type: 'string', description: 'Only for a noun for a person (or an animal) that has a separate feminine form meaning the same, a man or a woman (מַזְכִּיר → מַזְכִּירָה, תַּלְמִיד → תַּלְמִידָה, רוֹפֵא → רוֹפְאָה, נַהָג → נַהֶגֶת, מוֹרֶה → מוֹרָה): the feminine singular, vocalized, with lemma the masculine and gender "masculine". Empty for every other word, including a person noun that has no feminine of its own (אָדָם, תִּינוֹק).' },
     binyan: { type: 'string', description: 'Verbs only: binyan in Latin letters (pa\'al, nif\'al, pi\'el, pu\'al, hif\'il, huf\'al, hitpa\'el); otherwise empty.' },
     form: { type: 'string', description: 'Concise grammatical form of the word\'s main piece (not its prefixes, and for words joined with a maqaf, the tapped word\'s own), e.g. "past, 1st person singular" or "masculine singular, construct"; empty if trivial.' },
     note: { type: 'string', description: 'Only if it matters for understanding this sentence (an idiom, register, an irregular form, or grammar here that an English speaker would not expect, such as the singular noun after a number from eleven up in שלושים שנה, a number that agrees with the opposite gender, or a verb that agrees with what follows it): one short sentence that adds something no other field says, saying why the form is what it is. Do not restate the meaning, breakdown, lemma or grammar, and do not describe forms or vowel patterns that are not in the sentence. Usually empty.' },
@@ -156,7 +158,7 @@ export const trustedConstructions = (analysis: WordAnalysis): WordAnalysis => {
 }
 
 // The cache name for this prompt and schema: bump the version when either changes.
-const CACHE_KIND = 'word-analysis-v9'
+const CACHE_KIND = 'word-analysis-v10'
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, WordAnalysis>()
 let client: Anthropic | null = null

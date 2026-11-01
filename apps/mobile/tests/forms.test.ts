@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, assess, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, deckOf, followUps, freshStages, isKnownWord, isMet, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf } from '../src/lib/forms.ts'
+import { ago, assess, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, deckOf, followUps, freshStages, isKnownWord, isMet, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -248,4 +248,19 @@ test('a card says who its form is for only where its English leaves it open', ()
   assert.equal(cueOf({ stage: 'past', slot: '3sg.m' }), '')
   assert.equal(cueOf({ stage: 'present', slot: 'm.sg' }), '')
   assert.equal(cueOf({ stage: 'meanings', slot: 'sense1' }), '')
+})
+
+test('a cue is shown right after the English word it is about', () => {
+  const card = { stage: 'meanings', slot: 'sense1', translation: "The doctor's secretary made me an appointment.", cue: '👩', cueAfter: 'secretary' }
+  assert.equal(cuedTranslation(card), "The doctor's secretary 👩 made me an appointment.")
+  assert.equal(cuedTranslation({ ...card, translation: 'Why are you tired?', cue: '👨', cueAfter: 'you' }), 'Why are you 👨 tired?')
+  // After the whole of a contraction, before punctuation; not inside another word.
+  assert.equal(cuedTranslation({ ...card, translation: "I'm sorry I'm late.", cue: '👩', cueAfter: 'I' }), "I'm 👩 sorry I'm late.")
+  assert.equal(cuedTranslation({ ...card, translation: 'Are you coming, you?', cue: '👥', cueAfter: 'you' }), 'Are you 👥 coming, you?')
+  assert.equal(cuedTranslation({ ...card, translation: 'Your kids, are they tired?', cue: '👦', cueAfter: 'kids' }), 'Your kids 👦, are they tired?')
+  // Not found, or not said: first. No cue: the translation as it is.
+  assert.equal(cuedTranslation({ ...card, cueAfter: 'nurse' }), "👩 The doctor's secretary made me an appointment.")
+  assert.equal(cuedTranslation({ ...card, cue: '' }), card.translation)
+  // Written before cues: "you" in the past is after "you".
+  assert.equal(cuedTranslation({ stage: 'past', slot: '2sg.f', translation: 'Yesterday you were tired.' }), 'Yesterday you 👩 were tired.')
 })

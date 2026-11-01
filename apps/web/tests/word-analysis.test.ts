@@ -6,7 +6,7 @@ vi.mock('@anthropic-ai/sdk', () => {
   return { default: Anthropic }
 })
 vi.mock('../netlify/functions/lib/auth', () => ({ verifyAuth: vi.fn() }))
-vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn(), recordCacheHit: vi.fn() }))
+vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn(), recordCacheHit: vi.fn(), checkDailySpend: vi.fn() }))
 vi.mock('../netlify/functions/lib/ai-cache', () => ({ cachedAnswer: vi.fn(), rememberAnswer: vi.fn() }))
 import { cachedAnswer, rememberAnswer } from '../netlify/functions/lib/ai-cache'
 import { recordCacheHit, recordClaude } from '../netlify/functions/lib/ai-usage'
@@ -54,7 +54,7 @@ describe('word analysis endpoint', () => {
     expect(recordCacheHit).toHaveBeenCalledWith('user', 'word', expect.any(Number))
     await invoke({ word: 'בחשבון', sentence: 'משפט חדש בחשבון' })
     expect(create).toHaveBeenCalledTimes(1)
-    expect(rememberAnswer).toHaveBeenCalledWith(expect.stringMatching(/^word-analysis-v\d+$/), 'בחשבון\u0000משפט חדש בחשבון', analysis)
+    expect(rememberAnswer).toHaveBeenCalledWith(expect.stringMatching(/^word-analysis-v\d+$/), 'בחשבון\u0000משפט חדש בחשבון', expect.objectContaining(analysis))
   })
   it('reports missing configuration so the app can fall back to plain translation', async () => {
     delete process.env.ANTHROPIC_API_KEY

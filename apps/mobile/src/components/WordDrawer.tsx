@@ -178,6 +178,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
             ...(found?.lemmaPlain ? { lemmaPlain: found.lemmaPlain } : {}),
             ...(found?.partOfSpeech ? { partOfSpeech: found.partOfSpeech } : {}),
             ...(found?.gender ? { gender: found.gender } : {}),
+            ...(found?.feminine ? { feminine: found.feminine } : {}),
             ...(found?.root ? { root: found.root } : {}),
             ...(found?.binyan ? { binyan: found.binyan } : {}),
             ...(found?.constructions?.length ? { constructions: found.constructions } : {}),

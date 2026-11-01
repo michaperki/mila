@@ -64,7 +64,7 @@ const schema = {
       type: 'array',
       items: {
         type: 'object', additionalProperties: false,
-        required: ['slot', 'form', 'english', 'sentence', 'inSentence', 'said', 'translation', 'inTranslation', 'cue'],
+        required: ['slot', 'form', 'english', 'sentence', 'inSentence', 'said', 'translation', 'inTranslation', 'cue', 'cueAfter'],
         properties: {
           slot: { type: 'string' },
           form: { type: 'string', description: 'The form, fully vocalized.' },
@@ -75,6 +75,7 @@ const schema = {
           translation: { type: 'string', description: 'Natural English translation of the sentence.' },
           inTranslation: { type: 'array', items: { type: 'string' }, description: 'The words of the translation that render this form, each copied exactly from it, in order.' },
           cue: { type: 'string', enum: [...CUES], description: 'Who the form is for, only when the translation leaves it open and the form depends on it (see Who); otherwise empty.' },
+          cueAfter: { type: 'string', description: 'With a cue: the word of the translation it is about, copied exactly from it ("secretary", "you", "I"); the cue is shown right after it. Otherwise empty.' },
         },
       },
     },
@@ -100,9 +101,9 @@ Sentences must differ from each other and from the sentences already used for th
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 let client: Anthropic | null = null
 
-type Generated = { slot: string; form: string; english: string; sentence: string; inSentence: string[]; said: string; translation: string; inTranslation: string[]; cue?: string }
+type Generated = { slot: string; form: string; english: string; sentence: string; inSentence: string[]; said: string; translation: string; inTranslation: string[]; cue?: string; cueAfter?: string }
 type Entry = {
-  lemma: string; gloss: string; partOfSpeech?: string; binyan?: string; head?: { lemma: string; partOfSpeech?: string; binyan?: string }; pattern?: string
+  lemma: string; gloss: string; partOfSpeech?: string; binyan?: string; head?: { lemma: string; partOfSpeech?: string; binyan?: string }; pattern?: string; feminine?: string
   constructions?: { pattern: string; meaning: string }[]
   // Saved before constructions: the prepositions alone.
   governs?: { preposition: string; meaning: string }[]
@@ -138,6 +139,8 @@ export const handler: Handler = async (event) => {
       expression
         ? `Expression: ${entry.lemma} — ${entry.gloss}. It inflects as the ${entry.head?.partOfSpeech || 'word'} ${entry.head?.lemma || ''}${binyan ? ` (${binyan})` : ''}; every card uses the whole expression.`
         : `Word: ${entry.lemma} (${entry.partOfSpeech || 'word'}${binyan ? `, ${binyan}` : ''}) — ${entry.gloss}`,
+      // A noun for a person with both forms is learned as both (מזכיר / מזכירה).
+      ...(entry.feminine ? [`It is a noun for a person, masculine ${entry.lemma} and feminine ${entry.feminine}, both learned: use one or the other in each sentence, as fits who it is about, mixing them across the cards, and give each card's form as the one in its sentence.`] : []),
       ...(entry.pattern ? [`Learned as the pattern ${entry.pattern} — ${entry.gloss}.`] : []),
       ...(constructions.length ? ['Constructions it is used in:', ...constructions.map(item => `- ${item.pattern} "${item.meaning}"`)] : []),
       ...(stage === 'meanings'
@@ -174,6 +177,7 @@ export const handler: Handler = async (event) => {
         mark: words(item.inSentence), ...(item.said.trim() ? { said: item.said.trim() } : {}), translation: item.translation.trim(), enMark: words(item.inTranslation),
         // Kept even when empty: the card was written knowing whether its English says who.
         cue: isCue(item.cue) ? item.cue : '',
+        ...(isCue(item.cue) && item.cue && item.cueAfter?.trim() && item.translation.includes(item.cueAfter.trim()) ? { cueAfter: item.cueAfter.trim() } : {}),
       }] : []
     })
     if (!forms.length) return reply(422, { message: 'These forms could not be written.', requestId })

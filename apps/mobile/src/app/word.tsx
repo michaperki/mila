@@ -18,7 +18,7 @@ import { stripNiqqud } from '../lib/ocr-cleanup'
 import type { FormCard, TextDoc } from '../lib/types'
 import { withVowels } from '../lib/vowels'
 import { ensureForms } from '../lib/word-forms'
-import { constructionsOf, encountersOf, expressionsWith, headOf, partsOf, patternLabel, sameId } from '../lib/words'
+import { bothForms, constructionsOf, encountersOf, expressionsWith, headOf, partsOf, patternLabel, sameId } from '../lib/words'
 import { Constructions } from '../components/Constructions'
 import { useSession } from '../state/session'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
@@ -103,12 +103,12 @@ export default function Word() {
 
   return <Page>
     {/* The word itself is the screen's title. */}
-    <Stack.Screen options={{ title: v(entry.lemma) }} />
+    <Stack.Screen options={{ title: v(bothForms(entry)) }} />
     <ErrorNotice message={error} />
     <View style={{ gap: 2 }}>
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
         <ListenButton text={entry.lemma} accessibilityLabel="Hear this word" size={24} />
-        <Text style={[word.lemma, he]}>{v(entry.lemma)}</Text>
+        <Text style={[word.lemma, he]}>{v(bothForms(entry))}</Text>
       </View>
       {/* Learned as a pattern: how the word is used (נָטוּל + noun), its meaning below. */}
       {!!entry.pattern && <Text style={[word.pattern, he]}>{v(patternLabel(entry.pattern))}</Text>}

@@ -50,6 +50,21 @@ const COMMAND_CUES: Record<string, string> = { 'm.sg': '👨', 'f.sg': '👩', p
 export const cueOf = (form: Pick<FormCard, 'stage' | 'slot' | 'cue'>) => form.cue
   ?? ((form.stage === 'past' || form.stage === 'future' ? PERSON_CUES[form.slot] : form.stage === 'imperative' ? COMMAND_CUES[form.slot] : undefined) || '')
 
+// The card's English with its cue right after the word it is about ("The doctor's secretary 👩
+// booked me an appointment", "Why are you 👨 tired?"), after the whole word when that is a
+// contraction ("I'm 👩"), before any punctuation. Cards written before say only the cue: theirs goes
+// after "you" when that is who it is for, else first.
+export function cuedTranslation(form: Pick<FormCard, 'stage' | 'slot' | 'cue' | 'cueAfter' | 'translation'>) {
+  const cue = cueOf(form)
+  if (!cue) return form.translation
+  const after = form.cueAfter || (form.cue === undefined && cue ? 'you' : '')
+  const found = after ? new RegExp(`(^|[^\\p{L}])(${after.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?![\\p{L}])`, 'iu').exec(form.translation) : null
+  if (!found) return `${cue} ${form.translation}`
+  let end = found.index + found[1].length + found[2].length
+  while (end < form.translation.length && /[\p{L}'’]/u.test(form.translation[end])) end++
+  return `${form.translation.slice(0, end)} ${cue}${form.translation.slice(end)}`
+}
+
 export const kindLabel = (entry: VocabEntry) => (entry.partOfSpeech === 'noun' && entry.gender ? `${entry.gender} noun` : entry.partOfSpeech || '')
 export const slotLabel = (entry: VocabEntry, form: FormCard) => stagesOf(entry).find(stage => stage.key === form.stage)?.slots[form.slot] ?? form.slot
 

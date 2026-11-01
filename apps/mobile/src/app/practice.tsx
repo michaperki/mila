@@ -13,14 +13,14 @@ import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, cueOf, deckOf, firstSense, followUps, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
+import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, cuedTranslation, deckOf, firstSense, followUps, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
 import { noteActivity } from '../lib/tree'
 import type { FormCard, Results, Session, VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
-import { constructionsOf } from '../lib/words'
+import { bothForms, constructionsOf } from '../lib/words'
 import { Constructions } from '../components/Constructions'
 import { useWordLookup, WordDrawer, type WordLookup } from '../components/WordDrawer'
 import { ensureForms } from '../lib/word-forms'
@@ -309,7 +309,7 @@ export default function Practice() {
                   {side(englishFirst, false)}
                 </>}
                 back={<>
-                  <ScriptContext.Provider value="answers"><CardHead label={form ? stage?.label : 'Word'} lemma={form ? vAnswer(entry.lemma) : undefined} listen={listen} /></ScriptContext.Provider>
+                  <ScriptContext.Provider value="answers"><CardHead label={form ? stage?.label : 'Word'} lemma={form ? vAnswer(bothForms(entry)) : undefined} listen={listen} /></ScriptContext.Provider>
                   {side(englishFirst, true)}
                 </>} />}
         </Animated.View>
@@ -378,7 +378,7 @@ function CardHead({ label, lemma, listen }: { label?: string; lemma?: string; li
 function WordSide({ entry, english, answer: answerSide, v }: { entry: VocabEntry; english: boolean; answer: boolean; v: (text: string) => string }) {
   const he = useHebrew()
   const constructions = constructionsOf(entry)
-  const lemma = <Text style={[practice.word, he]}>{v(entry.lemma)}</Text>
+  const lemma = <Text style={[practice.word, he]}>{v(bothForms(entry))}</Text>
   // Its constructions under it as chips, and on the answer side what it means in each, when it
   // has more than one (with one, that is the meaning shown).
   const hebrew = !constructions.length ? lemma : <View style={{ gap: 6, alignItems: 'center', alignSelf: 'stretch' }}>
@@ -413,7 +413,7 @@ function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, l
   const looked = lookup?.tap?.sentence === form.sentence ? lookup.tap.text : undefined
   const hebrew = <Text style={[practice.sentence, he]}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} onWord={onWord} looked={looked} /></Text>
   if (!answerSide) return <>
-    {english ? <Text style={practice.english}>{cueOf(form) ? `${cueOf(form)} ` : ''}<Marked text={form.translation} mark={form.enMark} /></Text> : hebrew}
+    {english ? <Text style={practice.english}><Marked text={cuedTranslation(form)} mark={form.enMark} /></Text> : hebrew}
     {hideMark && <Text style={practice.hint}>{form.en}</Text>}
   </>
   const heard = heardOf(form)

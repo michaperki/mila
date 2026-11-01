@@ -18,7 +18,8 @@
     "repair-vocab": "node --experimental-strip-types scripts/repair-vocab.mjs",
     "funnel": "node scripts/funnel.mjs",
     "eval:phrases": "vitest run --config vitest.eval.config.ts",
-    "backfill-cues": "node --experimental-strip-types scripts/backfill-cues.mjs"
+    "backfill-cues": "node --experimental-strip-types scripts/backfill-cues.mjs",
+    "backfill-person-nouns": "node --experimental-strip-types scripts/backfill-person-nouns.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

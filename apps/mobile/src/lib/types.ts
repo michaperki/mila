@@ -26,7 +26,7 @@ export type Recognition = {
 // Mirrors the `word-analysis` function's response (apps/web/netlify/functions/word-analysis.ts).
 export type WordAnalysis = {
   word: string; vocalized: string; meaning: string; parts: { text: string; meaning: string }[]
-  lemma: string; lemmaPlain?: string; lemmaMeaning: string; root: string; partOfSpeech: string; gender?: string; binyan: string; form: string; note: string
+  lemma: string; lemmaPlain?: string; lemmaMeaning: string; root: string; partOfSpeech: string; gender?: string; feminine?: string; binyan: string; form: string; note: string
   readAs?: string; constructions?: Construction[]; governs?: Governed[]; phrase?: Phrase; excerpt?: { text: string; meaning: string }
 }
 // One way a verb or adjective is built with what follows it, and what it means that way, learned
@@ -61,6 +61,9 @@ export type VocabEntry = StarredItem & Built & {
   partOfSpeech?: string; binyan?: string; encounters?: Encounter[]
   // Nouns: 'masculine' or 'feminine'.
   gender?: string
+  // A noun for a person with a feminine form of its own (מַזְכִּיר, מַזְכִּירָה): `lemma` is the
+  // masculine, this the feminine, and both are taught together (lib/words.ts bothForms).
+  feminine?: string
   // The constructions the word is used in (see Construction); `governs` for words saved before.
   constructions?: Construction[]; governs?: Governed[]
   // The dictionary form without niqqud, in full spelling: what identifies the word (lib/words.ts).
@@ -103,6 +106,8 @@ export type FormCard = {
   // Who the form is for when its English doesn't say and the Hebrew depends on it (👨 👩 👦 👧
   // 👬 👭 👥), empty when it does; missing on cards written before (lib/forms.ts cueOf).
   cue?: string
+  // The word of `translation` the cue is about, which it is shown right after ("secretary", "you").
+  cueAfter?: string
 } & Results
 // What studying has shown about a card, and nothing about when to see it again: its last few
 // results (true: knew it) and when it was last answered (lib/forms.ts).

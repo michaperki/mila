@@ -51,7 +51,7 @@ export const savedBySurface = (entries: VocabEntry[]) =>
 export function matches(entry: VocabEntry, query: string) {
   const needle = stripNiqqud(query.trim().toLowerCase())
   if (!needle) return true
-  return [entry.lemma, entry.surface, entry.vocalized, entry.gloss, entry.senses,
+  return [entry.lemma, entry.feminine, entry.surface, entry.vocalized, entry.gloss, entry.senses,
     ...(entry.encounters || []).flatMap(item => [item.surface, item.meaning]), ...(entry.forms || []).flatMap(form => [form.he, form.en])]
     .some(field => !!field && stripNiqqud(field.toLowerCase()).includes(needle))
 }
@@ -88,3 +88,7 @@ export const headOf = (entries: VocabEntry[], entry: VocabEntry) => {
   const key = lemmaKey(entry.head.lemmaPlain || entry.head.lemma)
   return entries.find(item => item.id !== entry.id && item.partOfSpeech !== 'expression' && lemmaKey(item.lemmaPlain || item.lemma) === key)
 }
+
+// A word as its card and page show it: a noun for a person with both forms, both, masculine
+// first (מַזְכִּיר / מַזְכִּירָה), since its English (secretary) is either; any other word, itself.
+export const bothForms = (entry: Pick<VocabEntry, 'lemma' | 'feminine'>) => (entry.feminine ? `${entry.lemma} / ${entry.feminine}` : entry.lemma)

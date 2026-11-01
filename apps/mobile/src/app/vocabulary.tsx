@@ -5,7 +5,7 @@ import { AccountGate, Button, colors, ErrorNotice, Loading, Page, Pill, Pressy, 
 import { countsOf, formsIn, isFamiliar, openStages, statusOf, type Status } from '../lib/forms'
 import type { VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
-import { matches } from '../lib/words'
+import { bothForms, matches } from '../lib/words'
 import { useSession } from '../state/session'
 import { useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
@@ -69,7 +69,7 @@ function WordRow({ entry, showVowels, first, onOpen }: { entry: VocabEntry; show
       <Text style={vocab.meaning} numberOfLines={1}>{v(entry.gloss)}</Text>
       <Text style={vocab.meta} numberOfLines={1}>{[entry.partOfSpeech, progress].filter(Boolean).join(' · ')}</Text>
     </View>
-    <Text style={[vocab.hebrew, he]} numberOfLines={1}>{v(entry.lemma)}</Text>
+    <Text style={[vocab.hebrew, he]} numberOfLines={1}>{v(bothForms(entry))}</Text>
   </Pressy>
 }
 
