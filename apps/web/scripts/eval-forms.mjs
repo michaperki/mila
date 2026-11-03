@@ -2,6 +2,8 @@
 //   A  the writer before the Hebrew-first prompt (scripts/eval/baseline-writer.ts)
 //   B  the writer now (netlify/functions/lib/forms-writer.ts)
 //   C  B's cards after a review pass (netlify/functions/lib/forms-review.ts)
+//   D  B's cards with the narrower review: the full review on meanings cards, only the cues
+//      checked on the rest
 // `node --experimental-strip-types scripts/eval-forms.mjs` picks a sample of saved words (kept in
 // scripts/eval-out/sample.json, so later runs use the same words), writes each word's meanings and
 // one form stage with each writer, judges every card without saying which writer wrote it, and
@@ -14,12 +16,12 @@ import { createHash } from 'node:crypto'
 import { MongoClient } from 'mongodb'
 import { baselineForms } from './eval/baseline-writer.ts'
 import { writeForms } from '../netlify/functions/lib/forms-writer.ts'
-import { reviewForms } from '../netlify/functions/lib/forms-review.ts'
+import { checkCues, reviewForms } from '../netlify/functions/lib/forms-review.ts'
 
 const env = Object.fromEntries(readFileSync(new URL('../.env', import.meta.url), 'utf8').split('\n')
   .map(line => line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/)).filter(Boolean).map(([, key, value]) => [key, value.replace(/^['"]|['"]$/g, '')]))
 const out = new URL('./eval-out/', import.meta.url)
-if (process.argv.includes('--fresh')) for (const name of ['A', 'B', 'C', 'judged', 'usage']) rmSync(new URL(`${name}.json`, out), { force: true })
+if (process.argv.includes('--fresh')) for (const name of ['A', 'B', 'C', 'D', 'judged', 'usage']) rmSync(new URL(`${name}.json`, out), { force: true })
 mkdirSync(out, { recursive: true })
 const kept = name => (existsSync(new URL(`${name}.json`, out)) ? JSON.parse(readFileSync(new URL(`${name}.json`, out), 'utf8')) : null)
 const keep = (name, value) => writeFileSync(new URL(`${name}.json`, out), JSON.stringify(value, null, 1))
@@ -124,6 +126,20 @@ if (!C) {
   keep('C', C); keep('usage', usage)
 }
 
+let D = kept('D')
+if (!D) {
+  D = []
+  await inTurn(Object.values(Object.groupBy(B, card => `${card.word}|${card.stage}`)), async cards => {
+    const word = words[cards[0].word]
+    const stage = cards[0].stage
+    try {
+      const { forms, fixed } = stage === 'meanings' ? await reviewForms(word.entry, stage, cards, asker('D review')) : await checkCues(word.entry, stage, cards, asker('D cues'))
+      D.push(...forms.map(form => ({ word: word.n, ...form, reviewed: fixed.find(item => item.key === form.key)?.problems })))
+    } catch (failure) { console.error(`narrow review ${word.entry.lemma}: ${failure.message}`); D.push(...cards) }
+  })
+  keep('D', D); keep('usage', usage)
+}
+
 // The English as the app shows it (apps/mobile/src/lib/forms.ts cuedTranslation).
 function shown(card) {
   const cues = card.cues ?? (card.cue ? [{ cue: card.cue, after: card.cueAfter ?? '' }] : [])
@@ -161,7 +177,7 @@ const judgeSchema = { type: 'object', additionalProperties: false, required: ['c
 let judged = kept('judged')
 if (!judged) {
   // One list of every distinct card, shuffled; a card C left as B wrote it is judged once.
-  const all = [...A.map(card => ({ ...card, by: 'A' })), ...B.map(card => ({ ...card, by: 'B' })), ...C.filter(card => card.reviewed).map(card => ({ ...card, by: 'C' }))]
+  const all = [...A.map(card => ({ ...card, by: 'A' })), ...B.map(card => ({ ...card, by: 'B' })), ...C.filter(card => card.reviewed).map(card => ({ ...card, by: 'C' })), ...D.filter(card => card.reviewed).map(card => ({ ...card, by: 'D' }))]
   const order = all.map((card, i) => ({ card, sort: createHash('sha1').update(`${i}${card.sentence}`).digest('hex') })).sort((a, b) => a.sort.localeCompare(b.sort)).map(item => item.card)
   const batches = []
   for (let i = 0; i < order.length; i += 20) batches.push(order.slice(i, i + 20))
@@ -183,7 +199,7 @@ if (!judged) {
 // Scores. C's cards are B's, with each one the review rewrote in its rewritten form.
 const gradeOf = (by, card) => judged.find(item => item.by === by && item.word === card.word && item.key === card.key)?.grade
 const graded = { A: A.map(card => ({ card, grade: gradeOf('A', card) })), B: B.map(card => ({ card, grade: gradeOf('B', card) })),
-  C: C.map(card => ({ card, grade: gradeOf(card.reviewed ? 'C' : 'B', card) })) }
+  C: C.map(card => ({ card, grade: gradeOf(card.reviewed ? 'C' : 'B', card) })), D: D.map(card => ({ card, grade: gradeOf(card.reviewed ? 'D' : 'B', card) })) }
 const FAMILY = /^(אבא|אמא|סבא|סבתא|אחי|אחותי|אח שלי|אחות שלי|הבן שלי|הבת שלי|דוד|דודה|דנה|יוסי|נועה|דני|מיכל|רוני|הסבא)/
 const pct = (n, of) => (of ? `${Math.round((n / of) * 100)}%` : '–')
 function scores(list) {
@@ -199,27 +215,27 @@ function scores(list) {
   }
 }
 const money = label => { const total = usage[label]; return total ? (total.input * PRICE.input + total.output * PRICE.output) / 1e6 : 0 }
-const lines = ['# Card writing: before, now, and now with a review pass', '',
+const lines = ['# Card writing: before, now, now with a review pass, and with a narrower one', '',
   `${words.length} words (${words.filter(word => word.set === 'random').length} picked across kinds, ${words.filter(word => word.set === 'known').length} whose cards the audit found wrong), each word's meanings and one form stage; graded blind by a separate Claude judge (effort medium).`, '',
   '| | Cards | Natural | Stiff | Wrong | Person left open | Needless emoji | With emoji | Other form used | Translation loose/wrong | Opens with family/name |',
   '|---|---|---|---|---|---|---|---|---|---|---|']
 for (const set of ['all', 'random', 'known']) {
   lines.push(`| **${set === 'all' ? 'All words' : set === 'random' ? 'Picked across kinds' : 'Known to have gone wrong'}** | | | | | | | | | | |`)
-  for (const by of ['A', 'B', 'C']) {
+  for (const by of ['A', 'B', 'C', 'D']) {
     const s = scores(graded[by].filter(item => set === 'all' || words[item.card.word].set === set))
     lines.push(`| ${by} | ${s.cards} | ${s.natural} | ${s.stiff} | ${s.wrong} | ${s.open} | ${s.needless} | ${s.cued} | ${s.otherForm} | ${s.loose} | ${s.family} |`)
   }
 }
 const time = label => (usage[label] ? `${(usage[label].ms / usage[label].calls / 1000).toFixed(1)} s` : '–')
 lines.push('', '| | Calls | Input tokens | Output tokens | Cost | Mean time per call |', '|---|---|---|---|---|---|')
-for (const label of ['A write', 'B write', 'C review', 'judge']) {
+for (const label of ['A write', 'B write', 'C review', 'D review', 'D cues', 'judge']) {
   const total = usage[label] ?? { calls: 0, input: 0, output: 0 }
   lines.push(`| ${label} | ${total.calls} | ${total.input} | ${total.output} | $${money(label).toFixed(2)} | ${time(label)} |`)
 }
 const rewritten = C.filter(card => card.reviewed)
-lines.push('', `The review rewrote ${rewritten.length} of ${C.length} cards.`, '')
+lines.push('', `The review rewrote ${rewritten.length} of ${C.length} cards; the narrower one ${D.filter(card => card.reviewed).length} of ${D.length}.`, '')
 const issues = by => { const all = {}; graded[by].forEach(item => item.grade?.issues.forEach(issue => { all[issue] = (all[issue] || 0) + 1 })); return Object.entries(all).sort((a, b) => b[1] - a[1]).map(([issue, n]) => `${issue} ${n}`).join(', ') }
-lines.push('Issues found: ', ...['A', 'B', 'C'].map(by => `- ${by}: ${issues(by) || 'none'}`), '')
+lines.push('Issues found: ', ...['A', 'B', 'C', 'D'].map(by => `- ${by}: ${issues(by) || 'none'}`), '')
 lines.push('## Every card', '')
 const line = (by, item) => item ? `- **${by}** ${item.card.sentence}\n  ${shown(item.card)}\n  _${item.grade ? `${item.grade.naturalness}${item.grade.issues.length ? ` (${item.grade.issues.join(', ')})` : ''}${item.grade.open.length ? ` · open: ${item.grade.open.join(', ')}` : ''}${item.grade.needless.length ? ` · needless: ${item.grade.needless.join(' ')}` : ''}${item.grade.testedForm === 'no' ? ' · other form' : ''}${item.grade.comment ? ` · ${item.grade.comment}` : ''}` : 'not graded'}_${item.card.reviewed ? `\n  review: ${item.card.reviewed.join('; ')}` : ''}` : `- **${by}** (not written)`
 for (const word of words) {
@@ -227,9 +243,9 @@ for (const word of words) {
   const keys = [...new Set([...A, ...B].filter(card => card.word === word.n).map(card => card.key))]
   for (const key of keys) {
     lines.push(`**${key}**`)
-    for (const by of ['A', 'B', 'C']) {
+    for (const by of ['A', 'B', 'C', 'D']) {
       const item = graded[by].find(entry => entry.card.word === word.n && entry.card.key === key)
-      if (by === 'C' && item && !item.card.reviewed) continue
+      if ((by === 'C' || by === 'D') && item && !item.card.reviewed) continue
       lines.push(line(by, item))
     }
   }
