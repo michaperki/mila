@@ -91,8 +91,8 @@ export const dayOf = (now: number) => { const date = new Date(now); return `${da
 // latest answers were right, and a wrong answer only makes it learning again: nothing resets.
 // A stage is familiar when about half its cards are (or a checkpoint went well), and then Mila
 // brings in the next stage; it is ready when nearly all are, or when most recent checkpoints
-// were nailed. A round is mostly new words and words being learned, never only the same few
-// cards. The numbers live here so they can be tuned in one place.
+// were nailed. A few words are studied at a time (workingSet), and a round takes a few of them
+// a few cards further each. The numbers live here so they can be tuned in one place.
 export const ProgressRules = {
   kept: 3, // results kept per card and per checkpoint
   familiarAfter: 2, // the latest answers that must be right for a card to be familiar
@@ -100,9 +100,8 @@ export const ProgressRules = {
   readySlackFrom: 4, // a stage of this many cards or more is ready with one card still learning
   checkpointsReady: 2, // nailed checkpoints, of those kept, that make a stage ready
   roundSize: 18, // cards in a round, besides the familiar ones mixed in
-  newWordsPerRound: 5, // words seen for the first time in a round, at least
-  newWordsMax: 10, // ...and at most, when little is being learned to fill the round
-  deeperPerRound: 4, // new cards of words already met (their meanings, then their forms)
+  inProgress: 12, // words being studied at a time; another comes in when one is mastered or known
+  perWord: 4, // cards a round takes of each word it studies
   familiarEvery: 3, // one familiar card for about this many others in a round
   sequenceLongest: 3, // cards of one word back to back in a learning sequence, at most
 }
@@ -231,60 +230,73 @@ export function checkpointStages(entry: VocabEntry, now = Date.now()) {
     && !(entry.checkpoints?.[stage.key] && dayOf(entry.checkpoints[stage.key].last) === dayOf(now))).map(stage => stage.key)
 }
 
+// The words being studied: a few at a time, so they are seen through before others come in.
+// Words started and not yet mastered are in progress, those studied most recently first, up to
+// ProgressRules.inProgress; past that, the ones studied least recently wait, ahead of any word not
+// yet started, and come back as words are mastered (or marked known). Room left is filled by
+// words not yet started, in the order they were saved. Studying words only, a word is through
+// once its word card is familiar. Nothing is stored: it follows from how each word is going.
+export type WorkingSet = { studying: VocabEntry[]; starting: VocabEntry[]; waiting: number; through: number }
+export const lastStudied = (entry: VocabEntry) => Math.max(entry.last ?? 0, ...(entry.forms || []).map(form => form.last ?? 0),
+  ...Object.values(entry.checkpoints || {}).map(item => item.last ?? 0))
+export function workingSet(entries: VocabEntry[], include: Include = 'both'): WorkingSet {
+  const through = (entry: VocabEntry) => isKnownWord(entry) || statusOf(entry) === 'mastered'
+    || (include === 'words' && cardState(entry.results) === 'familiar')
+  const started = entries.filter(entry => practised(entry) && !through(entry)).sort((a, b) => lastStudied(b) - lastStudied(a))
+  const unstarted = entries.filter(entry => !practised(entry) && !isKnownWord(entry)).sort((a, b) => a.createdAt - b.createdAt)
+  const studying = started.slice(0, ProgressRules.inProgress)
+  const starting = unstarted.slice(0, ProgressRules.inProgress - studying.length)
+  return { studying, starting, waiting: started.length - studying.length + unstarted.length - starting.length, through: entries.filter(through).length }
+}
+
 // What to study: word cards, sentence cards or both, in smart or shuffled order.
 export type Include = 'words' | 'sentences' | 'both'
 export type Order = 'smart' | 'shuffle'
 // One round of studying, which the learner can go round again for as long as they like. Smart
-// order fills a round of about ProgressRules.roundSize cards:
-// - new words, as their word cards: at least a few every round, and more when little is being
-//   learned; the newest saved and the oldest still unseen in turn, so what was just read comes
-//   soon and nothing waits forever;
-// - the next cards of words already met (their meanings, then their forms), a few a round;
-// - the cards still being learned, least recently seen first, in the room left;
-// and mixed in among them, familiar cards now and then (least recently seen first), so what is
-// known comes back without crowding out the rest; then any checkpoints. Shuffled: everything in
-// play, shuffled. Either way, a word not yet met shows only its word card (in sentences only, its
-// meanings), and two cards of one word aren't back to back where another can go between.
-// Nothing here is ever due.
+// order takes the words being studied (workingSet) in turn, the one studied least recently first
+// (a word just starting has never been), each a few cards further (ProgressRules.perWord): its
+// word card while it is being learned, then its cards still being learned and its next new
+// cards (its meanings, then its forms) in turn, until the round has about ProgressRules.roundSize.
+// A word not yet met brings only its word card; its next cards follow it as it is answered
+// (followUps). Mixed in among them, familiar cards now and then (least recently seen first) of
+// any word still studied, so what is known comes back without crowding out the rest; then
+// checkpoints of the words being studied. Shuffled: everything in play, shuffled. Either way, a
+// word not yet met shows only its word card (in sentences only, its meanings), and two cards of
+// one word aren't back to back where another can go between. Nothing here is ever due.
 export function deckOf(entries: VocabEntry[], { include, order }: { include: Include; order: Order }, now = Date.now(), seed = String(now)): Card[] {
   const studied = entries.filter(entry => !isKnownWord(entry))
   const deeper = (entry: VocabEntry) => (include === 'sentences' || isMet(entry) ? newCards(entry) : [])
-  const cards: Card[] = studied.flatMap(entry => [
+  const cardsOf = (entry: VocabEntry): Card[] => [
     ...(include === 'sentences' ? [] : [{ entry, form: null }]),
     ...(include === 'words' ? [] : [...activeForms(entry).filter(form => !!form.results?.length), ...deeper(entry)].map(form => ({ entry, form }))),
-  ])
-  const checkpoints: Card[] = include === 'both'
-    ? studied.flatMap(entry => checkpointStages(entry, now).map(stage => ({ entry, form: null, checkpoint: stage, why: `checkpoint · ${stageLabel(entry, stage)} is familiar, not yet ready` })))
-    : []
-  if (order === 'shuffle') return spread(shuffle([...cards, ...checkpoints], seed).map(card => ({ why: 'shuffled', ...card })))
+  ]
+  const checkpointsOf = (entry: VocabEntry): Card[] => include !== 'both' ? []
+    : checkpointStages(entry, now).map(stage => ({ entry, form: null, checkpoint: stage, why: `checkpoint · ${stageLabel(entry, stage)} is familiar, not yet ready` }))
+  if (order === 'shuffle') return spread(shuffle(studied.flatMap(entry => [...cardsOf(entry), ...checkpointsOf(entry)]), seed).map(card => ({ why: 'shuffled', ...card })))
   const rules = ProgressRules
   const state = (card: Card) => cardState(resultsOf(card).results)
   const lastOf = (card: Card) => resultsOf(card).last ?? 0
-  const learning = cards.filter(card => state(card) === 'learning').sort((a, b) => lastOf(a) - lastOf(b))
-  const fresh = cards.filter(card => state(card) === 'new')
-  // Unseen words, newest and oldest in turn.
-  const unseen = fresh.filter(card => !card.form).sort((a, b) => a.entry.createdAt - b.entry.createdAt)
-  const newWords: Card[] = []
-  for (let lo = 0, hi = unseen.length - 1; lo <= hi;) {
-    newWords.push(unseen[hi--])
-    if (lo <= hi) newWords.push(unseen[lo++])
+  const explain = (card: Card): Card => ({ ...card, why: state(card) === 'learning' ? `still learning · last seen ${ago(lastOf(card), now)}`
+    : !card.form ? `new word · saved ${ago(card.entry.createdAt, now)}` : `next for this word · ${stageLabel(card.entry, card.form.stage)}` })
+  const { studying, starting } = workingSet(entries, include)
+  const inTurn = [...studying, ...starting].sort((a, b) => lastStudied(a) - lastStudied(b) || a.createdAt - b.createdAt)
+  const taken: Card[] = []
+  for (const entry of inTurn) {
+    if (taken.length >= rules.roundSize) break
+    const cards = cardsOf(entry)
+    const word = cards.filter(card => !card.form && state(card) !== 'familiar')
+    // Not met: its word card alone, its next cards following as it is answered.
+    if (!isMet(entry) && include !== 'sentences') { taken.push(...word.map(explain)); continue }
+    const learning = cards.filter(card => card.form && state(card) === 'learning').sort((a, b) => lastOf(a) - lastOf(b))
+    const fresh = cards.filter(card => card.form && state(card) === 'new')
+    const turn = [...word]
+    for (let i = 0; turn.length < rules.perWord && (i < learning.length || i < fresh.length); i++) turn.push(...[learning[i], fresh[i]].filter(Boolean))
+    taken.push(...turn.slice(0, Math.min(rules.perWord, rules.roundSize - taken.length)).map(explain))
   }
-  // Words met most recently go deeper first; sorting is stable, so a word's cards keep their order.
-  const metAt = (entry: VocabEntry) => Math.max(entry.last ?? 0, ...formsIn(entry, 'meanings').map(form => form.last ?? 0))
-  const next = fresh.filter(card => card.form).sort((a, b) => metAt(b.entry) - metAt(a.entry))
-  const deeperTaken = next.slice(0, rules.deeperPerRound + (include === 'sentences' ? rules.newWordsPerRound : 0))
-  const room = rules.roundSize - deeperTaken.length
-  const wordsTaken = newWords.slice(0, Math.min(rules.newWordsMax, Math.max(rules.newWordsPerRound, room - learning.length)))
-  const learningTaken = learning.slice(0, Math.max(0, room - wordsTaken.length))
-  const familiar = cards.filter(card => state(card) === 'familiar').sort((a, b) => lastOf(a) - lastOf(b))
-  const explained = (list: Card[], why: (card: Card) => string) => list.map(card => ({ ...card, why: why(card) }))
-  const others = mix(
-    explained(learningTaken, card => `still learning · last seen ${ago(lastOf(card), now)}`),
-    [...explained(wordsTaken, card => `new word · saved ${ago(card.entry.createdAt, now)}`), ...explained(deeperTaken, card => `next for this word · ${stageLabel(card.entry, card.form!.stage)}`)],
-  )
-  const some = explained(others.length ? familiar.slice(0, Math.ceil(others.length / rules.familiarEvery)) : familiar,
-    card => `familiar · last seen ${ago(lastOf(card), now)}`)
-  return spread([...mix(others, some), ...checkpoints])
+  const familiar = studied.flatMap(cardsOf).filter(card => state(card) === 'familiar').sort((a, b) => lastOf(a) - lastOf(b))
+  const some = (taken.length ? familiar.slice(0, Math.ceil(taken.length / rules.familiarEvery)) : familiar)
+    .map(card => ({ ...card, why: `familiar · last seen ${ago(lastOf(card), now)}` }))
+  return spread([...mix(taken, some), ...inTurn.flatMap(checkpointsOf)])
 }
 // Learning sequences, in smart order: a card of a word still being learned can bring the word's
 // next cards in right behind it, whatever the deck's order, so a word is taught in a short run

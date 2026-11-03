@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, assess, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, followUps, freshStages, isKnownWord, isMet, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf } from '../src/lib/forms.ts'
+import { ago, assess, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, followUps, freshStages, isKnownWord, isMet, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, workingSet } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -90,9 +90,10 @@ test('a round: new words, the next cards of words met, what is being learned, an
   const b = verb([form('meanings:sense1')], { id: 'b', createdAt: 2 })
   const keys = (cards: ReturnType<typeof deckOf>) => cards.map(cardKey)
   const smart = deckOf([b, a], { include: 'both', order: 'smart' }, now)
-  // b isn't met yet, so it comes as its word card alone; a familiar card for about every three others.
-  assert.deepEqual(keys(smart), ['a:present:f.sg', 'b:word', 'a:present:m.sg', 'a:word'])
-  assert.deepEqual(smart.map(card => card.why), ['still learning · last seen 3 days ago', `new word · saved ${ago(2, now)}`, 'still learning · last seen yesterday', 'familiar · last seen yesterday'])
+  // b, just starting, comes first, as its word card alone (it isn't met yet); then a's cards still
+  // being learned; a familiar card for about every three others.
+  assert.deepEqual(keys(smart), ['b:word', 'a:present:f.sg', 'a:present:m.sg', 'a:word'])
+  assert.deepEqual(smart.map(card => card.why), [`new word · saved ${ago(2, now)}`, 'still learning · last seen 3 days ago', 'still learning · last seen yesterday', 'familiar · last seen yesterday'])
   // Once b is met, its meanings come next.
   const metB = { ...b, results: [true], last: now - DAY }
   assert.ok(keys(deckOf([metB, a], { include: 'both', order: 'smart' }, now)).includes('b:meanings:sense1'))
@@ -109,23 +110,38 @@ test('a round: new words, the next cards of words met, what is being learned, an
   assert.deepEqual(keys(deckOf([a, b], { include: 'both', order: 'shuffle' }, now, 'seed')), shuffled)
 })
 
-test('a round always brings new words, newest and oldest in turn, however much is being learned', () => {
+test('a few words are studied at a time, and the rest wait their turn in the order they were saved', () => {
   const unseen = Array.from({ length: 30 }, (_, i) => verb([form('meanings:sense1')], { id: `n${i}`, createdAt: 100 + i }))
-  const busy = Array.from({ length: 40 }, (_, i) => verb([form('meanings:sense1', { results: [false], last: now - i })], { id: `l${i}`, createdAt: 1, results: [true, false], last: now - i * 1000 }))
-  const round = deckOf([...unseen, ...busy], { include: 'words', order: 'smart' }, now)
-  const fresh = round.filter(card => card.entry.id.startsWith('n')).map(card => card.entry.id)
-  assert.deepEqual(fresh.sort(), ['n29', 'n0', 'n28', 'n1', 'n27'].sort())
-  // Learning fills the rest of the round, least recently seen first; the round stays its size.
-  assert.equal(round.filter(card => card.entry.id.startsWith('l')).length, 13)
-  // New material isn't left to the end: a new word within the first few cards.
-  assert.ok(round.slice(0, 4).some(card => card.entry.id.startsWith('n')))
-  // With nothing being learned, a round takes more new words.
-  assert.equal(deckOf(unseen, { include: 'words', order: 'smart' }, now).length, 10)
-  // The next cards of words met: a few a round, those met most recently first.
-  const met = Array.from({ length: 8 }, (_, i) => verb([form('meanings:sense1'), form('meanings:sense2')], { id: `m${i}`, createdAt: 1, results: [true], last: now - i * DAY }))
-  const deeper = deckOf(met, { include: 'sentences', order: 'smart' }, now)
-  assert.equal(deeper.length, 9)
-  assert.ok(deeper.every(card => card.why?.startsWith('next for this word · Meanings')))
+  const busy = Array.from({ length: 20 }, (_, i) => verb([form('meanings:sense1', { results: [false], last: now - i })], { id: `l${i}`, createdAt: 1, results: [true, false], last: now - i * 1000 }))
+  // While as many words as fit are in progress, no new word comes in; those studied least recently wait.
+  const full = workingSet([...unseen, ...busy])
+  assert.deepEqual(full.studying.map(entry => entry.id), busy.slice(0, 12).map(entry => entry.id))
+  assert.deepEqual(full.starting, [])
+  assert.equal(full.waiting, 8 + 30)
+  assert.ok(deckOf([...unseen, ...busy], { include: 'words', order: 'smart' }, now).every(card => card.entry.id.startsWith('l')))
+  // A word mastered or marked known makes room for the next saved: the oldest first.
+  const fewer = workingSet([...unseen, ...busy.slice(0, 10)])
+  assert.deepEqual(fewer.starting.map(entry => entry.id), ['n0', 'n1'])
+  // With nothing started, the first words saved start, each as its word card.
+  assert.deepEqual(deckOf(unseen, { include: 'words', order: 'smart' }, now).map(card => card.entry.id).sort(), unseen.slice(0, 12).map(entry => entry.id).sort())
+  // Studying words only, a word whose word card is familiar is through.
+  const knownCard = verb([form('meanings:sense1')], { id: 'w', createdAt: 1, ...familiar })
+  assert.equal(workingSet([knownCard], 'words').studying.length, 0)
+  assert.equal(workingSet([knownCard], 'both').studying.length, 1)
+})
+
+test('a round takes the words being studied in turn, least recently studied first, each a few cards further', () => {
+  // Met verbs, each with meanings and present cards not yet studied, studied a day apart.
+  const met = Array.from({ length: 6 }, (_, i) => verb([form('meanings:sense1'), ...present([])], { id: `m${i}`, createdAt: 1, results: [true], last: now - i * DAY }))
+  const round = deckOf(met, { include: 'sentences', order: 'smart' }, now)
+  // perWord cards of each, those studied longest ago first, until the round is full.
+  assert.equal(round.length, 18)
+  assert.deepEqual([...new Set(round.map(card => card.entry.id))].sort(), ['m1', 'm2', 'm3', 'm4', 'm5'])
+  assert.ok(round.filter(card => card.entry.id === 'm5').map(card => card.form!.key).join() === 'meanings:sense1,present:m.sg,present:f.sg,present:m.pl')
+  // Cards still being learned and new ones in turn.
+  const going = verb([form('meanings:sense1', familiar), ...present([learning, learning])], { id: 'g', createdAt: 1, ...familiar })
+  const turn = deckOf([going], { include: 'sentences', order: 'smart' }, now).filter(card => !card.why?.startsWith('familiar')).map(card => card.form!.key)
+  assert.deepEqual(turn, ['present:m.sg', 'present:m.pl', 'present:f.sg', 'present:f.pl'])
 })
 
 test('how long ago, in days', () => {
