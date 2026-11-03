@@ -15,6 +15,8 @@ import { freshStages } from '../lib/forms'
 import { APPEAR, DISAPPEAR } from '../lib/motion'
 import { latestRead } from '../lib/library'
 import { getPref, setPref } from '../lib/prefs'
+import { roundProgress } from '../lib/rounds'
+import { loadRound } from '../lib/saved-round'
 import { type LastRead, parseLastRead } from '../lib/today'
 import { lastShown, loadTree, rememberTree, SAPLING, takeTended, type Tree, treeLine } from '../lib/tree'
 import type { TextDoc } from '../lib/types'
@@ -49,12 +51,15 @@ export default function Home() {
   useEffect(() => { sessionNow.current = session }, [session])
   // What Mila suggests studying next: a stage it has just brought in. A suggestion, never a count.
   const next = useMemo(() => freshStages(entries, 1)[0], [entries])
+  // A round of Study left unfinished, which Study opens on (lib/rounds.ts).
+  const [round, setRound] = useState<{ at: number; of: number } | null>(null)
 
   useFocusEffect(useCallback(() => {
     setFocused(true); setVisit(value => value + 1); setHour(hourNow())
     // Where reading stopped as this phone remembers it, at once; then as the library has it.
     void getPref('lastRead').then(value => setLastRead(parseLastRead(value)))
     const signedIn = sessionNow.current
+    setRound(signedIn ? roundProgress(loadRound(signedIn.user.id)) : null)
     if (signedIn) void request<{ texts?: TextDoc[] }>('texts', { token: signedIn.token }).then(({ texts = [] }) => {
       library.current = texts
       void getPref('lastRead').then(value => {
@@ -149,7 +154,8 @@ export default function Home() {
         </View>
         <View style={home.action}>
           {/* Green when Mila has something new to suggest: information, never a badge. */}
-          <Button secondary={!next} title="Study" detail={session && next ? `${next.label} · ${next.entry.lemma}` : undefined} style={home.button}
+          <Button secondary={!next && !round} title="Study" style={home.button}
+            detail={session && round ? `Continue · ${round.at} of ${round.of}` : session && next ? `${next.label} · ${next.entry.lemma}` : undefined}
             onPress={() => router.push(session ? '/practice' : '/login')} />
           <TextButton title="Your words" onPress={() => router.push('/vocabulary')} />
         </View>

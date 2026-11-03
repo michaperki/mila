@@ -24,6 +24,8 @@ import { bothForms, constructionsOf } from '../lib/words'
 import { Constructions } from '../components/Constructions'
 import { useWordLookup, WordDrawer, type WordLookup } from '../components/WordDrawer'
 import { ensureForms } from '../lib/word-forms'
+import { resumeRound, roundToSave } from '../lib/rounds'
+import { clearRound, loadRound, saveRound } from '../lib/saved-round'
 import { useSession } from '../state/session'
 import { cachedVocab, putEntry, vocabFor } from '../state/vocab'
 import { useVowels } from '../state/vowels'
@@ -46,6 +48,9 @@ type Loaded = Table | { error: string }
 // English first, smart or shuffled order, which cards and quiz mode are chosen on the screen and
 // remembered. New stages' cards are written in the background. A long press on the card count
 // shows why each card is in the round (lib/forms.ts deckOf), to see what Mila is choosing.
+// The round is kept on the phone as it goes (lib/rounds.ts): leaving Study, or Mila, only pauses
+// it, and Study opens again on the same card and side. Finishing it, Done or a new round from
+// the settings ends it.
 export default function Practice() {
   const { session } = useSession()
   const insets = useSafeAreaInsets()
@@ -108,6 +113,13 @@ export default function Practice() {
           ready.forEach(item => share(session, item))
           if (current) ready.forEach(keep)
         })
+        // The round left unfinished, if anything of it is left.
+        const resumed = resumeRound(loadRound(session.user.id), entries)
+        if (resumed) {
+          setDeck(resumed.deck); setPosition(resumed.position); setFlipped(resumed.flipped)
+          setAnswers(resumed.answers); setBefore(resumed.before)
+          return
+        }
         let cards = deckOf(entries, chosen)
         if (!cards.length && entries.length) cards = deckOf(await preparing, chosen)
         if (current) setDeck(cards)
@@ -129,6 +141,15 @@ export default function Practice() {
     // Only a new card can need a table; `words` and `tables` change with every answer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deck, position, token])
+
+  // The round as it stands, kept after each change; let go once it is over. "Emoji only" is for
+  // this visit: the round it interrupted is the one kept.
+  const owner = session?.user.id
+  useEffect(() => {
+    if (!owner || !deck || cuesOnly) return
+    if (done) clearRound()
+    else saveRound(roundToSave(owner, deck, roundStart, position, flipped, answers, before))
+  }, [owner, deck, roundStart, position, flipped, answers, before, done, cuesOnly])
 
   if (!session) return <Page><Text style={styles.copy}>Sign in to study your saved words.</Text></Page>
   if (!deck || !settings) return <Page>{error ? <ErrorNotice message={error} /> : <Loading />}</Page>
@@ -164,7 +185,7 @@ export default function Practice() {
     setPicks(current => { const { [to]: _gone, ...rest } = current; return rest })
     return true
   }
-  const stopStudying = () => { stopSpeaking(); if (Object.keys(answers).length) setDone(true); else router.back() }
+  const stopStudying = () => { stopSpeaking(); if (Object.keys(answers).length) setDone(true); else { clearRound(); router.back() } }
 
   // Settings apply from the next card on; which side shows first applies at once.
   const change = (patch: Partial<Settings>) => {
@@ -192,7 +213,7 @@ export default function Practice() {
   const summary = [FRONTS[settings.front], settings.order === 'shuffle' ? 'Shuffled' : 'Smart order', INCLUDES[settings.include],
     settings.quiz && 'Quiz forms', cursiveAnswers && 'Answers in כתב יד', cuesOnly && 'Emoji only'].filter(Boolean).join(' · ')
   const sheet = settingsOpen && <SettingsSheet settings={settings} change={change} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)}
-    cuesOnly={cuesOnly} onCues={toggleCues} onClose={() => setSettingsOpen(false)} />
+    cuesOnly={cuesOnly} onCues={toggleCues} onNewRound={() => { setSettingsOpen(false); feel('advance'); newRound() }} onClose={() => setSettingsOpen(false)} />
 
   const card = deck[position]
   const progress = { at: position - roundStart + 1, of: deck.length - roundStart }
@@ -213,7 +234,7 @@ export default function Practice() {
   const loaded = tables[entry.id]
   const rows = checkpoint && loaded && 'groups' in loaded ? loaded.groups.find(group => group.key === checkpointGroup(entry, checkpoint))?.rows ?? [] : []
   // Mixed: each card shows one side or the other first, settled per card and position.
-  const front: 'he' | 'en' = settings.front === 'mixed' ? ([...`${cardKey(card)}${position}`].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 ? 'en' : 'he') : settings.front
+  const front: 'he' | 'en' = settings.front === 'mixed' ? ([...`${cardKey(card)}${position - roundStart}`].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 ? 'en' : 'he') : settings.front
   const englishFirst = (front === 'en' || (cuesOnly && !!form && !!cueOf(form))) && (!form || !!form.translation)
   // Quiz mode: a word card shown in Hebrew asks for its meaning, shown in English for the word.
   // A checkpoint is always recalled and turned over.
@@ -377,9 +398,10 @@ function TopBar({ summary, progress, canGoBack, onBack, onNext, onDone, onWhy, o
 
 // The settings, grouped: what is studied and how (Study) and how answers look (Display). Each
 // shows its choices with the one in force selected; changes apply as they do from the top bar
-// (the order and which cards from the next card, which side first at once).
-function SettingsSheet({ settings, change, cursive, onCursive, cuesOnly, onCues, onClose }: {
-  settings: Settings; change: (patch: Partial<Settings>) => void; cursive: boolean; onCursive: () => void; cuesOnly: boolean; onCues: () => void; onClose: () => void
+// (the order and which cards from the next card, which side first at once). New round leaves
+// the round in front of the learner for a fresh one.
+function SettingsSheet({ settings, change, cursive, onCursive, cuesOnly, onCues, onNewRound, onClose }: {
+  settings: Settings; change: (patch: Partial<Settings>) => void; cursive: boolean; onCursive: () => void; cuesOnly: boolean; onCues: () => void; onNewRound: () => void; onClose: () => void
 }) {
   const insets = useSafeAreaInsets()
   return <View style={StyleSheet.absoluteFill}>
@@ -396,6 +418,13 @@ function SettingsSheet({ settings, change, cursive, onCursive, cuesOnly, onCues,
       <Choice label="Order" options={ORDERS} value={settings.order} onChange={order => change({ order })} />
       <Choice label="Cards" options={INCLUDES} value={settings.include} onChange={include => change({ include })} />
       <Toggle label="Quiz forms" detail="Choose a sentence's missing form from the word's forms" value={settings.quiz} onChange={() => change({ quiz: !settings.quiz })} />
+      <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
+        <View style={{ flex: 1, gap: 1 }}>
+          <Text style={practice.settingLabel}>New round</Text>
+          <Text style={practice.settingDetail}>This round is kept until you finish it; start a fresh one instead</Text>
+        </View>
+        <Pressy moment="tick" accessibilityRole="button" onPress={onNewRound} style={practice.newRound}><Text style={practice.newRoundText}>Start</Text></Pressy>
+      </View>
       <Text style={practice.group}>Display</Text>
       <Toggle label="Answers in כתב יד" detail="Cursive on the answer side; questions stay in print" value={cursive} onChange={onCursive} />
       {/* Temporary: for checking cues. */}
@@ -618,6 +647,8 @@ const practice = StyleSheet.create({
   segmentOn: { backgroundColor: colors.white, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } },
   segmentText: { fontSize: 14, fontWeight: '600', color: colors.muted },
   segmentTextOn: { color: colors.green },
+  newRound: { minHeight: 38, paddingHorizontal: 16, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.line },
+  newRoundText: { fontSize: 15, fontWeight: '600', color: colors.green },
   done: { fontSize: 16, fontWeight: '600', color: colors.green },
   progress: { fontSize: 14, color: colors.muted, minWidth: 52, textAlign: 'center', fontVariant: ['tabular-nums'] },
   why: { fontSize: 12, color: colors.muted, textAlign: 'center', fontVariant: ['tabular-nums'] },
