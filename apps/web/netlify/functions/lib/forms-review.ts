@@ -46,7 +46,8 @@ export async function reviewForms(entry: Entry, stage: string, forms: WrittenFor
   const reply = await ask({ system: SYSTEM, prompt, schema })
   const text = reply.content.flatMap(block => (block.type === 'text' && block.text ? [block.text] : [])).join('')
   const verdicts = (JSON.parse(text) as { cards: { card: number; verdict: string; problems: string[]; fixed: Omit<Generated, 'slot'> }[] }).cards
-  const slots = slotsOf(entry, stage)
+  // Cards of a stage no longer written ("infinitive" on older words) are checked by their own slots.
+  const slots = slotsOf(entry, stage) ?? forms.map(form => ({ slot: form.slot, means: form.slot }))
   const fixed: { key: string; problems: string[] }[] = []
   const reviewed = forms.map((form, i) => {
     const verdict = verdicts.find(item => item.card === i + 1)
@@ -76,7 +77,8 @@ export async function checkCues(entry: Entry, stage: string, forms: WrittenForm[
   const reply = await ask({ system: CUE_CHECK, prompt, schema: cueSchema })
   const text = reply.content.flatMap(block => (block.type === 'text' && block.text ? [block.text] : [])).join('')
   const answers = (JSON.parse(text) as { cards: { card: number; cues: Cue[] }[] }).cards
-  const slots = slotsOf(entry, stage)
+  // Cards of a stage no longer written ("infinitive" on older words) are checked by their own slots.
+  const slots = slotsOf(entry, stage) ?? forms.map(form => ({ slot: form.slot, means: form.slot }))
   const same = (a: Cue[], b: Cue[]) => JSON.stringify(a) === JSON.stringify(b)
   const fixed: { key: string; problems: string[] }[] = []
   const checked = forms.map((form, i) => {

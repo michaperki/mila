@@ -1,3 +1,4 @@
 scripts/cues-backup-*.json
 scripts/person-nouns-backup-*.json
 scripts/eval-out/
+scripts/repair-out/
