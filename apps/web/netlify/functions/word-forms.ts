@@ -4,10 +4,14 @@ import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
 import { getDb } from './lib/mongo'
 import { checkDailySpend, recordClaude } from './lib/ai-usage'
-import { type Entry, slotsOf, Unwritable, writeForms } from './lib/forms-writer'
+import { type Ask, type Entry, slotsOf, Unwritable, writeForms } from './lib/forms-writer'
+import { checkCues } from './lib/forms-review'
 
 // Writes one stage of a saved word's practice cards and adds them to the vocab entry
-// (lib/forms-writer.ts writes them). Stages are written when they open (by progress or because
+// (lib/forms-writer.ts writes them), then has their cues checked on their own (lib/forms-review.ts
+// checkCues: who each person is where the English doesn't say, the sentences left as they are),
+// which scripts/eval-forms.mjs found to catch most cues the writer missed for a quarter of what
+// writing costs; if the check fails, the cards are kept as written. Stages are written when they open (by progress or because
 // the learner chose them), so a word only costs what the learner reaches.
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 let client: Anthropic | null = null
@@ -32,7 +36,7 @@ export const handler: Handler = async (event) => {
 
     await checkDailySpend(auth)
     client ??= new Anthropic()
-    const forms = await writeForms(entry, stage, async ({ system, prompt, schema }) => {
+    const ask: Ask = async ({ system, prompt, schema }) => {
       const started = Date.now()
       const response = await client!.beta.messages.create({
         model: 'claude-opus-5-5',
@@ -45,7 +49,9 @@ export const handler: Handler = async (event) => {
       } as never, { timeout: 40000, maxRetries: 1 })
       await recordClaude(auth.userId, 'forms', response, Date.now() - started)
       return response
-    })
+    }
+    const written = await writeForms(entry, stage, ask)
+    const forms = await checkCues(entry, stage, written, ask).then(checked => checked.forms, () => written)
     // Two requests for the same stage (a double tap, two screens) must not add it twice.
     await vocab.updateOne({ userId: auth.userId, id, 'forms.stage': { $ne: stage } }, { $push: { forms: { $each: forms } }, $set: { updatedAt: Date.now() } } as never)
     const saved = await vocab.findOne<Entry>({ userId: auth.userId, id })

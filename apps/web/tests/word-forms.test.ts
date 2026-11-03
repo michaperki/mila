@@ -65,6 +65,18 @@ describe('word forms', () => {
     expect(form.cues).toEqual([{ cue: '👩', after: 'teacher' }, { cue: '👨', after: 'you' }, { cue: '👦', after: '' }])
     expect(form).toMatchObject({ cue: '👩', cueAfter: 'teacher' })
   })
+  it('has the cues checked after writing, leaving the sentences as written', async () => {
+    findOne.mockResolvedValueOnce(entry).mockResolvedValueOnce(null)
+    create.mockResolvedValueOnce(generated([
+      { slot: '3sg.m', form: 'פָּתַח', english: 'he opened', agreesWith: { word: 'השכן', gender: 'masculine', number: 'singular' }, sentence: 'השכן פתח את החלון', inSentence: ['פתח'], said: '', translation: 'The neighbor opened the window', inTranslation: ['opened'], cues: [] },
+      { slot: '1sg', form: 'פָּתַחְתִּי', english: 'I opened', agreesWith: { word: '', gender: 'none', number: 'singular' }, sentence: 'פתחתי חשבון', inSentence: ['פתחתי'], said: '', translation: 'I opened an account', inTranslation: ['I opened'], cues: [{ cue: '👩', after: 'I' }] },
+    ])).mockResolvedValueOnce({ ...generated([]), content: [{ type: 'text', text: JSON.stringify({ cards: [{ card: 1, cues: [] }, { card: 2, cues: [{ cue: '👨', after: 'neighbor' }] }] }) }] })
+    const result = await invoke({ id: 'native-x', stage: 'past' })
+    expect(result.forms.map((form: any) => [form.sentence, form.cues])).toEqual([['פתחתי חשבון', []], ['השכן פתח את החלון', [{ cue: '👨', after: 'neighbor' }]]])
+    expect(result.forms[1]).toMatchObject({ cue: '👨', cueAfter: 'neighbor' })
+    expect(result.forms[0].cue).toBe('')
+    expect(create.mock.calls[1][0].system[0].text).toContain('You check the gender cues')
+  })
   it('writes again, once, a form whose subject does not agree with it', async () => {
     findOne.mockResolvedValueOnce({ ...entry, forms: [] }).mockResolvedValueOnce(null)
     const card = (slot: string, form: string, word: string, gender: string, number: string, sentence: string) => ({ slot, form, english: form, agreesWith: { word, gender, number }, sentence, inSentence: [form], said: '', translation: sentence, inTranslation: [form], cues: [] })
@@ -79,7 +91,8 @@ describe('word forms', () => {
     ]))
     const result = await invoke({ id: 'native-x', stage: 'present' })
     expect(result.forms.map((form: any) => form.sentence)).toEqual(['האוטובוס חולף ליד הבית', 'השנה חולפת מהר', 'הימים חולפים', 'השעות חולפות לאט'])
-    expect(create).toHaveBeenCalledTimes(2)
+    // Written twice, then the cues checked (the check failing here keeps the cards as written).
+    expect(create).toHaveBeenCalledTimes(3)
     const again = create.mock.calls[1][0].messages[0].content
     expect(again).toContain('slot "m.sg": הרכבת is feminine, the form masculine')
     expect(again).not.toContain('slot "f.sg"')
