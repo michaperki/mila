@@ -246,11 +246,6 @@ export type Order = 'smart' | 'shuffle'
 // play, shuffled. Either way, a word not yet met shows only its word card (in sentences only, its
 // meanings), and two cards of one word aren't back to back where another can go between.
 // Nothing here is ever due.
-// For finding them while cues are being checked (Study's temporary "Emoji only" chip): every
-// card of every word whose English shows a cue, whatever stage it is at, shuffled.
-export const cueCards = (entries: VocabEntry[], seed: string): Card[] =>
-  shuffle(entries.flatMap(entry => (entry.forms || []).filter(form => cuesOf(form).length > 0 && !!form.translation).map(form => ({ entry, form, why: `cue ${cuesOf(form).map(item => item.cue).join(' ')}` }))), seed)
-
 export function deckOf(entries: VocabEntry[], { include, order }: { include: Include; order: Order }, now = Date.now(), seed = String(now)): Card[] {
   const studied = entries.filter(entry => !isKnownWord(entry))
   const deeper = (entry: VocabEntry) => (include === 'sentences' || isMet(entry) ? newCards(entry) : [])

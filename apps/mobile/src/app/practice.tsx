@@ -13,7 +13,7 @@ import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, cueCards, cuedTranslation, cuesOf, deckOf, firstSense, followUps, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
+import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, cuedTranslation, deckOf, firstSense, followUps, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
@@ -67,7 +67,6 @@ export default function Practice() {
   const toggleWhy = () => { feel('tick'); setPref('studyWhy', !why); setWhy(!why) }
   const [deck, setDeck] = useState<Card[] | null>(null)
   // Temporary, for checking cues: only cards whose English shows one, English first.
-  const [cuesOnly, setCuesOnly] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   // Where the round being studied starts in the deck (rounds are appended as they go round).
   const [roundStart, setRoundStart] = useState(0)
@@ -142,14 +141,13 @@ export default function Practice() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deck, position, token])
 
-  // The round as it stands, kept after each change; let go once it is over. "Emoji only" is for
-  // this visit: the round it interrupted is the one kept.
+  // The round as it stands, kept after each change; let go once it is over.
   const owner = session?.user.id
   useEffect(() => {
-    if (!owner || !deck || cuesOnly) return
+    if (!owner || !deck) return
     if (done) clearRound()
     else saveRound(roundToSave(owner, deck, roundStart, position, flipped, answers, before))
-  }, [owner, deck, roundStart, position, flipped, answers, before, done, cuesOnly])
+  }, [owner, deck, roundStart, position, flipped, answers, before, done])
 
   if (!session) return <Page><Text style={styles.copy}>Sign in to study your saved words.</Text></Page>
   if (!deck || !settings) return <Page>{error ? <ErrorNotice message={error} /> : <Loading />}</Page>
@@ -161,7 +159,7 @@ export default function Practice() {
 
   // Another round, from the latest copy of each word (its order reflects what was just studied).
   const newRound = () => {
-    const again = cuesOnly ? cueCards(Object.values(words), `${Date.now()}`) : deckOf(Object.values(words), settings, Date.now(), `${Date.now()}`)
+    const again = deckOf(Object.values(words), settings, Date.now(), `${Date.now()}`)
     // Don't show the card just studied twice in a row.
     const last = deck[deck.length - 1]
     if (again.length > 1 && last && cardKey(again[0]) === cardKey(last)) again.push(again.shift()!)
@@ -202,18 +200,9 @@ export default function Practice() {
     }
   }
 
-  const toggleCues = () => {
-    const on = !cuesOnly
-    setCuesOnly(on)
-    const here = deck[position]
-    const rest = (on ? cueCards(Object.values(words), `${Date.now()}`) : deckOf(Object.values(words), settings, Date.now(), `${Date.now()}`)).filter(card => !here || cardKey(card) !== cardKey(here))
-    setDeck([...deck.slice(0, position + 1), ...rest])
-  }
-
   const summary = [FRONTS[settings.front], settings.order === 'shuffle' ? 'Shuffled' : 'Smart order', INCLUDES[settings.include],
-    settings.quiz && 'Quiz forms', cursiveAnswers && 'Answers in כתב יד', cuesOnly && 'Emoji only'].filter(Boolean).join(' · ')
-  const sheet = settingsOpen && <SettingsSheet settings={settings} change={change} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)}
-    cuesOnly={cuesOnly} onCues={toggleCues} onNewRound={() => { setSettingsOpen(false); feel('advance'); newRound() }} onClose={() => setSettingsOpen(false)} />
+    settings.quiz && 'Quiz forms', cursiveAnswers && 'Answers in כתב יד'].filter(Boolean).join(' · ')
+  const sheet = settingsOpen && <SettingsSheet settings={settings} change={change} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)} onNewRound={() => { setSettingsOpen(false); feel('advance'); newRound() }} onClose={() => setSettingsOpen(false)} />
 
   const card = deck[position]
   const progress = { at: position - roundStart + 1, of: deck.length - roundStart }
@@ -235,7 +224,7 @@ export default function Practice() {
   const rows = checkpoint && loaded && 'groups' in loaded ? loaded.groups.find(group => group.key === checkpointGroup(entry, checkpoint))?.rows ?? [] : []
   // Mixed: each card shows one side or the other first, settled per card and position.
   const front: 'he' | 'en' = settings.front === 'mixed' ? ([...`${cardKey(card)}${position - roundStart}`].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 ? 'en' : 'he') : settings.front
-  const englishFirst = (front === 'en' || (cuesOnly && !!form && cuesOf(form).length > 0)) && (!form || !!form.translation)
+  const englishFirst = front === 'en' && (!form || !!form.translation)
   // Quiz mode: a word card shown in Hebrew asks for its meaning, shown in English for the word.
   // A checkpoint is always recalled and turned over.
   const quiz = settings.quiz && !checkpoint ? quizOf(Object.values(words), { entry, form }, !englishFirst, `${cardKey(card)}-${record.results?.length ?? 0}`) : null
@@ -400,8 +389,8 @@ function TopBar({ summary, progress, canGoBack, onBack, onNext, onDone, onWhy, o
 // shows its choices with the one in force selected; changes apply as they do from the top bar
 // (the order and which cards from the next card, which side first at once). New round leaves
 // the round in front of the learner for a fresh one.
-function SettingsSheet({ settings, change, cursive, onCursive, cuesOnly, onCues, onNewRound, onClose }: {
-  settings: Settings; change: (patch: Partial<Settings>) => void; cursive: boolean; onCursive: () => void; cuesOnly: boolean; onCues: () => void; onNewRound: () => void; onClose: () => void
+function SettingsSheet({ settings, change, cursive, onCursive, onNewRound, onClose }: {
+  settings: Settings; change: (patch: Partial<Settings>) => void; cursive: boolean; onCursive: () => void; onNewRound: () => void; onClose: () => void
 }) {
   const insets = useSafeAreaInsets()
   return <View style={StyleSheet.absoluteFill}>
@@ -427,9 +416,6 @@ function SettingsSheet({ settings, change, cursive, onCursive, cuesOnly, onCues,
       </View>
       <Text style={practice.group}>Display</Text>
       <Toggle label="Answers in כתב יד" detail="Cursive on the answer side; questions stay in print" value={cursive} onChange={onCursive} />
-      {/* Temporary: for checking cues. */}
-      <Text style={practice.group}>Testing</Text>
-      <Toggle label="Emoji only" detail="Only cards whose English shows a gender emoji" value={cuesOnly} onChange={onCues} />
     </DraggableSheet>
   </View>
 }
