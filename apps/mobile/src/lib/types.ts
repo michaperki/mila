@@ -108,6 +108,10 @@ export type FormCard = {
   cue?: string
   // The word of `translation` the cue is about, which it is shown right after ("secretary", "you").
   cueAfter?: string
+  // Every person in the sentence the English leaves open, each with the word of `translation`
+  // it is shown after ("" for first); `cue`/`cueAfter` are the first of them. Missing on cards
+  // written before the whole sentence was cued (lib/forms.ts cuesOf).
+  cues?: { cue: string; after: string }[]
 } & Results
 // What studying has shown about a card, and nothing about when to see it again: its last few
 // results (true: knew it) and when it was last answered (lib/forms.ts).

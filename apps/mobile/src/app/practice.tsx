@@ -13,7 +13,7 @@ import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, cueCards, cuedTranslation, cueOf, deckOf, firstSense, followUps, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
+import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, cueCards, cuedTranslation, cuesOf, deckOf, firstSense, followUps, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
@@ -235,7 +235,7 @@ export default function Practice() {
   const rows = checkpoint && loaded && 'groups' in loaded ? loaded.groups.find(group => group.key === checkpointGroup(entry, checkpoint))?.rows ?? [] : []
   // Mixed: each card shows one side or the other first, settled per card and position.
   const front: 'he' | 'en' = settings.front === 'mixed' ? ([...`${cardKey(card)}${position - roundStart}`].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 ? 'en' : 'he') : settings.front
-  const englishFirst = (front === 'en' || (cuesOnly && !!form && !!cueOf(form))) && (!form || !!form.translation)
+  const englishFirst = (front === 'en' || (cuesOnly && !!form && cuesOf(form).length > 0)) && (!form || !!form.translation)
   // Quiz mode: a word card shown in Hebrew asks for its meaning, shown in English for the word.
   // A checkpoint is always recalled and turned over.
   const quiz = settings.quiz && !checkpoint ? quizOf(Object.values(words), { entry, form }, !englishFirst, `${cardKey(card)}-${record.results?.length ?? 0}`) : null

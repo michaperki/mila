@@ -49,20 +49,35 @@ const PERSON_CUES: Record<string, string> = { '2sg.m': '👨', '2sg.f': '👩', 
 const COMMAND_CUES: Record<string, string> = { 'm.sg': '👨', 'f.sg': '👩', pl: '👨👩' }
 export const cueOf = (form: Pick<FormCard, 'stage' | 'slot' | 'cue'>) => form.cue
   ?? ((form.stage === 'past' || form.stage === 'future' ? PERSON_CUES[form.slot] : form.stage === 'imperative' ? COMMAND_CUES[form.slot] : undefined) || '')
-
-// The card's English with its cue right after the word it is about ("The doctor's secretary 👩
-// booked me an appointment", "Why are you 👨 tired?"), after the whole word when that is a
-// contraction ("I'm 👩"), before any punctuation. Cards written before say only the cue: theirs goes
-// after "you" when that is who it is for, else first.
-export function cuedTranslation(form: Pick<FormCard, 'stage' | 'slot' | 'cue' | 'cueAfter' | 'translation'>) {
+// Every cue a card's English shows, each with the word it goes after: the people its sentence
+// leaves open on cards written since, else its one cue (after "you" on cards written before cues
+// when that is who it is for).
+export function cuesOf(form: Pick<FormCard, 'stage' | 'slot' | 'cue' | 'cueAfter' | 'cues'>) {
+  if (form.cues) return form.cues.filter(item => !!item.cue)
   const cue = cueOf(form)
-  if (!cue) return form.translation
-  const after = form.cueAfter || (form.cue === undefined && cue ? 'you' : '')
-  const found = after ? new RegExp(`(^|[^\\p{L}])(${after.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?![\\p{L}])`, 'iu').exec(form.translation) : null
-  if (!found) return `${cue} ${form.translation}`
-  let end = found.index + found[1].length + found[2].length
-  while (end < form.translation.length && /[\p{L}'’]/u.test(form.translation[end])) end++
-  return `${form.translation.slice(0, end)} ${cue}${form.translation.slice(end)}`
+  return cue ? [{ cue, after: form.cueAfter || (form.cue === undefined ? 'you' : '') }] : []
+}
+
+// The card's English with each cue right after the word it is about ("The doctor's secretary 👩
+// booked me an appointment", "Why are you 👨 tired?", "Don't buy this coat if you 👨 might regret
+// it"): after the first time that word appears, after the whole word when that is a contraction
+// ("I'm 👩"), before any punctuation. A cue whose word isn't there goes first.
+export function cuedTranslation(form: Pick<FormCard, 'stage' | 'slot' | 'cue' | 'cueAfter' | 'cues' | 'translation'>) {
+  const text = form.translation
+  const first: string[] = []
+  const placed: { end: number; cue: string }[] = []
+  for (const { cue, after } of cuesOf(form)) {
+    const found = after ? new RegExp(`(^|[^\\p{L}])(${after.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?![\\p{L}])`, 'iu').exec(text) : null
+    if (!found) { first.push(cue); continue }
+    let end = found.index + found[1].length + found[2].length
+    while (end < text.length && /[\p{L}'’]/u.test(text[end])) end++
+    const same = placed.find(item => item.end === end)
+    if (same) same.cue += cue
+    else placed.push({ end, cue })
+  }
+  let cued = text
+  for (const { end, cue } of placed.sort((a, b) => b.end - a.end)) cued = `${cued.slice(0, end)} ${cue}${cued.slice(end)}`
+  return first.length ? `${first.join(' ')} ${cued}` : cued
 }
 
 export const kindLabel = (entry: VocabEntry) => (entry.partOfSpeech === 'noun' && entry.gender ? `${entry.gender} noun` : entry.partOfSpeech || '')
@@ -234,7 +249,7 @@ export type Order = 'smart' | 'shuffle'
 // For finding them while cues are being checked (Study's temporary "Emoji only" chip): every
 // card of every word whose English shows a cue, whatever stage it is at, shuffled.
 export const cueCards = (entries: VocabEntry[], seed: string): Card[] =>
-  shuffle(entries.flatMap(entry => (entry.forms || []).filter(form => !!cueOf(form) && !!form.translation).map(form => ({ entry, form, why: `cue ${cueOf(form)}` }))), seed)
+  shuffle(entries.flatMap(entry => (entry.forms || []).filter(form => cuesOf(form).length > 0 && !!form.translation).map(form => ({ entry, form, why: `cue ${cuesOf(form).map(item => item.cue).join(' ')}` }))), seed)
 
 export function deckOf(entries: VocabEntry[], { include, order }: { include: Include; order: Order }, now = Date.now(), seed = String(now)): Card[] {
   const studied = entries.filter(entry => !isKnownWord(entry))

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, assess, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, deckOf, followUps, freshStages, isKnownWord, isMet, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf } from '../src/lib/forms.ts'
+import { ago, assess, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, followUps, freshStages, isKnownWord, isMet, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -248,6 +248,18 @@ test('a card says who its form is for only where its English leaves it open', ()
   assert.equal(cueOf({ stage: 'past', slot: '3sg.m' }), '')
   assert.equal(cueOf({ stage: 'present', slot: 'm.sg' }), '')
   assert.equal(cueOf({ stage: 'meanings', slot: 'sense1' }), '')
+})
+
+test('every person the English leaves open is cued after their word, the first time it appears', () => {
+  const card = { stage: 'meanings', slot: 'sense1', translation: "Don't buy this coat if you might regret it, you know.", cue: '👨', cueAfter: 'you' }
+  assert.equal(cuedTranslation({ ...card, cues: [{ cue: '👨', after: 'you' }] }), "Don't buy this coat if you 👨 might regret it, you know.")
+  const two = { ...card, translation: 'The teacher told you to wait.', cues: [{ cue: '👩', after: 'teacher' }, { cue: '👨', after: 'you' }] }
+  assert.equal(cuedTranslation(two), 'The teacher 👩 told you 👨 to wait.')
+  // Two people named by the same word share its place; one whose word isn't there goes first.
+  assert.equal(cuedTranslation({ ...two, cues: [{ cue: '👨', after: 'you' }, { cue: '👩', after: 'you' }, { cue: '👦', after: '' }] }), '👦 The teacher told you 👨👩 to wait.')
+  // A card whose sentence needs none says so, whatever its slot.
+  assert.equal(cuedTranslation({ ...card, stage: 'past', slot: '2sg.m', cues: [] }), card.translation)
+  assert.deepEqual(cuesOf({ stage: 'past', slot: '2sg.f' }), [{ cue: '👩', after: 'you' }])
 })
 
 test('a cue is shown right after the English word it is about', () => {

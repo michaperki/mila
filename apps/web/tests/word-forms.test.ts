@@ -53,7 +53,36 @@ describe('word forms', () => {
     ]))
     const result = await invoke({ id: 'native-x', stage: 'past' })
     expect(result.forms.map((form: any) => form.cue)).toEqual(['👩', '', ''])
-    expect(create.mock.calls[0][0].output_config.format.schema.properties.forms.items.required).toContain('cue')
+    expect(create.mock.calls[0][0].output_config.format.schema.properties.forms.items.required).toContain('cues')
+  })
+  it('cues every person the English leaves open, each after its word, once', async () => {
+    findOne.mockResolvedValueOnce(entry).mockResolvedValueOnce(null)
+    create.mockResolvedValue(generated([
+      { slot: '3sg.f', form: 'פָּתְחָה', english: 'she opened', agreesWith: { word: 'המורה', gender: 'feminine', number: 'singular' }, sentence: 'המורה פתחה את החלון כי אתה ביקשת', inSentence: ['פתחה'], said: '', translation: 'The teacher opened the window because you asked', inTranslation: ['opened'],
+        cues: [{ cue: '👩', after: 'teacher' }, { cue: '👨', after: 'you' }, { cue: '👨', after: 'you' }, { cue: '👥', after: 'window' }, { cue: '👦', after: 'nobody' }] },
+    ]))
+    const [form] = (await invoke({ id: 'native-x', stage: 'past' })).forms
+    expect(form.cues).toEqual([{ cue: '👩', after: 'teacher' }, { cue: '👨', after: 'you' }, { cue: '👦', after: '' }])
+    expect(form).toMatchObject({ cue: '👩', cueAfter: 'teacher' })
+  })
+  it('writes again, once, a form whose subject does not agree with it', async () => {
+    findOne.mockResolvedValueOnce({ ...entry, forms: [] }).mockResolvedValueOnce(null)
+    const card = (slot: string, form: string, word: string, gender: string, number: string, sentence: string) => ({ slot, form, english: form, agreesWith: { word, gender, number }, sentence, inSentence: [form], said: '', translation: sentence, inTranslation: [form], cues: [] })
+    create.mockResolvedValueOnce(generated([
+      card('m.sg', 'חוֹלֵף', 'הרכבת', 'feminine', 'singular', 'הרכבת חולף ליד הבית'),
+      card('f.sg', 'חוֹלֶפֶת', 'השנה', 'feminine', 'singular', 'השנה חולפת מהר'),
+      card('m.pl', 'חוֹלְפִים', 'הימים', 'masculine', 'plural', 'הימים חולפים'),
+      card('f.pl', 'חוֹלְפוֹת', 'השעות', 'feminine', 'singular', 'השעות חולפות'),
+    ])).mockResolvedValueOnce(generated([
+      card('m.sg', 'חוֹלֵף', 'האוטובוס', 'masculine', 'singular', 'האוטובוס חולף ליד הבית'),
+      card('f.pl', 'חוֹלְפוֹת', 'השעות', 'feminine', 'plural', 'השעות חולפות לאט'),
+    ]))
+    const result = await invoke({ id: 'native-x', stage: 'present' })
+    expect(result.forms.map((form: any) => form.sentence)).toEqual(['האוטובוס חולף ליד הבית', 'השנה חולפת מהר', 'הימים חולפים', 'השעות חולפות לאט'])
+    expect(create).toHaveBeenCalledTimes(2)
+    const again = create.mock.calls[1][0].messages[0].content
+    expect(again).toContain('slot "m.sg": הרכבת is feminine, the form masculine')
+    expect(again).not.toContain('slot "f.sg"')
   })
   it('returns a stage that already exists without calling the model', async () => {
     findOne.mockResolvedValueOnce(entry)
