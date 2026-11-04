@@ -10,7 +10,6 @@ import { familyFor } from '../lib/explore-requests'
 import { feel } from '../lib/feedback'
 import type { VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
-import { ensureForms } from '../lib/word-forms'
 import { noteActivity } from '../lib/tree'
 import { vocabId } from '../lib/words'
 import { useSession } from '../state/session'
@@ -54,12 +53,8 @@ export default function RootScreen() {
       const { item } = await request<{ item?: VocabEntry }>('vocab', { token: session.token, body: entry })
       const stored = { ...entry, ...item, id: item?.id ?? entry.id }
       putEntry(session, cachedVocab(session)?.find(existing => existing.id === stored.id) ?? stored)
+      // Its practice cards are written when Study is about to bring it in, not on saving.
       noteActivity('saved')
-      // Its first practice cards, ready by the next practice.
-      void ensureForms(stored, session.token).then(ready => {
-        const latest = cachedVocab(session)?.find(existing => existing.id === stored.id)
-        if (latest && ready.forms?.length) putEntry(session, { ...latest, forms: ready.forms })
-      }).catch(() => {})
     } catch (failure) { setError(`${isolateHebrew(word.lemma)} wasn't saved. ${(failure as Error).message}`) }
     finally { setSaving(current => { const next = new Set(current); next.delete(word.lemma); return next }) }
   }

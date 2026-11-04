@@ -16,7 +16,7 @@ export const handler: Handler = async (event) => {
   try {
     const { userId } = verifyAuth(event)
     const db = await getDb()
-    await Promise.all(['vocab', 'texts', 'usage', 'feedback', 'trees', 'activity'].map(name => db.collection(name).deleteMany({ userId })))
+    await Promise.all(['vocab', 'texts', 'usage', 'feedback', 'trees', 'activity', 'studyEvents'].map(name => db.collection(name).deleteMany({ userId })))
     await db.collection('mobileOcrUsage').deleteMany({ _id: { $regex: `^${escape(userId)}:` } } as never)
     await db.collection('aiUsage').updateMany({ userId }, { $set: { userId: 'deleted' } })
     // The account itself goes last, so a failure part way can be retried while still signed in.

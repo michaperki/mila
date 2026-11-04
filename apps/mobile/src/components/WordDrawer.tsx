@@ -19,7 +19,6 @@ import { noteActivity } from '../lib/tree'
 import { explainWord } from '../lib/recognition'
 import type { Built, Encounter, Phrase, Session, VocabEntry, WordAnalysis } from '../lib/types'
 import { constructionsOf, encountersOf, lemmaKey, patternLabel, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
-import { ensureForms } from '../lib/word-forms'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
 import { useHebrew } from '../state/script'
 
@@ -198,12 +197,9 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       const stored: VocabEntry = existing
         ? { ...existing, ...fields, encounters: [...encountersOf(existing).filter(item => item.context !== encounter.context).reverse(), encounter].slice(-20) }
         : { ...fields, createdAt: entry.createdAt, encounters: [encounter] }
+      // Its practice cards are written when Study is about to bring it in (practice.tsx), or
+      // when its page is opened, not on saving: most saved words wait a while to be studied.
       putEntry(session, stored)
-      // Write the word's first practice cards now, so they are ready by the next practice.
-      void ensureForms(stored, session.token).then(ready => {
-        const latest = cachedVocab(session)?.find(item => item.id === savedId)
-        if (latest && ready.forms?.length) putEntry(session, { ...latest, forms: ready.forms })
-      }).catch(() => {})
     } catch (failure) {
       // Undone anyway: nothing was saved, so there is nothing to say.
       if (undoAfterSave.current.delete(key)) { setUnsaving(saves => without(saves, key)); return }

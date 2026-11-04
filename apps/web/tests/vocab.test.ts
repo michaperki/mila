@@ -25,6 +25,24 @@ describe('word card results', () => {
   })
 })
 
+describe('primed answers', () => {
+  it('keeps which results were primed, by position, and clears them when an older app sends none', async () => {
+    await patch({ id: 'native-x', form: { key: 'meanings:sense1', results: [false, true], primed: [false, true], last: 5 } })
+    expect(updateOne.mock.calls[0][1].$set).toMatchObject({ 'forms.$[card].results': [false, true], 'forms.$[card].primed': [false, true] })
+    expect(updateOne.mock.calls[0][1].$unset).toBeUndefined()
+    await patch({ id: 'native-x', form: { key: 'meanings:sense1', results: [true], last: 6 } })
+    expect(updateOne.mock.calls[1][1].$unset).toEqual({ 'forms.$[card].primed': '' })
+    await patch({ id: 'native-x', results: [true], primed: [true], last: 7 })
+    expect(updateOne.mock.calls[2][1].$set).toMatchObject({ results: [true], primed: [true] })
+    await patch({ id: 'native-x', checkpoint: { stage: 'present', results: [true], primed: [false], last: 8 } })
+    expect(updateOne.mock.calls[3][1].$set['checkpoints.present']).toEqual({ results: [true], primed: [false], last: 8 })
+  })
+  it('rejects primed marks that don\'t match the results', async () => {
+    expect((await patch({ id: 'native-x', results: [true, false], primed: [true], last: 1 })).statusCode).toBe(400)
+    expect((await patch({ id: 'native-x', form: { key: 'k', results: [true], primed: ['no'], last: 1 } })).statusCode).toBe(400)
+  })
+})
+
 describe('clearing vocab', () => {
   const remove = async (query: Record<string, string> | undefined) => (await handler({ httpMethod: 'DELETE', queryStringParameters: query } as any, {} as any, () => {}) as any)
   it('deletes all of the user\'s words only when asked explicitly', async () => {

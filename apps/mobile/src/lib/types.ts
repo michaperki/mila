@@ -73,9 +73,9 @@ export type VocabEntry = StarredItem & Built & {
   forms?: FormCard[]; known?: string[]
   // The word card's own results (see Results), and stages the learner chose to study before
   // Mila brought them in.
-  results?: boolean[]; last?: number; opened?: string[]
+  results?: boolean[]; primed?: boolean[]; last?: number; opened?: string[]
   // Conjugation checkpoints by stage: recalling a whole tense at once (lib/forms.ts).
-  checkpoints?: Record<string, { results: boolean[]; last: number }>
+  checkpoints?: Record<string, { results: boolean[]; primed?: boolean[]; last: number }>
   // An expression (partOfSpeech 'expression'): the word in it that inflects, which decides its
   // stages (a verb's tenses for לעבור דרך), and its plain spelling, which links the two.
   head?: { lemma: string; lemmaPlain?: string; partOfSpeech?: string; binyan?: string }
@@ -114,5 +114,7 @@ export type FormCard = {
   cues?: { cue: string; after: string }[]
 } & Results
 // What studying has shown about a card, and nothing about when to see it again: its last few
-// results (true: knew it) and when it was last answered (lib/forms.ts).
-export type Results = { results?: boolean[]; last?: number }
+// results (true: knew it), which of them were primed (answered just after the word's Hebrew was
+// shown, lib/forms.ts isPrimed; by position, missing on answers given before this was kept) and
+// when it was last answered (lib/forms.ts).
+export type Results = { results?: boolean[]; primed?: boolean[]; last?: number }

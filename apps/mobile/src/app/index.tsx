@@ -11,7 +11,7 @@ import { Button, colors, ErrorNotice, Pressy, TextButton } from '../components/u
 import { request } from '../lib/api'
 import { textFromDocument } from '../lib/documents'
 import { feel } from '../lib/feedback'
-import { freshStages, workingSet } from '../lib/forms'
+import { freshStages, studyPool } from '../lib/forms'
 import { APPEAR, DISAPPEAR } from '../lib/motion'
 import { latestRead } from '../lib/library'
 import { getPref, setPref } from '../lib/prefs'
@@ -49,10 +49,11 @@ export default function Home() {
   const library = useRef<TextDoc[] | null>(null)
   const sessionNow = useRef(session)
   useEffect(() => { sessionNow.current = session }, [session])
-  // The words Study is on now (lib/forms.ts workingSet), and what Mila suggests studying next
-  // among them: a stage it has just brought in. A suggestion, never a count.
-  const set = useMemo(() => workingSet(entries), [entries])
-  const next = useMemo(() => freshStages(set.studying, 1)[0], [set])
+  // The words Study has started and not (lib/forms.ts studyPool), and what Mila suggests studying
+  // next among those started, the most recently studied first: a stage it has just brought in.
+  // A suggestion, never a count.
+  const pool = useMemo(() => studyPool(entries), [entries])
+  const next = useMemo(() => freshStages([...pool.started].reverse(), 1)[0], [pool])
   // A round of Study left unfinished, which Study opens on (lib/rounds.ts).
   const [round, setRound] = useState<{ at: number; of: number } | null>(null)
 
@@ -158,7 +159,7 @@ export default function Home() {
           {/* Green when Mila has something new to suggest: information, never a badge. */}
           <Button secondary={!next && !round} title="Study" style={home.button}
             detail={session && round ? `Continue · ${round.at} of ${round.of}` : session && next ? `${next.label} · ${next.entry.lemma}`
-              : session && entries.length ? `${set.studying.length + set.starting.length} words · ${set.waiting} to come` : undefined}
+              : session && entries.length ? `${pool.started.length} words started · ${pool.unstarted.length} not yet` : undefined}
             onPress={() => router.push(session ? '/practice' : '/login')} />
           <TextButton title="Your words" onPress={() => router.push('/vocabulary')} />
         </View>

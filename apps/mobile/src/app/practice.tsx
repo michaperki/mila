@@ -13,7 +13,7 @@ import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { assess, type Card, cardKey, checkpointGroup, checkpointsOf, cuedTranslation, deckOf, firstSense, followUps, type Include, kindLabel, kindOfEntry, missingStages, type Order, quizOf, recommendedStages, stagesOf, startingStages } from '../lib/forms'
+import { assess, type Card, cardKey, checkpointGroup, checkpointRecord, cuedTranslation, deckOf, exposureOf, firstSense, followUps, type Include, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
@@ -26,6 +26,8 @@ import { useWordLookup, WordDrawer, type WordLookup } from '../components/WordDr
 import { ensureForms } from '../lib/word-forms'
 import { resumeRound, roundToSave } from '../lib/rounds'
 import { clearRound, loadRound, saveRound } from '../lib/saved-round'
+import { sendStudyLog, studySession } from '../lib/study-log'
+import { appInfo } from '../lib/app-info'
 import { useSession } from '../state/session'
 import { cachedVocab, putEntry, vocabFor } from '../state/vocab'
 import { useVowels } from '../state/vowels'
@@ -50,7 +52,8 @@ type Loaded = Table | { error: string }
 // shows why each card is in the round (lib/forms.ts deckOf), to see what Mila is choosing.
 // The round is kept on the phone as it goes (lib/rounds.ts): leaving Study, or Mila, only pauses
 // it, and Study opens again on the same card and side. Finishing it, Done or a new round from
-// the settings ends it.
+// the settings ends it. Everything shown and answered is logged (lib/study-log.ts), and cards
+// are written only for the words a round is about to draw on (lib/forms.ts upcoming).
 export default function Practice() {
   const { session } = useSession()
   const insets = useSafeAreaInsets()
@@ -89,6 +92,35 @@ export default function Practice() {
   const tapped = () => !drag.current.on && Date.now() - drag.current.ended > 300
   const onDrag = (dragging: boolean) => { drag.current = { on: dragging, ended: dragging ? drag.current.ended : Date.now() } }
   const keep = (ready: VocabEntry) => setWords(current => ({ ...current, [ready.id]: withNewForms(current[ready.id], ready) }))
+  // Cards for the open stages, written now for the words of `cards` and the next ones a round
+  // will draw on (lib/forms.ts upcoming), never for every saved word; resolves to those written.
+  const prepareAhead = (cards: Card[], all: VocabEntry[], include: Include) => {
+    if (!session) return Promise.resolve([])
+    const wanted = new Map([...cards.map(card => card.entry), ...upcoming(all, include)].map(entry => [entry.id, entry]))
+    const missing = [...wanted.values()].filter(entry => missingStages(entry).length)
+    const ready = Promise.all(missing.map(entry => ensureForms(entry, session.token)))
+    void ready.then(written => written.forEach(item => { share(session, item); keep(item) }))
+    return ready
+  }
+  // This visit's study log (lib/study-log.ts): the cards shown in order, and for each position
+  // when it was first shown and what of its word had been shown before it; an answer's primed
+  // mark is settled on its first answer, so changing the answer keeps it.
+  const study = useRef<ReturnType<typeof studySession> | null>(null)
+  const seen = useRef<Seen[]>([])
+  const shownAt = useRef<Record<number, { at: number; key: string; wordCardsAgo: number | null; wordMsAgo: number | null }>>({})
+  const primedAt = useRef<Record<number, boolean>>({})
+  const revealed = useRef<Set<number>>(new Set())
+  // Which side a card shows first. Mixed: one or the other, settled per card and position.
+  const frontOf = (card: Card, at: number): 'he' | 'en' => (!settings ? 'he' : settings.front === 'mixed'
+    ? ([...`${cardKey(card)}${at - roundStart}`].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 ? 'en' : 'he') : settings.front)
+  // Turning a card over, logged the first time at each position with how long it took.
+  const turnOver = () => {
+    if (!flipped && !revealed.current.has(position) && deck?.[position]) {
+      revealed.current.add(position)
+      study.current?.log('reveal', { position, key: cardKey(deck[position]), ms: Date.now() - (shownAt.current[position]?.at ?? Date.now()) })
+    }
+    setFlipped(value => !value)
+  }
   // A word of a card's sentence looked up on its answer side, in the reader's drawer over the
   // card: saving it keeps it for later study and leaves this round as it is.
   const lookup = useWordLookup(session, { onLostError: setError })
@@ -105,26 +137,34 @@ export default function Practice() {
         if (!current) return
         setSettings(chosen)
         setWords(Object.fromEntries(entries.map(entry => [entry.id, entry])))
-        // Words whose open stage has no cards yet get them written now. Studying starts with
-        // what is ready; only if nothing is does it wait for them.
-        const preparing = Promise.all(entries.map(entry => (missingStages(entry).length ? ensureForms(entry, session.token) : entry)))
-        void preparing.then(ready => {
-          ready.forEach(item => share(session, item))
-          if (current) ready.forEach(keep)
-        })
-        // The round left unfinished, if anything of it is left.
+        study.current = studySession(session.user.id)
+        void sendStudyLog(session.user.id, session.token)
+        // The round left unfinished, if anything of it is left, or a new one.
         const resumed = resumeRound(loadRound(session.user.id), entries)
+        let cards = resumed ? resumed.deck : deckOf(entries, chosen)
+        // Its words, and the next a round will draw on, get the cards of their open stages
+        // written now. Studying starts with what is ready; only if nothing is does it wait.
+        const preparing = prepareAhead(cards, entries, chosen.include)
+        const pool = studyPool(entries, chosen.include)
+        study.current.log('start', { ...chosen, resumed: !!resumed, cards: cards.length, saved: entries.length, started: pool.started.length, unstarted: pool.unstarted.length, app: appInfo() })
         if (resumed) {
           setDeck(resumed.deck); setPosition(resumed.position); setFlipped(resumed.flipped)
           setAnswers(resumed.answers); setBefore(resumed.before)
           return
         }
-        let cards = deckOf(entries, chosen)
-        if (!cards.length && entries.length) cards = deckOf(await preparing, chosen)
+        if (!cards.length && entries.length) {
+          const written = new Map((await preparing).map(entry => [entry.id, entry]))
+          cards = deckOf(entries.map(entry => written.get(entry.id) ?? entry), chosen)
+        }
         if (current) setDeck(cards)
       } catch (failure) { if (current) setError((failure as Error).message) }
     })()
-    return () => { current = false; stopSpeaking() }
+    return () => {
+      current = false; stopSpeaking()
+      if (session) void sendStudyLog(session.user.id, session.token)
+    }
+    // Once per account signed in; prepareAhead is the same work whichever render made it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session])
 
   // A checkpoint's table of forms, asked for as the card (or the one after it) comes up.
@@ -149,6 +189,36 @@ export default function Practice() {
     else saveRound(roundToSave(owner, deck, roundStart, position, flipped, answers, before))
   }, [owner, deck, roundStart, position, flipped, answers, before, done])
 
+  // Each card as it is shown, once per position (again only if the position now holds another
+  // card), with what of its word and of itself this visit had shown before, and its record.
+  const shownKey = deck?.[position] ? cardKey(deck[position]) : null
+  useEffect(() => {
+    const card = deck?.[position]
+    if (!card || !settings || !study.current || done || shownAt.current[position]?.key === shownKey) return
+    const now = Date.now()
+    const entry = words[card.entry.id] || card.entry
+    const key = cardKey(card)
+    const word = exposureOf(seen.current, item => item.word === entry.id, now)
+    const self = exposureOf(seen.current, item => item.key === key, now)
+    const record = card.checkpoint ? checkpointRecord(entry, card.checkpoint) : (card.form && entry.forms?.find(item => item.key === card.form!.key)) || entry
+    shownAt.current[position] = { at: now, key, wordCardsAgo: word?.cardsAgo ?? null, wordMsAgo: word?.msAgo ?? null }
+    seen.current.push({ key, word: entry.id, at: now })
+    study.current.log('show', {
+      ...cardFields(card, entry, position, roundStart), front: frontOf(card, position), quiz: settings.quiz && !card.checkpoint,
+      wordShown: word, cardShown: self, results: record.results ?? [], primed: record.primed ?? [], lastAnswered: record.last ?? null, wordLastStudied: lastStudied(entry) || null,
+    })
+    // Only a new card or position needs logging; `words` changes with every answer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownKey, position, settings, done])
+  // A round's end, by finishing it or Done: how much was answered, and what is waiting is sent.
+  useEffect(() => {
+    if (!done || !study.current || !session) return
+    study.current.log('end', { answered: Object.keys(answers).length, round: roundStart })
+    void sendStudyLog(session.user.id, session.token)
+    // Once per end of a round.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [done])
+
   if (!session) return <Page><Text style={styles.copy}>Sign in to study your saved words.</Text></Page>
   if (!deck || !settings) return <Page>{error ? <ErrorNotice message={error} /> : <Loading />}</Page>
   if (!Object.keys(words).length) return <Page>
@@ -163,6 +233,7 @@ export default function Practice() {
     // Don't show the card just studied twice in a row.
     const last = deck[deck.length - 1]
     if (again.length > 1 && last && cardKey(again[0]) === cardKey(last)) again.push(again.shift()!)
+    void prepareAhead(again, Object.values(words), settings.include)
     setRoundStart(deck.length); setDeck([...deck, ...again]); setPosition(deck.length)
     setWay('next'); setFlipped(false); setDone(false)
   }
@@ -196,6 +267,7 @@ export default function Practice() {
     if (patch.order || patch.include) {
       const here = deck[position]
       const rest = deckOf(Object.values(words), updated, Date.now(), `${Date.now()}`).filter(card => !here || cardKey(card) !== cardKey(here))
+      void prepareAhead(rest, Object.values(words), updated.include)
       setDeck([...deck.slice(0, position + 1), ...rest])
     }
   }
@@ -218,13 +290,11 @@ export default function Practice() {
   const entry = words[card.entry.id] || card.entry
   const form = card.form ? entry.forms?.find(item => item.key === card.form!.key) || card.form : null
   const checkpoint = card.checkpoint ?? null
-  const record: Results = checkpoint ? { results: checkpointsOf(entry, checkpoint), last: entry.checkpoints?.[checkpoint]?.last } : form || entry
+  const record: Results = checkpoint ? checkpointRecord(entry, checkpoint) : form || entry
   const stage = form ? stagesOf(entry).find(item => item.key === form.stage) : null
   const loaded = tables[entry.id]
   const rows = checkpoint && loaded && 'groups' in loaded ? loaded.groups.find(group => group.key === checkpointGroup(entry, checkpoint))?.rows ?? [] : []
-  // Mixed: each card shows one side or the other first, settled per card and position.
-  const front: 'he' | 'en' = settings.front === 'mixed' ? ([...`${cardKey(card)}${position - roundStart}`].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 ? 'en' : 'he') : settings.front
-  const englishFirst = front === 'en' && (!form || !!form.translation)
+  const englishFirst = frontOf(card, position) === 'en' && (!form || !!form.translation)
   // Quiz mode: a word card shown in Hebrew asks for its meaning, shown in English for the word.
   // A checkpoint is always recalled and turned over.
   const quiz = settings.quiz && !checkpoint ? quizOf(Object.values(words), { entry, form }, !englishFirst, `${cardKey(card)}-${record.results?.length ?? 0}`) : null
@@ -245,7 +315,16 @@ export default function Practice() {
     // Only a card's first answer here counts toward the tree; changing it on going back doesn't.
     if (answered === undefined) noteActivity('cards')
     const start = before[position] ?? record
-    const result = assess(start, knew)
+    // Primed when its word was just shown (lib/forms.ts isPrimed): settled on the first answer.
+    const now = Date.now()
+    const shown = shownAt.current[position]
+    const primed = primedAt.current[position] ?? isPrimed({ sequence: card.sequence, cardsAgo: shown?.wordCardsAgo, msAgo: shown?.wordMsAgo, lastAnswered: lastStudied(entry) }, now)
+    primedAt.current[position] = primed
+    study.current?.log('answer', {
+      ...cardFields(card, entry, position, roundStart), knew, primed, revised: answered !== undefined, quiz: !!choices,
+      ms: shown ? now - shown.at : null, turnedOver: revealed.current.has(position),
+    })
+    const result = assess(start, knew, now, primed)
     const [body, updated]: [Record<string, unknown>, VocabEntry] = checkpoint
       ? [{ id: entry.id, checkpoint: { stage: checkpoint, ...result } }, { ...entry, checkpoints: { ...entry.checkpoints, [checkpoint]: result } }]
       : form
@@ -272,9 +351,9 @@ export default function Practice() {
     // been answered: answers are kept by position, so nothing answered moves.
     let added = 0
     if (answered === undefined && settings.order === 'smart' && !Object.keys(answers).some(at => Number(at) > position)) {
-      // This card as it was just before the answer (the deck's copy may be older).
-      const asAnswered = deck.map((item, at) => (at === position ? { ...item, entry } : item))
-      const more = followUps(asAnswered, position, updated, knew, start, settings.include)
+      // This round as answered, with this card as it was just before the answer (the deck's copy may be older).
+      const asAnswered = deck.slice(roundStart).map((item, at) => (at === position - roundStart ? { ...item, entry } : item))
+      const more = followUps(asAnswered, position - roundStart, updated, knew, start, settings.include)
       const keys = new Set(more.map(cardKey))
       if (more.length) setDeck(current => current && [...current.slice(0, position + 1), ...more, ...current.slice(position + 1).filter(item => !keys.has(cardKey(item)))])
       added = more.length
@@ -315,7 +394,7 @@ export default function Practice() {
       <SwipeCard card={position} onSwipe={swiped} onDrag={onDrag} hints={choices || !answerable ? undefined : HINTS}>
         <Animated.View key={position} entering={way === 'next' ? CARD_IN : CARD_BACK_IN}>
           {checkpoint
-            ? <FlipCard flipped={flipped} onPress={() => { if (tapped()) { feel('reveal'); setFlipped(value => !value) } }} style={[styles.card, practice.card]}
+            ? <FlipCard flipped={flipped} onPress={() => { if (tapped()) { feel('reveal'); turnOver() } }} style={[styles.card, practice.card]}
               accessibilityLabel={flipped ? 'Answer side' : 'Question side'}
               front={<ScriptContext.Provider value="print"><CheckpointSide entry={entry} stage={checkpoint} rows={rows} loading={!loaded} answer={false} v={vQuestion} /></ScriptContext.Provider>}
               back={<ScriptContext.Provider value="answers"><CheckpointSide entry={entry} stage={checkpoint} rows={rows} loading={!loaded} answer v={vAnswer} /></ScriptContext.Provider>} />
@@ -331,7 +410,7 @@ export default function Practice() {
                 }} /></ScriptContext.Provider>
                 {picked !== null && <Text style={[practice.verdict, { color: right ? colors.green : colors.red }]}>{right ? 'Right' : 'Not quite'}</Text>}
               </View>
-              : <FlipCard flipped={flipped} onPress={() => { if (tapped()) { feel('reveal'); setFlipped(value => !value) } }} style={[styles.card, practice.card]}
+              : <FlipCard flipped={flipped} onPress={() => { if (tapped()) { feel('reveal'); turnOver() } }} style={[styles.card, practice.card]}
                 accessibilityLabel={flipped ? 'Answer side' : 'Question side'}
                 front={<>
                   <CardHead label={form ? stage?.label : 'Word'} />
@@ -590,6 +669,12 @@ function Choices({ choices, answer: correct, picked, v, onPick }: { choices: str
 }
 
 // Cards written in the background also join the shared saved words.
+// What a study event says about its card (lib/study-log.ts).
+const cardFields = (card: Card, entry: VocabEntry, position: number, roundStart: number) => ({
+  position, round: roundStart, key: cardKey(card), wordId: entry.id, lemma: entry.lemmaPlain || entry.lemma,
+  kind: card.checkpoint ? 'checkpoint' : card.form ? 'form' : 'word', form: card.form?.key, stage: card.checkpoint ?? card.form?.stage,
+  why: card.why, sequence: !!card.sequence,
+})
 const share = (session: Session, ready: VocabEntry) => putEntry(session, withNewForms(cachedVocab(session)?.find(item => item.id === ready.id), ready))
 
 // Cards written in the background join the latest copy of a word without undoing results

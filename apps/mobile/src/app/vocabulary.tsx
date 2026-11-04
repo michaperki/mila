@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { router } from 'expo-router'
 import { AccountGate, Button, colors, ErrorNotice, Loading, Page, Pill, Pressy, styles } from '../components/ui'
-import { countsOf, formsIn, isFamiliar, openStages, statusOf, type Status, workingSet } from '../lib/forms'
+import { countsOf, formsIn, isFamiliar, openStages, statusOf, type Status, studyPool } from '../lib/forms'
 import type { VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
 import { bothForms, matches } from '../lib/words'
@@ -27,8 +27,8 @@ export default function Vocabulary() {
   const [filter, setFilter] = useState<Filter>('all')
   const [showVowels] = useVowels()
   const counts = useMemo(() => countsOf(entries), [entries])
-  // Where the learner is in their words: those being studied now, and those still to come (Study's working set).
-  const set = useMemo(() => workingSet(entries), [entries])
+  // Where the learner is in their words: those Study has started and those not started yet (lib/forms.ts studyPool).
+  const pool = useMemo(() => studyPool(entries), [entries])
   const visible = useMemo(() => entries.filter(entry => matches(entry, query) && (filter === 'all' || statusOf(entry) === filter)), [entries, query, filter])
 
   const empty = !session || (loaded && !error && entries.length === 0)
@@ -39,7 +39,7 @@ export default function Vocabulary() {
       {!loaded && <Loading />}
       {empty && <View style={styles.card}><Text style={styles.heading}>A fresh start.</Text><Text style={styles.copy}>Tap a word in the reader, then save it. Saved words come back here to study.</Text></View>}
       {!empty && loaded && <>
-        <Text style={vocab.summary}>{counts.saved} {counts.saved === 1 ? 'word' : 'words'} · {set.studying.length + set.starting.length} studying now · {set.waiting} to come · {counts.mastered} mastered</Text>
+        <Text style={vocab.summary}>{counts.saved} {counts.saved === 1 ? 'word' : 'words'} · {pool.started.length} started · {pool.unstarted.length} not started yet · {counts.mastered} mastered</Text>
         {/* One way in: study whenever and as much as you like. */}
         <Button title="Study" onPress={() => router.push('/practice')} />
         <TextInput value={query} onChangeText={setQuery} placeholder="Search Hebrew or English" placeholderTextColor={colors.muted} style={[styles.input, { minHeight: 44, paddingVertical: 10 }]}

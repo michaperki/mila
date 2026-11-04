@@ -17,6 +17,7 @@
     "feedback": "node scripts/feedback.mjs",
     "repair-vocab": "node --experimental-strip-types scripts/repair-vocab.mjs",
     "funnel": "node scripts/funnel.mjs",
+    "study-events": "node scripts/study-events.mjs",
     "eval:phrases": "vitest run --config vitest.eval.config.ts",
     "backfill-cues": "node --experimental-strip-types scripts/backfill-cues.mjs",
     "backfill-person-nouns": "node --experimental-strip-types scripts/backfill-person-nouns.mjs",

@@ -71,7 +71,9 @@ const handler: Handler = async (event) => {
     // Records practice without touching the rest of the entry (POST replaces it): `form` is one
     // form card's results, `checkpoint` one stage's checkpoint results, `results` the word card's
     // own, `known` the stages the learner marked as known and `opened` those they chose to study
-    // before Mila brought them in. Results are what was answered, never a date to come back.
+    // before Mila brought them in. Results are what was answered, never a date to come back; with
+    // them, `primed` says which were answered just after the word was shown. Sent without it (by
+    // an app from before), it is cleared so it can't be read against the wrong answers.
     if (event.httpMethod === 'PATCH') {
       const payload = JSON.parse(event.body || '{}')
       const id = payload.id
@@ -88,25 +90,28 @@ const handler: Handler = async (event) => {
       }
       let filter: Record<string, unknown> = { userId: auth.userId, id }
       let set: Record<string, unknown>
+      let unset: Record<string, ''> | undefined
       let options: { arrayFilters: Record<string, unknown>[] } | undefined
       if (Array.isArray(payload.known) || Array.isArray(payload.opened)) {
         const field = Array.isArray(payload.known) ? 'known' : 'opened'
         if (!payload[field].every((stage: unknown) => typeof stage === 'string')) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid stages' }) }
         set = { [field]: payload[field] }
       } else if (payload.form) {
-        const { key, results, last } = payload.form
-        if (typeof key !== 'string' || !isResults(results, last)) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
+        const { key, results, last, primed } = payload.form
+        if (typeof key !== 'string' || !isResults(results, last) || !isPrimed(primed, results)) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
         filter = { ...filter, 'forms.key': key }
-        set = { 'forms.$[card].results': results, 'forms.$[card].last': last }
+        set = { 'forms.$[card].results': results, 'forms.$[card].last': last, ...(primed ? { 'forms.$[card].primed': primed } : {}) }
+        if (!primed) unset = { 'forms.$[card].primed': '' }
         options = { arrayFilters: [{ 'card.key': key }] }
       } else if (payload.checkpoint) {
-        const { stage, results, last } = payload.checkpoint
-        if (typeof stage !== 'string' || !/^[a-z]+$/.test(stage) || !isResults(results, last)) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
-        set = { [`checkpoints.${stage}`]: { results, last } }
-      } else if (isResults(payload.results, payload.last)) {
-        set = { results: payload.results, last: payload.last }
+        const { stage, results, last, primed } = payload.checkpoint
+        if (typeof stage !== 'string' || !/^[a-z]+$/.test(stage) || !isResults(results, last) || !isPrimed(primed, results)) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
+        set = { [`checkpoints.${stage}`]: { results, last, ...(primed ? { primed } : {}) } }
+      } else if (isResults(payload.results, payload.last) && isPrimed(payload.primed, payload.results)) {
+        set = { results: payload.results, last: payload.last, ...(payload.primed ? { primed: payload.primed } : {}) }
+        if (!payload.primed) unset = { primed: '' }
       } else return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
-      const result = await vocab.updateOne(filter, { $set: { ...set, updatedAt: Date.now() } }, options)
+      const result = await vocab.updateOne(filter, { $set: { ...set, updatedAt: Date.now() }, ...(unset ? { $unset: unset } : {}) }, options)
       if (!result.matchedCount) return { statusCode: 404, body: JSON.stringify({ message: 'This word is no longer saved.' }) }
       return { statusCode: 204, body: '' }
     }
@@ -147,6 +152,9 @@ const lemmaKeyOf = (text: string) => text.normalize('NFC').replace(/[\u05BE\-–
 // A card's last few results (true: knew it) and when it was answered.
 const isResults = (results: unknown, last: unknown) => Array.isArray(results) && results.length <= 10
   && results.every(value => typeof value === 'boolean') && typeof last === 'number' && Number.isFinite(last)
+// Which of those results were primed, by position: missing, or one boolean per result.
+const isPrimed = (primed: unknown, results: unknown) => primed === undefined
+  || (Array.isArray(primed) && Array.isArray(results) && primed.length === results.length && primed.every(value => typeof value === 'boolean'))
 
 const normalizeItem = (item: any) => ({
   ...item,
