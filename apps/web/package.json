@@ -21,7 +21,8 @@
     "eval:phrases": "vitest run --config vitest.eval.config.ts",
     "backfill-cues": "node --experimental-strip-types scripts/backfill-cues.mjs",
     "backfill-person-nouns": "node --experimental-strip-types scripts/backfill-person-nouns.mjs",
-    "eval-forms": "node --experimental-strip-types scripts/eval-forms.mjs"
+    "eval-forms": "node --experimental-strip-types scripts/eval-forms.mjs",
+    "eval-writing": "node --experimental-strip-types scripts/eval-writing.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
