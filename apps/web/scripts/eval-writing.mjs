@@ -20,9 +20,11 @@ import { MongoClient } from 'mongodb'
 const env = Object.fromEntries(readFileSync(new URL('../.env', import.meta.url), 'utf8').split('\n')
   .map(line => line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/)).filter(Boolean).map(([, key, value]) => [key, value.replace(/^['"]|['"]$/g, '')]))
 const arg = name => { const i = process.argv.indexOf(name); return i === -1 ? null : process.argv[i + 1] }
-const out = new URL('./eval-out/writing/', import.meta.url)
+// --out <name> keeps a run apart (scripts/eval-out/<name>/), on the words of the first run.
+const out = new URL(`./eval-out/${arg('--out') || 'writing'}/`, import.meta.url)
 if (process.argv.includes('--fresh')) for (const name of ['before', 'after', 'cards', 'sets', 'usage']) rmSync(new URL(`${name}.json`, out), { force: true })
 mkdirSync(new URL('before/', out), { recursive: true })
+if (!existsSync(new URL('sample.json', out)) && existsSync(new URL('./eval-out/writing/sample.json', import.meta.url))) writeFileSync(new URL('sample.json', out), readFileSync(new URL('./eval-out/writing/sample.json', import.meta.url)))
 const kept = name => (existsSync(new URL(`${name}.json`, out)) ? JSON.parse(readFileSync(new URL(`${name}.json`, out), 'utf8')) : null)
 const keep = (name, value) => writeFileSync(new URL(`${name}.json`, out), JSON.stringify(value, null, 1))
 
@@ -135,12 +137,14 @@ For each card:
 - "fix": the corrected Hebrew when not natural, else "".
 - "comment": one short sentence when not natural, else "".
 - "translation": whether the English says what the Hebrew says ("faithful", "loose", "wrong"); English adding "his" or "my" where Hebrew leaves it understood is faithful.
-- "testedForm": whether the Hebrew uses the card's tested form ("yes") or another form of the word ("no").`
+- "testedForm": whether the Hebrew uses the card's tested form ("yes") or another form of the word ("no").
+- "phrase": "sentence" when the card is a full sentence; for a phrase or fragment, "useful" when it is clear on its own and shows a real, common use of the word, "weak" when it is unclear alone, unnatural as a fragment, or teaches less than a sentence would.`
 const cardSchema = { type: 'object', additionalProperties: false, required: ['cards'], properties: { cards: { type: 'array', items: { type: 'object', additionalProperties: false,
-  required: ['card', 'naturalness', 'issues', 'fix', 'comment', 'translation', 'testedForm'],
+  required: ['card', 'naturalness', 'issues', 'fix', 'comment', 'translation', 'testedForm', 'phrase'],
   properties: { card: { type: 'integer' }, naturalness: { type: 'string', enum: ['natural', 'stiff', 'wrong'] },
     issues: { type: 'array', items: { type: 'string', enum: ['possessive-added', 'possessive-missing', 'dative', 'article', 'calque', 'preposition', 'agreement', 'sense', 'register', 'word-choice', 'word-order', 'grammar', 'other'] } },
-    fix: { type: 'string' }, comment: { type: 'string' }, translation: { type: 'string', enum: ['faithful', 'loose', 'wrong'] }, testedForm: { type: 'string', enum: ['yes', 'no'] } } } } } }
+    fix: { type: 'string' }, comment: { type: 'string' }, translation: { type: 'string', enum: ['faithful', 'loose', 'wrong'] }, testedForm: { type: 'string', enum: ['yes', 'no'] },
+    phrase: { type: 'string', enum: ['sentence', 'useful', 'weak'] } } } } } }
 const shuffled = (items, salt) => items.map((item, i) => ({ item, sort: createHash('sha1').update(`${salt}${i}${JSON.stringify(item).slice(0, 200)}`).digest('hex') })).sort((a, b) => a.sort.localeCompare(b.sort)).map(entry => entry.item)
 let cardGrades = kept('cards')
 if (!cardGrades) {
@@ -207,24 +211,58 @@ function scores(cards) {
     loose: pct(count(grade => grade.translation !== 'faithful'), rated.length), otherForm: count(grade => grade.testedForm === 'no'),
     withPossessive: pct(cards.filter(card => POSSESSIVE.test(card.sentence)).length, cards.length), family: pct(cards.filter(card => FAMILY.test(card.sentence)).length, cards.length),
     length: mean(cards.map(card => card.sentence.split(/\s+/).length)),
+    phrases: pct(count(grade => grade.phrase !== 'sentence'), rated.length), weak: count(grade => grade.phrase === 'weak'),
   }
 }
 const money = label => { const total = usage[label]; return total ? (total.input * PRICE.input + total.output * PRICE.output) / 1e6 : 0 }
 const lines = ['# Card writing: before and after', '',
   `${words.length} words (${Object.entries(Object.groupBy(words, word => word.set)).map(([set, list]) => `${list.length} ${set}`).join(', ')}), each word's meanings and one form stage (verbs every third word also the past), written by the writer at ${commit} ("before") and the one in the working tree ("after"). Graded blind by a separate Claude judge (effort medium): every card on its own, and each word's cards as a set.`, '',
-  '| | Cards | Natural | Stiff | Wrong | Possession issues (added / missing / dative / article) | Translation loose/wrong | Other form | With של+pronoun | Family word | Words per sentence |',
-  '|---|---|---|---|---|---|---|---|---|---|---|']
+  '| | Cards | Natural | Stiff | Wrong | Possession issues (added / missing / dative / article) | Translation loose/wrong | Other form | With של+pronoun | Family word | Words per card | Phrases (weak) |',
+  '|---|---|---|---|---|---|---|---|---|---|---|---|']
 for (const set of ['all', ...new Set(words.map(word => word.set))]) {
-  lines.push(`| **${set === 'all' ? 'All words' : set}** | | | | | | | | | | |`)
+  lines.push(`| **${set === 'all' ? 'All words' : set}** | | | | | | | | | | | |`)
   for (const by of ['before', 'after']) {
     const s = scores(all.filter(card => card.by === by && (set === 'all' || words[card.word].set === set)))
-    lines.push(`| ${by} | ${s.cards} | ${s.natural} | ${s.stiff} | ${s.wrong} | ${s.possession} (${s.added} / ${s.missing} / ${s.dative} / ${s.article}) | ${s.loose} | ${s.otherForm} | ${s.withPossessive} | ${s.family} | ${s.length} |`)
+    lines.push(`| ${by} | ${s.cards} | ${s.natural} | ${s.stiff} | ${s.wrong} | ${s.possession} (${s.added} / ${s.missing} / ${s.dative} / ${s.article}) | ${s.loose} | ${s.otherForm} | ${s.withPossessive} | ${s.family} | ${s.length} | ${s.phrases} (${s.weak}) |`)
   }
 }
 lines.push('', '| Sets | Words | Cards per word | Distinct usages per word | Repeated pairs per word | Words with a repeated pair | Cards better as a phrase |', '|---|---|---|---|---|---|---|')
 for (const by of ['before', 'after']) {
   const list = setGrades.filter(item => item.by === by)
   lines.push(`| ${by} | ${list.length} | ${mean(list.map(item => item.cards))} | ${mean(list.map(item => item.usages.length))} | ${mean(list.map(item => item.repeats.length))} | ${pct(list.filter(item => item.repeats.length).length, list.length)} | ${pct(list.reduce((sum, item) => sum + item.phrases.length, 0), list.reduce((sum, item) => sum + item.cards, 0))} |`)
+}
+// The two sentences a new verb's learning sequence shows back to back (apps/mobile/src/lib/forms.ts
+// sequenceOf): its first meaning, then the first present card in slot order showing another use
+// (cards without labels: simply the first), and whether the set judge called them a repeat.
+const usageOf = card => card?.usage?.trim().toLowerCase() || ''
+const SLOTS = ['m.sg', 'f.sg', 'm.pl', 'f.pl']
+const sequenced = by => words.flatMap(word => {
+  const cards = all.filter(card => card.by === by && card.word === word.n)
+  const meaning = cards.find(card => card.key === 'meanings:sense1')
+  const present = cards.filter(card => card.stage === 'present').sort((a, b) => SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot))
+  const next = present.find(card => !usageOf(meaning) || usageOf(card) !== usageOf(meaning)) ?? present[0]
+  const set = setGrades.find(item => item.by === by && item.word === word.n)
+  if (!meaning || !next || !set) return []
+  const [a, b] = [cards.indexOf(meaning) + 1, cards.indexOf(next) + 1]
+  return [{ word: word.n, meaning, next, repeat: set.repeats.some(item => (item.a === a && item.b === b) || (item.a === b && item.b === a)) }]
+})
+lines.push('', '| Back to back in a learning sequence | Verbs | Judged a repeat |', '|---|---|---|')
+for (const by of ['before', 'after']) { const list = sequenced(by); lines.push(`| ${by} | ${list.length} | ${list.filter(item => item.repeat).length} |`) }
+// How well the writer's labels find what the judge calls repeats: of the pairs it judged a
+// repeat, how many share a label, and of the pairs sharing a label, how many it judged a repeat.
+const labelled = all.filter(card => card.by === 'after' && usageOf(card))
+if (labelled.length) {
+  let repeats = 0, caught = 0, same = 0, confirmed = 0
+  for (const set of setGrades.filter(item => item.by === 'after')) {
+    const cards = all.filter(card => card.by === 'after' && card.word === set.word)
+    for (const item of set.repeats) { repeats++; if (usageOf(cards[item.a - 1]) && usageOf(cards[item.a - 1]) === usageOf(cards[item.b - 1])) caught++ }
+    cards.forEach((a, i) => cards.slice(i + 1).forEach((b, j) => {
+      if (!usageOf(a) || usageOf(a) !== usageOf(b)) return
+      same++
+      if (set.repeats.some(item => (item.a === i + 1 && item.b === i + j + 2) || (item.b === i + 1 && item.a === i + j + 2))) confirmed++
+    }))
+  }
+  lines.push('', `Labels (after): ${pct(labelled.length, all.filter(card => card.by === 'after').length)} of cards labelled; of ${repeats} pairs judged a repeat, ${caught} share a label; of ${same} pairs sharing a label, ${confirmed} were judged a repeat.`)
 }
 lines.push('', '| | Calls | Input tokens | Output tokens | Cost |', '|---|---|---|---|---|')
 for (const label of ['before write', 'after write', 'card judge', 'set judge']) {
@@ -241,7 +279,7 @@ for (const word of words) {
     lines.push(`**${by}**${set ? ` · ${set.usages.length} usages: ${set.usages.join('; ')}${set.repeats.length ? ` · repeats: ${set.repeats.map(item => `${item.a}–${item.b} (${item.shared})`).join('; ')}` : ''}${set.missing.length ? ` · never shows: ${set.missing.join('; ')}` : ''}` : ''}`)
     cards.forEach((card, i) => {
       const grade = gradeOf(card)
-      lines.push(`${i + 1}. \`${card.key}\` ${card.sentence} — ${card.translation}${grade && grade.naturalness !== 'natural' ? `  \n   _${grade.naturalness} (${grade.issues.join(', ')}): ${grade.comment}${grade.fix ? ` → ${grade.fix}` : ''}_` : ''}`)
+      lines.push(`${i + 1}. \`${card.key}\`${card.usage ? ` _(${card.usage})_` : ''} ${card.sentence} — ${card.translation}${grade && grade.naturalness !== 'natural' ? `  \n   _${grade.naturalness} (${grade.issues.join(', ')}): ${grade.comment}${grade.fix ? ` → ${grade.fix}` : ''}_` : ''}`)
     })
   }
   lines.push('')

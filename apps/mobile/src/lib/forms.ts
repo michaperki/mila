@@ -354,7 +354,8 @@ export function deckOf(entries: VocabEntry[], { include, order }: { include: Inc
     // Not met: its word card alone, its next cards following as it is answered.
     if (!isMet(entry) && include !== 'sentences') { taken.push(...word.map(explain)); continue }
     const learning = cards.filter(card => card.form && state(card) === 'learning').sort((a, b) => lastOf(a) - lastOf(b))
-    const fresh = cards.filter(card => card.form && state(card) === 'new')
+    // A new card showing a use other than the card it comes with and the one answered last.
+    const fresh = apart(cards.filter(card => card.form && state(card) === 'new'), [learning[0]?.form, lastAnswered(entry)])
     const turn = [...word]
     for (let i = 0; turn.length < rules.perWord && (i < learning.length || i < fresh.length); i++) turn.push(...[learning[i], fresh[i]].filter(Boolean))
     taken.push(...turn.slice(0, Math.min(rules.perWord, room - taken.length)).map(explain))
@@ -392,8 +393,7 @@ export function followUps(round: Card[], at: number, entry: VocabEntry, knew: bo
   while (at - run >= 0 && round[at - run].entry.id === entry.id) run++
   const shown = new Set(round.slice(0, at + 1).map(cardKey))
   const next: Card[] = !card.form
-    ? (include === 'words' || isMet(card.entry) ? [] : [firstOf(entry, 'meanings'), kindOfEntry(entry) === 'verb' ? firstOf(entry, 'present') : undefined]
-      .filter((form): form is FormCard => !!form && stateOf(form) !== 'familiar').map(form => ({ entry, form })))
+    ? (include === 'words' || isMet(card.entry) ? [] : sequenceOf(entry).map(form => ({ entry, form })))
     : (knew || include === 'sentences' ? [] : [{ entry, form: null }])
   return next.filter(item => !shown.has(cardKey(item))).slice(0, Math.max(0, ProgressRules.sequenceLongest - run))
     .map(item => ({ ...item, sequence: true, why: `in sequence · after ${card.form ? 'its sentence' : 'the word'}` }))
@@ -405,11 +405,30 @@ export function upcoming(entries: VocabEntry[], include: Include = 'both', now =
   const { started, unstarted } = studyPool(entries, include, now)
   return [...started.slice(0, ProgressRules.roundSize), ...unstarted.slice(0, ProgressRules.newWordsMax).map(item => item.entry)]
 }
-// A stage's first card, in the order of its slots (sense1, m.sg).
-const firstOf = (entry: VocabEntry, stage: string) => {
+// A stage's cards in the order of its slots (sense1, m.sg).
+const inOrder = (entry: VocabEntry, stage: string) => {
   const slots = Object.keys(stagesOf(entry).find(item => item.key === stage)?.slots ?? {})
-  return formsIn(entry, stage).sort((a, b) => slots.indexOf(a.slot) - slots.indexOf(b.slot))[0]
+  return formsIn(entry, stage).sort((a, b) => slots.indexOf(a.slot) - slots.indexOf(b.slot))
 }
+// What a new word's sequence brings after its word card: its first meaning and, for a verb, a
+// present card showing another use of it, so the two sentences met back to back don't teach the
+// same thing (the first in slot order when the cards have no labels).
+function sequenceOf(entry: VocabEntry): FormCard[] {
+  const meaning = inOrder(entry, 'meanings').find(form => stateOf(form) !== 'familiar')
+  const present = kindOfEntry(entry) === 'verb' ? apart(inOrder(entry, 'present').filter(form => stateOf(form) !== 'familiar'), [meaning])[0] : undefined
+  return [meaning, present].filter((form): form is FormCard => !!form)
+}
+// The use a card shows, as the writer labelled it ('' on cards written before labels).
+const usageOf = (form?: FormCard | null) => form?.usage?.trim().toLowerCase() || ''
+// The same cards (forms, or study cards with one), those showing a use none of `shown` shows
+// first, each part in its order. Cards without a label are never held back.
+export function apart<T extends FormCard | { form: FormCard | null }>(cards: T[], shown: (FormCard | null | undefined)[]): T[] {
+  const used = new Set(shown.map(usageOf).filter(Boolean))
+  const repeats = (card: T) => used.has(usageOf('form' in card ? card.form : card))
+  return [...cards.filter(card => !repeats(card)), ...cards.filter(repeats)]
+}
+// The word's card answered last, if any.
+const lastAnswered = (entry: VocabEntry) => (entry.forms || []).filter(form => form.last).sort((a, b) => (b.last ?? 0) - (a.last ?? 0))[0]
 const stageLabel = (entry: VocabEntry, stage: string) => stagesOf(entry).find(item => item.key === stage)?.label ?? stage
 // "today", "yesterday", "3 days ago", or "never".
 export function ago(at: number, now = Date.now()) {

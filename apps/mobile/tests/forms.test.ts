@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, assess, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
+import { ago, apart, assess, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -311,6 +311,25 @@ test('in a learning sequence a new word is followed by its sentences, and a miss
   assert.deepEqual(keys(followUps(long, 1, fresh, false, fresh, 'both')), ['open:meanings:sense1'])
   const known = { ...form('present:f.sg'), ...familiar }
   assert.deepEqual(followUps([{ entry: met, form: known }], 0, met, false, known, 'both'), [])
+})
+
+test('cards showing the same use of a word are kept apart: in a learning sequence and in a word\'s turn', () => {
+  const use = (key: string, usage: string, extra: Partial<FormCard> = {}) => form(key, { usage, ...extra })
+  // The present card brought in after the first meaning shows another use, when the cards say.
+  const labelled = verb([use('meanings:sense1', 'flooding streets'), use('present:m.sg', 'Flooding streets '), use('present:f.sg', 'flooded with questions'), form('present:m.pl')])
+  const other: VocabEntry = { ...verb([]), id: 'other' }
+  const keys = (cards: Card[]) => cards.map(cardKey)
+  assert.deepEqual(keys(followUps([{ entry: other, form: null }, { entry: labelled, form: null }], 1, labelled, true, labelled, 'both')), ['open:meanings:sense1', 'open:present:f.sg'])
+  // Cards written before labels keep their order.
+  const plain = verb([form('meanings:sense1'), ...present([])])
+  assert.deepEqual(keys(followUps([{ entry: plain, form: null }], 0, plain, true, plain, 'both')), ['open:meanings:sense1', 'open:present:m.sg'])
+  // A use is held back only behind the others, never dropped.
+  assert.deepEqual(apart(labelled.forms!.slice(1), [labelled.forms![0]]).map(item => item.key), ['present:f.sg', 'present:m.pl', 'present:m.sg'])
+  // In its turn, a met word's new card is one showing another use than the card answered last.
+  const met = verb([use('meanings:sense1', 'flooding streets', { results: [true], last: now - DAY }), use('present:m.sg', 'flooding streets'), use('present:f.sg', 'flooded with questions')],
+    { results: [true], last: now - DAY })
+  const round = deckOf([met], { include: 'sentences', order: 'smart' }, now)
+  assert.deepEqual(round.filter(card => card.form?.stage === 'present').map(card => card.form!.key)[0], 'present:f.sg')
 })
 
 test('a card says who its form is for only where its English leaves it open', () => {

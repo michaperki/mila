@@ -56,7 +56,7 @@ export async function reviewForms(entry: Entry, stage: string, forms: WrittenFor
     const [rewritten] = cardsOf([{ ...verdict.fixed, slot: form.slot }], stage, slots.filter(item => item.slot === form.slot)).forms
     if (!rewritten) return form
     fixed.push({ key: form.key, problems: verdict.problems })
-    return rewritten
+    return rewritten.usage || !form.usage ? rewritten : { ...rewritten, usage: form.usage }
   })
   return { forms: reviewed, fixed }
 }

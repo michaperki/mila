@@ -44,6 +44,19 @@ describe('word forms', () => {
     expect(update.$push.forms.$each[0]).toMatchObject({ key: 'past:1sg', stage: 'past', slot: '1sg', he: 'פָּתַחְתִּי', mark: 'פתחתי', enMark: 'I opened' })
     expect(prompt).toContain('do not reuse these sentences')
   })
+  it('keeps the use each card shows, and tells the writer the uses already shown', async () => {
+    findOne.mockResolvedValueOnce({ ...entry, forms: [{ stage: 'meanings', slot: 'sense1', en: 'to open', sentence: 'אני רוצה לפתוח חלון', usage: 'opening a window' }, { stage: 'meanings', slot: 'sense2', en: 'to start (a business)', sentence: 'הוא רוצה לפתוח מסעדה' }] }).mockResolvedValueOnce(null)
+    create.mockResolvedValue(generated([
+      { slot: '1sg', form: 'פָּתַחְתִּי', english: 'I opened', usage: ' opening an account ', sentence: 'פתחתי חשבון בבנק', inSentence: ['פתחתי'], said: '', translation: 'I opened a bank account', inTranslation: ['I opened'] },
+      { slot: '3sg.m', form: 'פָּתַח', english: 'he opened', sentence: 'הוא פתח את הדלת', inSentence: ['פתח'], said: '', translation: 'He opened the door', inTranslation: ['opened'] },
+    ]))
+    const result = await invoke({ id: 'native-x', stage: 'past' })
+    expect(result.forms.map((form: any) => form.usage)).toEqual(['opening an account', undefined])
+    const prompt = create.mock.calls[0][0].messages[0].content
+    expect(prompt).toContain('אני רוצה לפתוח חלון (opening a window)')
+    expect(prompt).toContain('Its meanings: to open; to start (a business)')
+    expect(create.mock.calls[0][0].output_config.format.schema.properties.forms.items.required).toContain('usage')
+  })
   it('keeps who a form is for, empty when the English says it, and nothing else', async () => {
     findOne.mockResolvedValueOnce(entry).mockResolvedValueOnce(null)
     create.mockResolvedValue(generated([

@@ -112,6 +112,9 @@ export type FormCard = {
   // it is shown after ("" for first); `cue`/`cueAfter` are the first of them. Missing on cards
   // written before the whole sentence was cued (lib/forms.ts cuesOf).
   cues?: { cue: string; after: string }[]
+  // Which use of the word the card shows ("flooding streets (weather)"), as the writer labelled
+  // it: cards showing the same use have the same label. Missing on cards written before.
+  usage?: string
 } & Results
 // What studying has shown about a card, and nothing about when to see it again: its last few
 // results (true: knew it), which of them were primed (answered just after the word's Hebrew was
