@@ -1,5 +1,5 @@
-import { isListed, PREFIXES, plainWord, rankOfForm } from './frequency.ts'
-import { lemmaKeyOf, type LearnerEntry } from './learner.ts'
+import { plainWord, rankOfForm } from './frequency.ts'
+import { savedFormMatcher, type LearnerEntry } from './learner.ts'
 
 // How much each saved word comes up in what the learner reads: a measure of how relevant it is to
 // them, apart from how common it is in Hebrew at large (lib/frequency.ts). Every word of every saved
@@ -24,31 +24,7 @@ export type Exposure = {
 const tokensOf = (text: string) => plainWord(text).replace(/[׳'"״]/g, '').split(/[\s־-]+/).filter(word => word.length > 1)
 
 export function readingExposure(texts: TextDoc[], entries: LearnerEntry[]): Exposure {
-  // Each known form, to the saved words it is a form of (a form can be two words': שמח).
-  const byForm = new Map<string, Set<string>>()
-  for (const entry of entries) {
-    const key = lemmaKeyOf(entry.lemmaPlain || entry.lemma)
-    if (key.includes(' ')) continue
-    const forms = [entry.lemmaPlain, entry.lemma, ...(entry.encounters || []).map(met => met.surface), ...(entry.forms || []).map(form => form.he)]
-    for (const form of forms) {
-      if (!form) continue
-      const plain = lemmaKeyOf(form)
-      if (!plain || plain.includes(' ')) continue
-      if (!byForm.has(plain)) byForm.set(plain, new Set())
-      byForm.get(plain)!.add(key)
-    }
-  }
-  const match = (token: string): string[] => {
-    const own = byForm.get(token)
-    if (own) return [...own]
-    if (isListed(token)) return []
-    for (const prefix of PREFIXES) {
-      if (!token.startsWith(prefix) || token.length - prefix.length < 2) continue
-      const found = byForm.get(token.slice(prefix.length))
-      if (found) return [...found]
-    }
-    return []
-  }
+  const match = savedFormMatcher(entries)
   // The furthest sentence of each passage a word was saved from.
   const savedFrom = new Map<string, number>()
   for (const entry of entries) {

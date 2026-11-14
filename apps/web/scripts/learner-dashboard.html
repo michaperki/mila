@@ -37,6 +37,7 @@ th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line
 th { font-weight: 600; color: var(--muted); font-size: 12px; cursor: pointer; user-select: none; white-space: nowrap; }
 tr.click { cursor: pointer; } tr.click:hover td { background: var(--soft); }
 .he { font-family: "Noto Sans Hebrew", "Arial Hebrew", system-ui, sans-serif; direction: rtl; unicode-bidi: isolate; font-size: 15px; }
+.flag { color: var(--unfamiliar); font-size: 12px; }
 .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid currentColor; }
 .b-known { color: var(--known); } .b-acquiring { color: var(--acquiring); } .b-met { color: var(--met); } .b-unfamiliar { color: var(--unfamiliar); }
 .est { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -92,8 +93,11 @@ const pct = (p) => `${Math.round(p * 100)}%`
 const PRIOR = D.weights.prior
 // How much of an estimate is assumption: the prior's weight against the evidence's.
 const assumed = (e) => PRIOR / (PRIOR + e.evidence)
+// Under one answer's worth of evidence, an estimate is shown as the assumption it mostly is.
+const THIN = 1
 const est = (e) => {
   const a = assumed(e)
+  if (e.evidence < THIN) return `<span class="est muted" title="80% range ${pct(e.low)}–${pct(e.high)}; evidence ${e.evidence} answers' worth: this is mostly the starting assumption"><i>assumed ~${pct(e.p)}</i> <span class="small">${pct(e.low)}–${pct(e.high)}</span></span>`
   return `<span class="est" title="80% range ${pct(e.low)}–${pct(e.high)}; evidence ${e.evidence} answers' worth; ${Math.round(a * 100)}% of this is the starting assumption">
     <span class="bar ${a > 0.67 ? 'assumed' : ''}"><span class="range" style="left:${e.low * 100}%;width:${(e.high - e.low) * 100}%"></span><span class="dot" style="left:${e.p * 100}%"></span></span>
     ${pct(e.p)} <span class="muted small">${pct(e.low)}–${pct(e.high)}</span></span>`
@@ -120,7 +124,7 @@ $('headline').innerHTML = `Model ${esc(D.version)} · generated ${when(D.generat
 
 // Overview
 $('overview').innerHTML = `
-  <div class="note warn">Every estimate here mixes <b>evidence</b> (what you did) with a <b>starting assumption</b> (how common the word is, given a level). Grey bars mean the estimate is still mostly assumption. Only ${withEvidence} of ${words.length} words have at least one answer's worth of evidence for reading.</div>
+  <div class="note warn">Every estimate here mixes <b>evidence</b> (what you did) with a <b>starting assumption</b> (how common the word is, given a level). Grey bars mean the estimate is still mostly assumption. Only ${withEvidence} of ${words.length} words have at least one answer's worth of evidence for reading. Saves count as evidence (you didn't know the word then), so most words' only evidence is a save.</div>
   <div class="cards">
     <div class="card"><div class="muted">Words by band</div>${['known', 'acquiring', 'met', 'unfamiliar'].map(b => `<div>${band(b)} ${bands[b] || 0}</div>`).join('')}</div>
     <div class="card"><div class="muted">Card answers overall</div><div class="n">${pct(D.overall.p)}</div><div class="small muted">recalled, 80% range ${pct(D.overall.low)}–${pct(D.overall.high)}, from ${D.overall.evidence} answers' worth (older counts less)</div></div>
@@ -128,13 +132,17 @@ $('overview').innerHTML = `
     <div class="card"><div class="muted">Recorded so far</div><div class="small">${C.answers} answers (since ${day(D.dataset.types.answer?.first)}) · ${C.lookups} lookups · ${C.saves} saves in events · ${C.keptResults} older card results (no dates) · ${C.encounters} saved encounters</div></div>
   </div>
   <h2>Where the evidence is</h2>
-  <table><tr><th>Words with…</th><th>Count</th></tr>
-    ${[['recorded answers (with dates)', words.filter(w => directAnswers(w) > 0).length], ['any answers (incl. older results)', words.filter(w => w.answers > 0).length],
-       ['lookups recorded as events', words.filter(w => w.observed.some(o => o.type === 'lookup')).length], ['3+ answers', words.filter(w => w.answers >= 3).length],
-       ['met in your reading (counted)', words.filter(w => w.exposure).length], ['nothing but the starting assumption', words.filter(w => !w.evidence.some(e => e.weight > 0)).length]]
-      .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>
-  <h2>Weakest grammar so far</h2>
-  ${grammarTable(D.grammar.slice(0, 5))}`
+  <table><tr><th>Words whose evidence is…</th><th>Count</th></tr>
+    ${[['answers recorded with their time', words.filter(w => w.datedAnswers > 0).length],
+       ['only older card results, dates not kept', words.filter(w => w.answers > 0 && !w.datedAnswers).length],
+       ['no answers: only saves or lookups', words.filter(w => !w.answers && w.evidence.some(e => e.weight > 0)).length],
+       ['nothing: the starting assumption alone', words.filter(w => !w.evidence.some(e => e.weight > 0)).length]]
+      .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}
+    <tr><td><b>Estimate still mostly assumption</b> (under ${THIN} answer's worth for reading)</td><td><b>${words.filter(w => w.recognition.evidence < THIN).length}</b></td></tr>
+    <tr><td>Met in your reading (counted)</td><td>${words.filter(w => w.exposure).length}</td></tr>
+    <tr><td class="flag">Flagged entries (saved as written, not a dictionary form)</td><td>${words.filter(w => w.flag).length}</td></tr></table>
+  <h2>Grammar with enough evidence</h2>
+  ${D.grammar.some(g => g.answers >= 5) ? grammarTable(D.grammar.filter(g => g.answers >= 5)) : '<div class="muted">None yet.</div>'}`
 
 // Data collected
 const T = D.dataset.types
@@ -184,31 +192,33 @@ $('words').innerHTML = `
     <input id="q" placeholder="Search Hebrew or English">
     <select id="fb"><option value="">All bands</option><option>known</option><option>acquiring</option><option>met</option><option>unfamiliar</option></select>
     <label><input type="checkbox" id="fe"> only words with evidence</label>
+    <label><input type="checkbox" id="ff"> only flagged entries</label>
     <span class="muted small" id="wc"></span>
   </div>
   <table id="wt"></table>`
 const renderWords = () => {
-  const q = $('q').value.trim().toLowerCase(), fb = $('fb').value, fe = $('fe').checked
-  const list = words.filter(w => (!fb || w.band === fb) && (!fe || w.recognition.evidence >= 0.5) && (!q || (w.lemma + ' ' + w.key + ' ' + (w.gloss || '')).toLowerCase().includes(q)))
+  const q = $('q').value.trim().toLowerCase(), fb = $('fb').value, fe = $('fe').checked, ff = $('ff').checked
+  const list = words.filter(w => (!fb || w.band === fb) && (!fe || w.recognition.evidence >= THIN) && (!ff || w.flag) && (!q || (w.lemma + ' ' + w.key + ' ' + (w.gloss || '')).toLowerCase().includes(q)))
     .sort((a, b) => { const x = value(a, sortKey), y = value(b, sortKey); return (x > y ? 1 : x < y ? -1 : 0) * sortDir })
   $('wc').textContent = `${list.length} words`
   $('wt').innerHTML = `<tr>${COLS.map(([k, l]) => `<th data-k="${k}">${l}${sortKey === k ? (sortDir > 0 ? ' ↑' : ' ↓') : ''}</th>`).join('')}</tr>` +
     list.slice(0, 400).map(w => `<tr class="click" data-key="${esc(w.key)}">
-      <td>${he(w.lemma)}<div class="small muted">${esc((w.gloss || '').slice(0, 60))}</div></td><td>${band(w.band)}</td>
+      <td>${he(w.lemma)}<div class="small muted">${esc((w.gloss || '').slice(0, 60))}</div>${w.flag ? '<div class="flag">⚑ saved as written</div>' : ''}</td><td>${band(w.band)}</td>
       <td>${est(w.recognition)}</td><td>${est(w.production)}</td><td>${mix(w.recognition)}</td>
-      <td>${w.answers}${directAnswers(w) ? ` <span class="muted small">(${directAnswers(w)} dated)</span>` : ''}</td>
+      <td>${w.answers ? `${w.datedAnswers} <span class="muted small">dated${w.answers > w.datedAnswers ? ` + ${w.answers - w.datedAnswers} older, undated` : ''}</span>` : '0'}</td>
       <td>${w.rank ?? '<span class="muted">not listed</span>'}</td><td>${w.exposure ? `${w.exposure.read}<span class="muted small"> / ${w.exposure.total}</span>` : '<span class="muted">—</span>'}</td><td>${day(w.lastAt)}</td></tr>`).join('')
 }
 $('wt').onclick = (e) => {
   const th = e.target.closest('th'); if (th) { const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : (k === 'lemma' || k === 'rank' ? 1 : -1); sortKey = k; renderWords(); return }
   const tr = e.target.closest('tr.click'); if (tr) openWord(tr.dataset.key)
 }
-;['q', 'fb', 'fe'].forEach(id => $(id).addEventListener('input', renderWords))
+;['q', 'fb', 'fe', 'ff'].forEach(id => $(id).addEventListener('input', renderWords))
 renderWords()
 
 // One word, in three layers.
 function openWord(key) {
   const w = words.find(x => x.key === key); if (!w) return
+  current = w
   const obs = [
     ...w.observed.map(o => ({ at: o.at, text: describe(o) })),
     ...(w.encounters || []).map(m => ({ at: m.at, text: `saved from a page: ${he(m.surface)} — ${he(m.context)}` })),
@@ -216,10 +226,11 @@ function openWord(key) {
   const cards = (w.cards || []).filter(c => c.results?.length)
   $('sheet').innerHTML = `<button class="close" onclick="closeWord()">Close</button>
     <h2 style="margin-top:0">${he(w.lemma)} ${band(w.band)}</h2><div class="muted">${esc(w.gloss || '')}</div>
+    ${w.flag ? `<div class="note bad small">⚑ ${esc(w.flag)}: its rank and estimates are unreliable.</div>` : ''}
     <div class="layers" style="margin-top:14px">
       <div class="card layer"><div class="kind">1 · Observed</div><h3>What you did</h3>
         ${obs.length ? `<ul class="ev">${obs.map(o => `<li><span class="muted small">${when(o.at)}</span><br>${o.text}</li>`).join('')}</ul>` : '<div class="muted">No dated observations.</div>'}
-        ${cards.length ? `<h3>Card results kept</h3><ul class="ev">${cards.map(c => `<li>${esc(c.stage)} ${esc(c.slot)} ${c.he ? he(c.he) : ''}: ${c.results.map((r, i) => (r ? '✓' : '✗') + (c.primed?.[i] ? 'ᵖ' : '')).join(' ')} <span class="muted small">last ${day(c.last)}</span></li>`).join('')}</ul><div class="small muted">ᵖ primed. Only the last 3 per card are kept, and only the latest is dated.</div>` : ''}
+        ${cards.length ? `<h3>Card results kept</h3><ul class="ev">${cards.map(c => `<li>${esc(c.stage)} ${esc(c.slot)} ${c.he ? he(c.he) : ''}: ${c.results.map((r, i) => (r ? '✓' : '✗') + (c.primed?.[i] ? 'ᵖ' : '')).join(' ')} <span class="muted small">latest ${day(c.last)}</span>${c.sentence ? `<div>${he(c.sentence)}</div><div class="small muted">${esc(c.translation || '')}</div>` : ''}</li>`).join('')}</ul><div class="small muted">ᵖ primed. Stored on the word, not observed one by one: only a card's last 3 results are kept, only the latest is dated, and those also recorded as answers above are the same answers.</div>` : ''}
       </div>
       <div class="card layer"><div class="kind">2 · Derived</div><h3>Features</h3>
         <table>
@@ -237,7 +248,7 @@ function openWord(key) {
           <tr><td>Band</td><td>${band(w.band)}<div class="small muted">${bandRule(w)}</div></td></tr>
         </table>
         <h3>Evidence, as weighed</h3>
-        ${w.evidence.length ? `<ul class="ev">${w.evidence.map(e => `<li><span class="${e.weight === 0 ? 'zero' : e.knew ? 'plus' : 'minus'}">${e.weight === 0 ? '○' : e.knew ? '+' : '−'}${e.weight.toFixed(2)}</span> ${esc(e.channel)} · ${esc(e.what)}${e.uncertain ? ' <span class="tag zero">noted, not counted</span>' : ''}<br><span class="muted small">${day(e.at)}</span></li>`).join('')}</ul>` : '<div class="muted">None: the estimate is the starting assumption alone.</div>'}
+        ${w.evidence.length ? `<ul class="ev">${w.evidence.map(e => `<li><span class="${e.weight === 0 ? 'zero' : e.knew ? 'plus' : 'minus'}">${e.weight === 0 ? '○' : e.knew ? '+' : '−'}${e.weight.toFixed(2)}</span> ${esc(e.channel)} · ${esc(e.what)}${e.uncertain ? ' <span class="tag zero">noted, not counted</span>' : ''}<br><span class="muted small">${e.dated === false ? `date not kept: no later than ${day(e.at)}` : day(e.at)}</span></li>`).join('')}</ul>` : '<div class="muted">None: the estimate is the starting assumption alone.</div>'}
         <div class="small muted">Weights are before ageing: evidence counts half as much every ${D.halfLife} days.</div>
       </div>
     </div>`
@@ -252,8 +263,26 @@ function bandRule(w) {
   if (w.band === 'met') return 'saved, not yet studied'
   return 'looked up, never saved'
 }
+// The card an event was on (its sentence and translation), from its key.
+let current = null
+function cardOf(o) {
+  if (!current || !o.key) return null
+  const own = o.key.split(':').slice(1).join(':')
+  return (current.cards || []).find(c => c.key === own) || null
+}
+function sentenceOf(o) {
+  const c = cardOf(o)
+  return c && c.sentence ? `<div>${he(c.sentence)}</div><div class="small muted">${esc(c.translation || '')}</div>` : ''
+}
+// An answer recorded before answers said which side came first takes it from the card's show.
+function frontOf(o) {
+  if (o.front) return { front: o.front, from: '' }
+  const shown = current && current.observed.filter(x => x.type === 'show' && x.key === o.key && x.position === o.position && x.at <= o.at).pop()
+  return shown && shown.front ? { front: shown.front, from: ' (from when it was shown)' } : null
+}
 function describe(o) {
-  if (o.type === 'answer') return `<b>${o.knew ? 'knew' : 'still learning'}</b> · ${esc(o.kind)} ${esc(o.form || o.stage || '')}${o.front ? ` · ${o.front === 'en' ? 'English first' : 'Hebrew first'}` : ' · side not recorded'}${o.primed ? ' · primed' : ''}${o.quiz ? ' · choices' : ''}${o.ms ? ` · ${Math.round(o.ms / 1000)}s` : ''}<div class="small muted">${esc(o.why || '')}</div>`
+  const side = o.type === 'answer' ? frontOf(o) : null
+  if (o.type === 'answer') return `<b>${o.knew ? 'knew' : 'still learning'}</b> · ${esc(o.kind)} ${esc(o.form || o.stage || '')}${side ? ` · ${side.front === 'en' ? 'English first' : 'Hebrew first'}${side.from}` : ' · side not recorded'}${o.primed ? ' · primed' : ''}${o.quiz ? ' · choices' : ''}${o.ms ? ` · ${Math.round(o.ms / 1000)}s` : ''}${sentenceOf(o)}<div class="small muted">${esc(o.why || '')}</div>`
   if (o.type === 'show') return `card shown · ${esc(o.kind)} ${esc(o.form || '')}${o.front ? ` · ${o.front === 'en' ? 'English first' : 'Hebrew first'}` : ''}`
   if (o.type === 'reveal') return `turned over after ${Math.round((o.ms || 0) / 1000)}s`
   if (o.type === 'lookup') return `looked up ${he(o.word)} ${o.text ? 'while reading' : 'on a card'}${o.saved ? ' (already saved)' : ''}${o.explained ? ` · explained in ${Math.round(o.explained.ms / 100) / 10}s (${esc(o.explained.why)})` : ''}`
@@ -266,10 +295,10 @@ function describe(o) {
 // Grammar
 function grammarTable(list) {
   if (!list.length) return '<div class="muted">No answers on form cards yet.</div>'
-  return `<table><tr><th>Form</th><th>Estimate</th><th>Evidence vs assumption</th><th>Answers</th><th>Words</th></tr>${list.map(g => `<tr><td>${esc(g.label)}</td><td>${est(g.estimate)}</td><td>${mix(g.estimate)}</td><td>${g.answers}</td><td>${g.words.map(he).join(' ')}</td></tr>`).join('')}</table>`
+  return `<table><tr><th>Form</th><th>Estimate</th><th>Evidence vs assumption</th><th>Answers</th><th>Words</th></tr>${list.map(g => `<tr><td>${esc(g.label)}</td><td>${g.answers < 5 ? `<span class="muted"><i>not enough evidence</i> (${g.answers} answer${g.answers === 1 ? '' : 's'})</span>` : est(g.estimate)}</td><td>${mix(g.estimate)}</td><td>${g.answers}</td><td>${g.words.map(he).join(' ')}</td></tr>`).join('')}</table>`
 }
 $('grammar').innerHTML = `
-  <div class="note warn">Each form starts from how you do on cards overall (${pct(D.overall.p)}), so a form with few answers sits near that. Slots, not constructions: a verb's tense and person, a noun's number, an adjective's gender and number, as cards are written.</div>
+  <div class="note warn">A form needs 5 answers before its estimate is shown. Each starts from how you do on cards overall (${pct(D.overall.p)}), so one with few answers sits near that. Slots, not constructions: a verb's tense and person, a noun's number, an adjective's gender and number, as cards are written.</div>
   ${grammarTable(D.grammar)}`
 
 // Knowledge × relevance
@@ -335,11 +364,15 @@ $('calibration').innerHTML = `
   <div class="note ${PRELIM ? 'bad' : 'ok'}"><b>${PRELIM ? 'Preliminary' : 'Enough to start trusting'}:</b> ${K.n} answers (${K.right} right), ${day(K.first)} to ${day(K.last)}. ${PRELIM ? 'Ranges are wide and a difference counts only where its whole 80% range is on one side of zero (green or red). Expect conclusions to change by a few hundred answers.' : ''}</div>
   <div class="note">This measures <b>prediction</b>: whether the model expects the answers you give. It says nothing yet about whether choosing cards by it would teach you more; that needs comparing what you remember later under different choices.</div>
   <div class="note small">Each answer is predicted from only what was known just before it: words saved by then, earlier events, and older card results dated no later than they can have been. Exceptions, marked: <i>model, check level</i> uses the vocabulary check taken later, and the reading counts below use today's passages.</div>
+  <div class="note small">Model ${esc(K.version)}. <i>learner-v1</i> is the model as first built (its starting assumptions unbounded), kept for comparison; <i>card so far</i> is the baseline any model has to beat.</div>
   <h2>All answers</h2>
   <table><tr><th>Predictor</th><th>Log loss (lower better; 0.693 = always 50%)</th><th>Brier</th><th>Ranking (AUC, 0.5 = chance)</th><th>Predicted / right</th><th>Log loss vs overall so far</th></tr>${K.scores.map(scoreRow).join('')}</table>
   <h3>Reliability: predicted chance against how often answers were right</h3>
   <div>${K.scores.filter(s => ['model', 'card so far', 'overall so far'].includes(s.name)).map(reliability).join('')}</div>
   <div class="small muted">On the dashed line, a prediction of 30% is right 30% of the time. Circle size: answers in the bin.</div>
+  <h2>Runs so far</h2>
+  <table><tr><th>When</th><th>Model</th><th>Answers</th>${['model', 'learner-v1', 'card so far', 'overall so far'].map(n => `<th>${n} (log loss)</th>`).join('')}</tr>
+  ${(K.history || []).slice().reverse().map(r => `<tr><td>${when(r.at)}</td><td>${esc(r.version)}</td><td>${r.n}</td>${['model', 'learner-v1', 'card so far', 'overall so far'].map(n => `<td>${r.scores[n] ? fmt(r.scores[n].logLoss) : '—'}</td>`).join('')}</tr>`).join('')}</table>
   <h2>By kind of answer</h2>
   ${K.groups.filter(g => g.n).map(g => `<h3>${esc(g.group)} · ${g.n} answers, ${g.right} right</h3>${g.scores.length ? `<table><tr><th>Predictor</th><th>Log loss</th><th>Brier</th><th>AUC</th><th>Predicted / right</th><th>vs overall so far</th></tr>${g.scores.map(scoreRow).join('')}</table>` : '<div class="muted small">Too few to score.</div>'}`).join('')}
   ${K.groups.filter(g => !g.n).length ? `<div class="muted small">No answers yet: ${K.groups.filter(g => !g.n).map(g => esc(g.group)).join(', ')}.</div>` : ''}
@@ -353,10 +386,12 @@ $('calibration').onclick = (e) => { const r = e.target.closest('[data-key]'); if
 
 // Assumptions
 $('assumptions').innerHTML = `
-  <div class="note">Everything here is a choice made for a first model, not something learned from data. Calibration (next stage) is how each will be tested.</div>
+  <div class="note">Everything here is a choice, not something learned from data; the Calibration tab is how each can be tested. Model ${esc(D.version)}.</div>
   <table><tr><th>Assumption</th><th>Value</th><th>Status</th></tr>
     <tr><td>Starting chance a word is known, by rank</td><td>half at the level (~${D.level.words}), 9 in 10 at a third of it, 1 in 10 at three times it</td><td class="small">The steepness is a guess. Your vocabulary check falls off more gently (a flatter curve fits it clearly better), so rare words you know start too low.</td></tr>
     <tr><td>Rank of a word</td><td>most common of its dictionary form and the forms you met it in, in spoken Hebrew (subtitles)</td><td class="small">Forms as written, not words; spoken, not written Hebrew.</td></tr>
+    <tr><td>Bound on a starting assumption</td><td>never below ${pct(D.priorFloor)} or above ${pct(1 - D.priorFloor)}</td><td class="small">Not fitted: a round bound, because a frequency and a rough level say little about one word (learner-v1 put words near 0% that were answered right half the time).</td></tr>
+    <tr><td>Older card results without dates</td><td>dated no later than they can have been; marked undated</td><td class="small">Their ageing uses that latest possible date, so they may count a little more than their true age would give.</td></tr>
     <tr><td>Production prior</td><td>${D.weights.productionPrior} × recognition prior</td><td class="small">Untested.</td></tr>
     <tr><td>Starting assumption's weight</td><td>${D.weights.prior} answers' worth</td><td class="small">Untested.</td></tr>
     ${Object.entries({ answer: 'answer, not primed', primed: 'answer just after seeing the Hebrew', quiz: 'multiplier for answers picked from choices', formCard: 'a form card\'s answer, for the word itself', lookup: 'lookup while reading, against knowing it', cardLookup: 'lookup on a card in Study, against knowing it', either: 'answers with no side recorded, to each side' })

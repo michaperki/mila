@@ -1,15 +1,17 @@
-import { learnerState, levelFromSaves, parseCardKey, type LearnerEntry, type LearnerEvent, type Level, type Results } from './learner.ts'
+import { earlierResults, learnerState, levelFromSaves, parseCardKey, type LearnerEntry, type LearnerEvent, type Level } from './learner.ts'
 
 // Does the learner model predict how the learner answers? Each recorded answer is predicted again
 // as if at the moment before it was given, from only what was known then: the words saved by then,
 // with the encounters they had, the events before it, and the cards' results from before events
-// were recorded, each dated no later than it can have been (lib/learner.ts keptAreEarlier). The
+// were recorded, each dated no later than it can have been (lib/learner.ts earlierResults). The
 // model's prediction is set beside simpler ones (baselines), also using only what came before,
 // and each is scored against what happened. This measures prediction, not teaching: a model can
 // predict answers well and still choose badly what to study.
 //
 // Predictions:
 // - model: the learner model, from a level guessed from the saves made by then (levelFromSaves)
+// - learner-v1: the model as first built, its starting assumptions unbounded (priorFloor 0), kept
+//   to compare later versions with
 // - model, check level: the same from the vocabulary check's level, which was taken later: it
 //   looks ahead, and is shown only to see how much the level matters
 // - frequency only: the model's starting assumption alone, with no evidence
@@ -26,7 +28,7 @@ export type Prediction = {
   rank?: number; savedDaysBefore?: number; cardAnswersBefore: number; wordAnswersBefore: number; encountersBefore: number
   p: Record<string, number>
 }
-export const PREDICTORS = ['model', 'model, check level', 'frequency only', 'overall so far', 'card so far', 'word so far', "Study's rule", 'primed or not so far']
+export const PREDICTORS = ['model', 'learner-v1', 'model, check level', 'frequency only', 'overall so far', 'card so far', 'word so far', "Study's rule", 'primed or not so far']
 
 const rate = (right: number, all: number) => (right + 1) / (all + 2)
 // Study's rule for a card's state (apps/mobile/src/lib/forms.ts cardState, ProgressRules.familiarAfter 2).
@@ -48,39 +50,13 @@ export function replay(entries: LearnerEntry[], events: LearnerEvent[], { checkL
   const answers = sorted.filter(event => event.type === 'answer' && typeof event.key === 'string' && final.get(`${event.session}:${event.position}:${event.key}`) === event)
   const byId = new Map(entries.map(entry => [entry.id, entry]))
 
-  // Each card's results from before events: what its kept results hold beyond the answers
-  // recorded, dated at the latest they can have been.
-  type Earlier = { results: boolean[]; primed: boolean[]; at: number }
-  const recordedOf = new Map<string, LearnerEvent[]>()
-  for (const answer of answers) { const key = answer.key as string; if (!recordedOf.has(key)) recordedOf.set(key, []); recordedOf.get(key)!.push(answer) }
-  const earlier = new Map<string, Earlier>()
-  const cardsOf = (entry: LearnerEntry) => [
-    { key: `${entry.id}:word`, results: entry as Results },
-    ...(entry.forms || []).map(form => ({ key: `${entry.id}:${form.key}`, results: form as Results })),
-    ...Object.entries(entry.checkpoints || {}).map(([stage, results]) => ({ key: `${entry.id}:checkpoint:${stage}`, results })),
-  ]
-  for (const entry of entries) {
-    for (const { key, results } of cardsOf(entry)) {
-      const kept = results.results || []
-      const recorded = recordedOf.get(key) ?? []
-      const count = Math.max(0, kept.length - recorded.length)
-      if (!count) continue
-      const at = recorded.length ? Math.min(results.last ?? Infinity, recorded[0].at - 60_000) : results.last ?? 0
-      earlier.set(key, { results: kept.slice(0, count), primed: kept.slice(0, count).map((_, i) => !!results.primed?.[i]), at })
-    }
-  }
-  const asOf = (t: number) => entries.filter(entry => !(createdOf(entry) > t)).map(entry => {
-    const keep = (key: string, results: Results): Results => {
-      const before = earlier.get(key)
-      return before && before.at < t ? { results: before.results, primed: before.primed, last: before.at } : { results: [], primed: [], last: undefined }
-    }
-    return {
-      ...entry, ...keep(`${entry.id}:word`, entry),
-      encounters: (entry.encounters || []).filter(met => (met.at ?? 0) < t),
-      forms: (entry.forms || []).map(form => ({ ...form, ...keep(`${entry.id}:${form.key}`, form) })),
-      checkpoints: Object.fromEntries(Object.entries(entry.checkpoints || {}).map(([stage, results]) => [stage, keep(`${entry.id}:checkpoint:${stage}`, results)])),
-    }
-  })
+  // Each card's results from before events, dated at the latest they can have been.
+  const recordedAt = new Map<string, number[]>()
+  for (const answer of answers) recordedAt.set(answer.key as string, [...(recordedAt.get(answer.key as string) ?? []), answer.at])
+  const earlier = earlierResults(entries, recordedAt)
+  // The saved words as they were at a moment: those saved by then, with the encounters they had.
+  const asOf = (t: number) => entries.filter(entry => !(createdOf(entry) > t))
+    .map(entry => ({ ...entry, encounters: (entry.encounters || []).filter(met => (met.at ?? 0) < t) }))
 
   const predictions: Prediction[] = []
   for (const answer of answers) {
@@ -109,11 +85,12 @@ export function replay(entries: LearnerEntry[], events: LearnerEvent[], { checkL
     const eventsThen = sorted.filter(event => event.at < t)
     const channel = (word: { recognition: { p: number }; production: { p: number } }) =>
       answer.front === 'en' ? word.production.p : answer.front === 'he' ? word.recognition.p : (word.recognition.p + word.production.p) / 2
-    const modelAt = (level: Level) => {
-      const word = learnerState(entriesThen, eventsThen, level, t, { keptAreEarlier: true }).words.find(item => item.id === entry.id)
+    const modelAt = (level: Level, priorFloor?: number) => {
+      const word = learnerState(entriesThen, eventsThen, level, t, { earlier, ...(priorFloor === undefined ? {} : { priorFloor }) }).words.find(item => item.id === entry.id)
       return word ? { p: channel(word), prior: answer.front === 'en' ? word.prior.production : answer.front === 'he' ? word.prior.recognition : (word.prior.recognition + word.prior.production) / 2, rank: word.rank } : null
     }
     const model = modelAt(levelFromSaves(entriesThen))
+    const first = modelAt(levelFromSaves(entriesThen), 0)
     const checked = checkLevel ? modelAt(checkLevel) : null
     const created = createdOf(entry)
     predictions.push({
@@ -124,6 +101,7 @@ export function replay(entries: LearnerEntry[], events: LearnerEvent[], { checkL
       encountersBefore: (entry.encounters || []).filter(met => (met.at ?? 0) < t).length,
       p: {
         model: model?.p ?? 0.5,
+        'learner-v1': first?.p ?? 0.5,
         ...(checked ? { 'model, check level': checked.p } : {}),
         'frequency only': model?.prior ?? 0.5,
         'overall so far': count(past),

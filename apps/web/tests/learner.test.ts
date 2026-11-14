@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { rankOf, rankOfForm } from '../netlify/functions/lib/frequency'
-import { estimate, learnerState, levelFromCheck, parseCardKey, priorKnown, type LearnerEntry, type LearnerEvent, type Level } from '../netlify/functions/lib/learner'
+import { betaQuantile, estimate, learnerState, levelFromCheck, parseCardKey, priorKnown, type LearnerEntry, type LearnerEvent, type Level } from '../netlify/functions/lib/learner'
 
 const DAY = 86_400_000
 const now = 1_800_000_000_000
@@ -131,5 +131,45 @@ describe('calibration replay', () => {
     expect(score(predictions, 'card so far').n).toBe(3)
     expect(studyState([true, true], [false, true])).toBe('familiar')
     expect(studyState([true, true], [true, true])).toBe('learning')
+  })
+})
+
+describe('learner-v1.1 corrections', () => {
+  it('gives ranges from the Beta distribution, which never collapse to a point', () => {
+    expect(betaQuantile(0.5, 2, 2)).toBeCloseTo(0.5, 3)
+    expect(betaQuantile(0.9, 1, 1)).toBeCloseTo(0.9, 3)
+    // An unlisted word missed four times: unlikely known, but not certainly unknown.
+    const missed = Array.from({ length: 4 }, () => ({ at: now, channel: 'recognition' as const, knew: false, weight: 1, what: '' }))
+    const result = estimate(0.05, missed, 'recognition', now)
+    expect(result.p).toBeLessThan(0.05)
+    expect(result.high).toBeGreaterThan(result.p)
+    expect(result.high).toBeGreaterThanOrEqual(0.02)
+  })
+  it('never starts surer than the floor, however rare the word', () => {
+    const rare: LearnerEntry = { id: 'native-r', lemma: 'קזפון', lemmaPlain: 'קזפון' }
+    const word = learnerState([rare], [], level, now).words[0]
+    expect(word.prior.recognition).toBe(0.05)
+    expect(learnerState([rare], [], level, now, { priorFloor: 0 }).words[0].prior.recognition).toBeLessThan(0.01)
+  })
+  it('dates older results no later than the first recorded answer, and marks them undated', () => {
+    const card: LearnerEntry = { id: 'native-c', lemma: 'לכתוב', lemmaPlain: 'לכתוב', results: [false, true, true], last: now - 1000 }
+    const word = learnerState([card], [answer(5, 'native-c:word', true, 'he', { at: now - 1000 })], level, now).words[0]
+    const undated = word.evidence.filter(item => item.dated === false)
+    expect(undated).toHaveLength(2)
+    expect(undated.every(item => item.at < now - 1000)).toBe(true)
+    expect(word.answers).toBe(3)
+    expect(word.datedAnswers).toBe(1)
+    expect(word.lastAt).toBe(now - 1000)
+  })
+  it('finds the word of a lookup that came without one by its spelling', () => {
+    const verb: LearnerEntry = { id: 'native-v', lemma: 'לִבְחוֹן', lemmaPlain: 'לבחון', encounters: [{ surface: 'בוחן', at: now - DAY }] }
+    const other: LearnerEntry = { id: 'native-n', lemma: 'נִיתּוּחַ', lemmaPlain: 'ניתוח', encounters: [{ surface: 'ניתוח', at: now - DAY }] }
+    const tap = (seq: number, at: number): LearnerEvent => ({ session: 's', seq, at, type: 'lookup', id: `s:${seq}`, key: 'native-v:present:m.sg', word: 'בניתוח', place: 7, saved: true, glossed: false })
+    // Tapped twice while its meaning loaded: one lookup.
+    const state = learnerState([{ ...other, lemma: 'נִתּוּחַ' }, verb], [tap(1, now - 1100), tap(2, now - 500)], level, now)
+    const word = state.words.find(item => item.id === 'native-n')!
+    expect(word.evidence.filter(item => item.what.includes('found by its spelling'))).toHaveLength(1)
+    // Its vocalized form spelled otherwise (נתוח) is still the saved word, not a new one.
+    expect(state.words.filter(item => !item.saved)).toHaveLength(0)
   })
 })

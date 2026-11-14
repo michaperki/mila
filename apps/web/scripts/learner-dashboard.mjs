@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { MongoClient } from 'mongodb'
 import { readingExposure } from '../netlify/functions/lib/exposure.ts'
 import { PREDICTORS, replay, score, scoreBy, splitBy } from '../netlify/functions/lib/calibration.ts'
-import { commonUpTo, EVIDENCE_HALF_LIFE, learnerState, levelFromSaves, MODEL_VERSION, parseCardKey, WEIGHTS, lemmaKeyOf } from '../netlify/functions/lib/learner.ts'
+import { commonUpTo, EVIDENCE_HALF_LIFE, learnerState, levelFromSaves, MODEL_VERSION, parseCardKey, PRIOR_FLOOR, WEIGHTS, lemmaKeyOf } from '../netlify/functions/lib/learner.ts'
 
 const envFile = [new URL('../.env', import.meta.url), new URL('../../../.env', import.meta.url)].find(url => existsSync(url) && /MONGODB_URI=/.test(readFileSync(url, 'utf8')))
 const env = Object.fromEntries(readFileSync(envFile, 'utf8').split('\n')
@@ -61,10 +61,12 @@ try {
         encounters: (entry.encounters || []).map(met => ({ surface: met.surface, context: met.context, meaning: met.meaning, at: met.at })),
         cards: [
           ...(entry.results?.length ? [{ key: 'word', stage: 'word card', slot: '', he: entry.lemma, results: entry.results, primed: entry.primed, last: entry.last }] : []),
-          ...(entry.forms || []).map(form => ({ key: form.key, stage: form.stage, slot: form.slot, he: form.he, sentence: form.sentence, results: form.results, primed: form.primed, last: form.last, usage: form.usage })),
+          ...(entry.forms || []).map(form => ({ key: form.key, stage: form.stage, slot: form.slot, he: form.he, sentence: form.sentence, translation: form.translation, results: form.results, primed: form.primed, last: form.last, usage: form.usage })),
         ],
       } : {}),
       exposure: seen ? { total: seen.total, read: seen.read, texts: seen.texts, forms: seen.forms } : null,
+      // Entries saved as written before expressions were saved under their dictionary form.
+      ...(entry?.partOfSpeech === 'phrase' ? { flag: 'saved as written, not as a dictionary form (an older phrase save)' } : {}),
       observed: observed.get(word.key) ?? [],
     }
   })
@@ -127,11 +129,20 @@ try {
       splitBy(predictions, 'In a learning sequence', item => (item.sequence ? 'in sequence' : 'on its own')),
       splitBy(predictions, 'Answers on this card before', item => (item.cardAnswersBefore === 0 ? 'none' : item.cardAnswersBefore === 1 ? 'one' : 'two or more')),
     ],
+    version: MODEL_VERSION,
     answers: predictions.map(item => ({ at: item.at, lemma: item.lemma, key: keyOfPrediction(item), kind: item.kind, stage: item.stage, knew: item.knew, primed: item.primed, p: item.p })),
   }
 
+  // Each run's scores are kept, so later model versions and more data can be compared with these.
+  const historyFile = new URL('calibration-history.json', out)
+  const history = existsSync(historyFile) ? JSON.parse(readFileSync(historyFile, 'utf8')) : []
+  const run = { at: now, version: MODEL_VERSION, n: calibration.n, right: calibration.right, scores: Object.fromEntries(calibration.scores.map(item => [item.name, { logLoss: item.logLoss, brier: item.brier, auc: item.auc }])) }
+  const latest = history.at(-1)
+  if (!latest || latest.version !== run.version || latest.n !== run.n) { history.push(run); writeFileSync(historyFile, JSON.stringify(history, null, 1)) }
+  calibration.history = history
+
   const data = {
-    generated: now, version: MODEL_VERSION, level, commonUpTo: commonUpTo(level), weights: WEIGHTS, halfLife: EVIDENCE_HALF_LIFE,
+    generated: now, version: MODEL_VERSION, priorFloor: PRIOR_FLOOR, level, commonUpTo: commonUpTo(level), weights: WEIGHTS, halfLife: EVIDENCE_HALF_LIFE,
     overall: state.overall, grammar: state.grammar, words, dataset, levelCheck,
     unmatched: exposure.unmatched.slice(0, 80), textsCount: exposure.texts, calibration,
   }
