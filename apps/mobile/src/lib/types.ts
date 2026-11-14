@@ -115,6 +115,10 @@ export type FormCard = {
   // Which use of the word the card shows ("flooding streets (weather)"), as the writer labelled
   // it: cards showing the same use have the same label. Missing on cards written before.
   usage?: string
+  // What each other word of the sentence means there, by its place among the sentence's words
+  // (split at spaces), with its dictionary form: tapped on the card, shown at once. Missing on
+  // cards written before glosses (apps/web/netlify/functions/lib/forms-writer.ts Gloss).
+  glosses?: { i: number; lemma: string; en: string }[]
 } & Results
 // What studying has shown about a card, and nothing about when to see it again: its last few
 // results (true: knew it), which of them were primed (answered just after the word's Hebrew was

@@ -16,7 +16,7 @@ import { stripNiqqud } from '../lib/ocr-cleanup'
 import { plainSpelling } from '../lib/spelling'
 import { stop as stopSpeaking } from '../lib/speech'
 import { noteActivity } from '../lib/tree'
-import { explainWord } from '../lib/recognition'
+import { explainWord, quickMeanings } from '../lib/recognition'
 import type { Built, Encounter, Phrase, Session, VocabEntry, WordAnalysis } from '../lib/types'
 import { constructionsOf, encountersOf, lemmaKey, patternLabel, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
@@ -26,7 +26,14 @@ import { useHebrew } from '../state/script'
 // drawer, and the same drawer over a flashcard for a word in the card's sentence. `phrase` is a
 // run of words dragged across rather than one word tapped. `source` says, when it is saved, the
 // passage it was met in, if that is in the library by then.
-export type Lookup = { text: string; sentence: string; translation?: string; phrase?: boolean; source?: () => Encounter['sourceRef'] }
+// `card`: a word tapped on a flashcard, which shows at once what the card says it means there
+// (`meaning`, with its dictionary form `lemma`), or for a card written without that, its meaning
+// from one quick lookup of the whole sentence's words (`words`, the tapped one at `at`); the full
+// explanation is asked for only on More or Save.
+export type Lookup = {
+  text: string; sentence: string; translation?: string; phrase?: boolean; source?: () => Encounter['sourceRef']
+  card?: { meaning?: string; lemma?: string; words: string[]; at: number }
+}
 
 // When a save is written (read in the save handler, never while drawing).
 const now = () => Date.now()
@@ -62,16 +69,41 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
 
   const open = async (next: Lookup) => {
     const current = ++version.current
-    setTap(next); setDetails(false); setAnalysis(undefined); setGloss(''); setError(null); setBusy(true)
+    setTap(next); setDetails(false); setAnalysis(undefined); setGloss(''); setError(null); setBusy(true); setAsked(false)
     // Saved from this sentence: show what it was saved with instead of asking the model again.
     // Words saved before explanations were kept show their saved meaning while it loads.
     const known = savedTaps.get(tapKey(next.text, next.sentence))?.encounter
     if (known?.analysis) { setAnalysis(known.analysis); setGloss(known.analysis.meaning); setBusy(false); return }
     if (known) setGloss(known.meaning)
+    // On a card: its own meaning for the word at once, or the sentence's quick meanings (asked
+    // once per sentence and kept); the model explains it only on More or Save (explain, save).
+    if (next.card) {
+      const { meaning, words, at } = next.card
+      if (meaning) { setGloss(meaning); setBusy(false); return }
+      const quick = session ? await quickMeanings(next.sentence, words, session.token).then(meanings => meanings[at] || '') : ''
+      if (version.current !== current) return
+      if (quick) setGloss(quick)
+      setBusy(false); return
+    }
     try {
       const result = await explainWord(next.text, next.sentence, session?.token)
       if (version.current !== current) return
       setAnalysis(result.analysis); setGloss(result.gloss)
+    } catch (failure) { if (version.current === current) setError((failure as Error).message) }
+    finally { if (version.current === current) setBusy(false) }
+  }
+  // More on a card's word: the full explanation, asked for now, shown with its details. If it
+  // can't be had, the card's meaning stays and the drawer says the explanation is unavailable.
+  const [asked, setAsked] = useState(false)
+  const explain = async () => {
+    if (!tap || analysis || busy) return
+    const current = version.current
+    setAsked(true); setBusy(true); setError(null)
+    try {
+      const result = await explainWord(tap.text, tap.sentence, session?.token)
+      if (version.current !== current) return
+      if (result.analysis) { setAnalysis(result.analysis); setGloss(result.gloss); setDetails(true) }
+      else if (!gloss) setGloss(result.gloss)
     } catch (failure) { if (version.current === current) setError((failure as Error).message) }
     finally { if (version.current === current) setBusy(false) }
   }
@@ -82,7 +114,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   const isPhrase = !!tap?.phrase
   const quickMeaning = tap && !isPhrase ? quick : ''
   // A selected phrase is saved as written; a single word by its dictionary form.
-  const lemma = isPhrase ? tap!.text : analysis?.lemmaPlain || analysis?.lemma || tap?.text || ''
+  const lemma = isPhrase ? tap!.text : analysis?.lemmaPlain || analysis?.lemma || tap?.card?.lemma || tap?.text || ''
   const sentence = tap?.sentence ?? ''
   // Saved is known from the tap itself, so it shows at once rather than after the explanation.
   const wordSaved = !!tap && (saving.has(tapKey(tap.text, sentence)) || savedTaps.has(tapKey(tap.text, sentence)) || savedWords.has(savedKey(vocabId(lemma), sentence)))
@@ -96,7 +128,8 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   // Already in your words from another sentence, or met here in another form (וצעק is the
   // לצעוק saved from צעק): Save then adds this sentence to that entry as one more example.
   // Before the explanation arrives it is known only if this form itself was saved somewhere.
-  const savedEntry = !tap ? undefined : analysis || isPhrase ? byLemma.get(lemmaKey(lemma)) : bySurface.get(lemmaKey(tap.text))
+  // A card's word knows its dictionary form from the card.
+  const savedEntry = !tap ? undefined : analysis || isPhrase || tap.card?.lemma ? byLemma.get(lemmaKey(lemma)) : bySurface.get(lemmaKey(tap.text))
   const phraseEntry = phrase ? byLemma.get(lemmaKey(phrase.lemmaPlain || phrase.lemma || phrase.text)) : undefined
   // A pattern (נטול ינשופים: נָטוּל + [שֵׁם עֶצֶם]) is led by when its fixed words are tapped; the
   // word in its open place (ינשופים) is a word of its own, with the pattern offered alongside.
@@ -149,7 +182,8 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
     if (noWordsYet) setFirstSave(true)
     setSaving(saves => new Set(saves).add(key)); setError(null); feel('saved')
     try {
-      const explained: { analysis?: WordAnalysis; gloss: string } = busy
+      // A card's word has its meaning but not yet its explanation, which Save asks for now.
+      const explained: { analysis?: WordAnalysis; gloss: string } = busy || (!analysis && !!tapped.card)
         ? await explainWord(tapped.text, tapped.sentence, session.token).catch(() => ({ gloss: '' })) : { analysis, gloss }
       const found = explained.analysis
       const meaning = explained.gloss || quickNow
@@ -214,7 +248,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   }
 
   return {
-    tap, open, close, invalidate, analysis, gloss, busy, error, details, setDetails, quickMeaning,
+    tap, open, close, invalidate, explain, asked, analysis, gloss, busy, error, details, setDetails, quickMeaning,
     isPhrase, lemma, wordSaved, phrase, phraseSaved, isPattern, fillsPattern, patternFirst, leadPhrase, phraseIsWord, inYourWords,
     saving, unsaving, firstSave, noWordsYet, save, unsave,
   }
@@ -284,12 +318,12 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close,
       onLayout={event => { scrollHeight.current = event.nativeEvent.layout.height }}
       onContentSizeChange={(_, contentHeight) => setMoreBelow(contentHeight > scrollHeight.current + 8)}>
     {patternFirst && unitBox}
-    {busy && !quickMeaning ? <View style={[styles.row, { gap: 8 }]}><ActivityIndicator color={colors.green} /><Text style={styles.copy}>Reading it in context…</Text></View>
+    {busy && !quickMeaning && !gloss ? <View style={[styles.row, { gap: 8 }]}><ActivityIndicator color={colors.green} /><Text style={styles.copy}>Reading it in context…</Text></View>
       : <View style={[styles.row, { gap: 8, flexWrap: 'nowrap' }]}>
         {!!(gloss || quickMeaning) && <Animated.Text key={gloss ? 'full' : 'quick'} entering={APPEAR} style={[drawer.meaning, { flexShrink: 1 }]}>{isolateHebrew(v(gloss || quickMeaning))}</Animated.Text>}
         {busy && <ActivityIndicator color={colors.green} />}
       </View>}
-    {!busy && !analysis && !!gloss && <Text style={[styles.copy, { fontSize: 13 }]}>Detailed explanation unavailable, so this is a direct translation.</Text>}
+    {!busy && !analysis && !!gloss && (!tap.card || lookup.asked) && <Text style={[styles.copy, { fontSize: 13 }]}>{tap.card ? 'Detailed explanation unavailable just now.' : 'Detailed explanation unavailable, so this is a direct translation.'}</Text>}
     {!!reading && !busy && <Text style={drawer.reading}>{isolateHebrew(v(reading))}</Text>}
     {/* The constructions the word is used in, learned with it (לְהִרְהֵר בְּ־, אַחֲרֵי). */}
     {!isPhrase && !leadPhrase && !busy && !!analysis && constructionsOf(analysis).length > 0
@@ -316,6 +350,10 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close,
     <View style={[styles.row, { flexWrap: 'nowrap', gap: 10 }]}>
       {hasDetails && !busy && <Pressable accessibilityRole="button" onPress={toggleDetails} style={drawer.detailsToggle} hitSlop={6}>
         <Text style={drawer.toggleLabel}>{details ? 'Less' : 'Details'}</Text><Ionicons name={details ? 'chevron-down' : 'chevron-up'} size={16} color={colors.green} />
+      </Pressable>}
+      {/* A card's word: its meaning is the card's; the full explanation only when asked for. */}
+      {!!tap.card && !analysis && !busy && !lookup.asked && <Pressable accessibilityRole="button" accessibilityLabel="Explain this word in full" onPress={() => { openedDetails.current = true; void lookup.explain() }} style={drawer.detailsToggle} hitSlop={6}>
+        <Text style={drawer.toggleLabel}>More</Text><Ionicons name="chevron-up" size={16} color={colors.green} />
       </Pressable>}
       {leadPhrase
         ? <Button secondary={phraseSaved} title={phraseSaved ? `${isPattern ? 'Pattern' : 'Expression'} saved ✓` : lookup.inYourWords ? 'Add this example' : isPattern ? 'Save pattern' : 'Save expression'} detail={phraseSaved ? 'Tap to undo' : undefined}

@@ -594,8 +594,16 @@ function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, l
   entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; hideMark: boolean; v: (text: string) => string; lookup?: WordLookup
 }) {
   const he = useHebrew()
-  const onWord = lookup && ((word: string) => { feel('select'); void lookup.open({ text: word, sentence: form.sentence, translation: form.translation }) })
-  const looked = lookup?.tap?.sentence === form.sentence ? lookup.tap.text : undefined
+  // A word tapped at its place among the sentence's words (`at`): what the card says it means
+  // there, shown at once (the card's own word is its English), or for a card written without
+  // glosses, the sentence's quick meanings; the full explanation only on More or Save.
+  const onWord = lookup && ((word: string, at: number, own: boolean) => {
+    feel('select')
+    const gloss = own ? { en: form.en, lemma: entry.lemmaPlain || entry.lemma } : form.glosses?.find(item => item.i === at)
+    const words = form.sentence.split(/\s+/).filter(Boolean).map(bareWord)
+    void lookup.open({ text: word, sentence: form.sentence, translation: form.translation, card: { meaning: gloss?.en, lemma: gloss?.lemma || undefined, words, at } })
+  })
+  const looked = lookup?.tap?.sentence === form.sentence ? lookup.tap.card?.at : undefined
   const hebrew = <Text style={[practice.sentence, he]}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} onWord={onWord} looked={looked} /></Text>
   if (!answerSide) return <>
     {english ? <Text style={practice.english}><Marked text={cuedTranslation(form)} mark={form.enMark} /></Text> : hebrew}
@@ -616,17 +624,21 @@ function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, l
 
 // The sentence with the form marked (every word of an expression, even where others come
 // between, lib/marks.ts), or blanked for a quiz (an attached prefix such as ו or ש stays).
-// With `onWord`, a tap on a word looks it up (as written, without its punctuation), and the word
-// `looked` up is shown as selected.
+// With `onWord`, a tap on a word looks it up (as written, without its punctuation, with its place
+// among the sentence's words and whether it is the card's own), and the word looked up (by its
+// place, `looked`, so only that one of a word written twice) is shown as selected.
 function MarkedHebrew({ sentence, mark, form, blank, onWord, looked }: {
-  sentence: string; mark: string; form: string; blank: boolean; onWord?: (word: string) => void; looked?: string
+  sentence: string; mark: string; form: string; blank: boolean; onWord?: (word: string, at: number, own: boolean) => void; looked?: number
 }) {
   const formWords = form.split(/\s+/)
   let k = 0
+  let at = -1
   return <>{hebrewPieces(sentence, mark).map((piece, i) => {
     const word = bareWord(piece.text)
-    const tap = onWord && word ? { onPress: () => onWord(word), suppressHighlighting: true } : {}
-    const selected = !!looked && word === looked && practice.looked
+    if (piece.text && !/^\s+$/.test(piece.text)) at++
+    const place = at
+    const tap = onWord && word ? { onPress: () => onWord(word, place, piece.marked), suppressHighlighting: true } : {}
+    const selected = !!word && looked === place && practice.looked
     if (!piece.marked) return <Text key={i} {...tap} style={selected}>{piece.text}</Text>
     const own = formWords[k++] ?? ''
     if (blank) return <Text key={i}>{prefixOf(piece.text, own)}<Text style={practice.blank}>{' '.repeat(6)}</Text></Text>

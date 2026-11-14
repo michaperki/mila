@@ -11,6 +11,7 @@ vi.mock('../netlify/functions/lib/auth', () => ({ verifyAuth: () => ({ userId: '
 vi.mock('../netlify/functions/lib/mongo', () => ({ getDb: async () => ({ collection: () => ({ findOne, updateOne }) }) }))
 vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn(), checkDailySpend: vi.fn() }))
 import { handler } from '../netlify/functions/word-forms'
+import { placeGlosses } from '../netlify/functions/lib/forms-writer'
 
 const entry = { lemma: 'לִפְתֹּחַ', gloss: 'to open', partOfSpeech: 'verb', binyan: "pa'al", forms: [{ stage: 'meanings', sentence: 'אני רוצה לפתוח חלון' }], encounters: [{ surface: 'פתח', context: 'הוא פתח את הדלת' }] }
 const invoke = async (body: unknown) => {
@@ -43,6 +44,30 @@ describe('word forms', () => {
     expect(filter).toEqual({ userId: 'user', id: 'native-x', 'forms.stage': { $ne: 'past' } })
     expect(update.$push.forms.$each[0]).toMatchObject({ key: 'past:1sg', stage: 'past', slot: '1sg', he: 'פָּתַחְתִּי', mark: 'פתחתי', enMark: 'I opened' })
     expect(prompt).toContain('do not reuse these sentences')
+  })
+  it('keeps a meaning for each other word of a card\'s sentence, at the word it is for', async () => {
+    findOne.mockResolvedValueOnce(entry).mockResolvedValueOnce(null)
+    create.mockResolvedValue(generated([
+      { slot: '1sg', form: 'פָּתַחְתִּי', english: 'I opened', sentence: 'פתחתי חשבון בבנק.', inSentence: ['פתחתי'], said: '', translation: 'I opened a bank account', inTranslation: ['I opened'],
+        glosses: [{ w: 'חשבון', lemma: 'חשבון', en: 'an account' }, { w: 'בבנק', lemma: 'בנק', en: 'at the bank' }] },
+    ]))
+    const result = await invoke({ id: 'native-x', stage: 'past' })
+    expect(result.forms[0].glosses).toEqual([{ i: 1, lemma: 'חשבון', en: 'an account' }, { i: 2, lemma: 'בנק', en: 'at the bank' }])
+    expect(create.mock.calls[0][0].output_config.format.schema.properties.forms.items.required).toContain('glosses')
+  })
+  it('places each gloss on its own word: prefixes as written, a word met twice, out of order, not in the sentence', () => {
+    const sentence = 'ילד אחד אמר לילד אחר: "שלום!"'
+    expect(placeGlosses(sentence, [
+      { w: 'ילד', lemma: 'ילד', en: 'a boy' }, { w: 'אחד', lemma: 'אחד', en: 'one' }, { w: 'אמר', lemma: 'לומר', en: 'said' },
+      { w: 'לילד', lemma: 'ילד', en: 'to a boy' }, { w: 'שלום', lemma: 'שלום', en: 'hello' }, { w: 'אחר:', lemma: 'אחר', en: 'another' },
+      { w: 'כלב', lemma: 'כלב', en: 'dog' }, { w: 'ילד', lemma: 'ילד', en: '' },
+    ])).toEqual([
+      { i: 0, lemma: 'ילד', en: 'a boy' }, { i: 1, lemma: 'אחד', en: 'one' }, { i: 2, lemma: 'לומר', en: 'said' },
+      { i: 3, lemma: 'ילד', en: 'to a boy' }, { i: 4, lemma: 'אחר', en: 'another' }, { i: 5, lemma: 'שלום', en: 'hello' },
+    ])
+    // The same word twice: each gloss on its own occurrence, in order.
+    expect(placeGlosses('הוא אמר שהוא בא', [{ w: 'הוא', lemma: 'הוא', en: 'he' }, { w: 'שהוא', lemma: 'הוא', en: 'that he' }, { w: 'בא', lemma: 'לבוא', en: 'is coming' }]).map(g => g.i)).toEqual([0, 2, 3])
+    expect(placeGlosses('הוא ראה אותו ואז הוא שמח', [{ w: 'הוא', lemma: 'הוא', en: 'he (1)' }, { w: 'הוא', lemma: 'הוא', en: 'he (2)' }]).map(g => [g.i, g.en])).toEqual([[0, 'he (1)'], [4, 'he (2)']])
   })
   it('keeps the use each card shows, and tells the writer the uses already shown', async () => {
     findOne.mockResolvedValueOnce({ ...entry, forms: [{ stage: 'meanings', slot: 'sense1', en: 'to open', sentence: 'אני רוצה לפתוח חלון', usage: 'opening a window' }, { stage: 'meanings', slot: 'sense2', en: 'to start (a business)', sentence: 'הוא רוצה לפתוח מסעדה' }] }).mockResolvedValueOnce(null)

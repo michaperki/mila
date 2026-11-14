@@ -63,8 +63,13 @@ export type Entry = {
 export type Cue = { cue: string; after: string }
 export type WrittenForm = {
   key: string; stage: string; slot: string; he: string; en: string; sentence: string; mark: string; said?: string
-  translation: string; enMark: string; cue: string; cueAfter?: string; cues: Cue[]; usage?: string
+  translation: string; enMark: string; cue: string; cueAfter?: string; cues: Cue[]; usage?: string; glosses?: Gloss[]
 }
+// What a word of a card's sentence means there, for looking it up on the card without asking the
+// model: `i` is the word's place among the sentence's words (split at spaces, as the card draws
+// them), so a word that comes twice has a meaning for each place; `lemma` its dictionary form
+// without niqqud, for knowing whether it is saved. Cards written before glosses have none.
+export type Gloss = { i: number; lemma: string; en: string }
 
 export const kindOf = (partOfSpeech?: string) =>
   partOfSpeech === 'verb' || partOfSpeech === 'adjective' || partOfSpeech === 'noun' ? partOfSpeech : 'other'
@@ -85,7 +90,7 @@ export const schema = {
       type: 'array',
       items: {
         type: 'object', additionalProperties: false,
-        required: ['slot', 'form', 'english', 'usage', 'agreesWith', 'sentence', 'inSentence', 'said', 'translation', 'inTranslation', 'cues'],
+        required: ['slot', 'form', 'english', 'usage', 'agreesWith', 'sentence', 'inSentence', 'said', 'translation', 'inTranslation', 'cues', 'glosses'],
         properties: {
           slot: { type: 'string' },
           form: { type: 'string', description: 'The form, fully vocalized.' },
@@ -112,6 +117,17 @@ export const schema = {
               properties: {
                 cue: { type: 'string', enum: CUES.filter(Boolean) },
                 after: { type: 'string', description: 'The word of the translation naming that person, copied exactly from it ("secretary", "you", "I"), the first time they are mentioned; the cue is shown right after it.' },
+              },
+            },
+          },
+          glosses: {
+            type: 'array', description: 'Every word of the sentence except this form\'s own words (inSentence), in order, a word that comes twice glossed each time.',
+            items: {
+              type: 'object', additionalProperties: false, required: ['w', 'lemma', 'en'],
+              properties: {
+                w: { type: 'string', description: 'The word exactly as written in the sentence, with any attached prefix, without punctuation.' },
+                lemma: { type: 'string', description: 'Its dictionary form without niqqud, in full spelling (כתיב מלא): verbs as the infinitive, adjectives and nouns masculine singular, no attached prefixes.' },
+                en: { type: 'string', description: 'What it means in this sentence, in 1 to 4 English words, including what its attached prefixes add ("and in the house").' },
               },
             },
           },
@@ -143,6 +159,8 @@ Expressions: a sense that only exists together with particular other words (a ve
 Constructions: when you are told the constructions the word is used in (לְהַזְכִּיר לְמִישֶׁהוּ אֶת מַשֶּׁהוּ "to remind someone of something", לְהִרְהֵר בְּמַשֶּׁהוּ "to contemplate something"), write every sentence in the construction that fits its sense, wherever the word has a complement, so the learner sees the word as it is used; spread them across the cards. On meanings cards, a sense that comes with a construction of its own (להזכיר לְ "to remind" and להזכיר אֶת "to mention") is its own card in that construction, and constructions that share a sense make no extra cards.
 
 Patterns: when the word is learned as a pattern (נָטוּל + [שֵׁם עֶצֶם], "free of [noun]"), every card uses the pattern, with a different everyday word in its open place each time (נטול סוכר, נטולת דאגות, נטולי שומן), so the pattern is what is learned and not one example of it. "english" is the pattern's meaning with that card's word in its open place, marked for the form as usual ("free of sugar (f.)"), and inSentence and inTranslation list only the pattern's own words, not the word in its open place.
+
+Glosses: for each card, after its translation, gloss every other word of its sentence (glosses), so the learner can tap any word on the card for its meaning there.
 
 ${CUE_RULES}
 
@@ -195,7 +213,32 @@ export function promptFor(entry: Entry, stage: string, slots: Slot[], retry: { s
 
 export type Generated = {
   slot: string; form: string; english: string; usage?: string; agreesWith?: Agreement; sentence: string; inSentence: string[]; said: string; translation: string; inTranslation: string[]
-  cues?: { cue: string; after: string }[]; cue?: string; cueAfter?: string
+  cues?: { cue: string; after: string }[]; cue?: string; cueAfter?: string; glosses?: { w: string; lemma: string; en: string }[]
+}
+// A word as a card's tap finds it: without niqqud, maqaf or the punctuation around it (as
+// apps/mobile/src/lib/ocr-cleanup.ts bareWord trims it).
+const wordKey = (text: string) => text.replace(/[֑-ׇ־]/g, '')
+  .replace(/^[\s.,!?;:״"'׳()[\]{}«»\-–—]+|[\s.,!?;:״"'׳()[\]{}«»\-–—]+$/g, '')
+// Each gloss placed on the word of the sentence it is for: the next word, in order, written the
+// same, so a word that comes twice gets each of its glosses at its own place; one out of order
+// goes to the first such word still without one. A gloss for a word not in the sentence is
+// dropped, and a word left without one is looked up another way on the card.
+export function placeGlosses(sentence: string, glosses: { w: string; lemma: string; en: string }[]): Gloss[] {
+  const words = sentence.split(/\s+/).filter(Boolean).map(wordKey)
+  const placed: Gloss[] = []
+  const taken = new Set<number>()
+  let next = 0
+  for (const { w, lemma, en } of glosses) {
+    const key = wordKey(w ?? '')
+    if (!key || !en?.trim()) continue
+    const free = (i: number) => words[i] === key && !taken.has(i)
+    let at = words.findIndex((_, i) => i >= next && free(i))
+    if (at === -1) at = words.findIndex((_, i) => free(i))
+    if (at === -1) continue
+    taken.add(at); next = at + 1
+    placed.push({ i: at, lemma: (lemma ?? '').trim(), en: en.trim() })
+  }
+  return placed.sort((a, b) => a.i - b.i)
 }
 // The model's answer as cards. A cue whose word isn't in the translation is kept without it (it
 // is then shown first); one not in use is dropped; the same person isn't cued twice.
@@ -225,6 +268,7 @@ export function cardsOf(generated: Generated[], stage: string, slots: Slot[]) {
       // Kept even when empty: the card was written knowing whether its English says who.
       cue: cues[0]?.cue ?? '', ...(cues[0]?.after ? { cueAfter: cues[0].after } : {}), cues,
       ...(item.usage?.trim() ? { usage: item.usage.trim() } : {}),
+      ...(item.glosses?.length ? { glosses: placeGlosses(item.sentence, item.glosses) } : {}),
     })
   }
   return { forms, rejected }
