@@ -73,12 +73,15 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   const bySurface = useMemo(() => savedBySurface(vocab), [vocab])
 
   const lookedUp = useRef<{ id: string; at: number } | null>(null)
-  // The explanation of the word looked up arriving: its dictionary form and how it is used here,
-  // how long it took, and what asked for it (the tap, More or Save).
-  const logExplained = (found: WordAnalysis | undefined, why: 'tap' | 'more' | 'save') => {
-    if (!found || !lookedUp.current) return
+  const explainedFor = useRef(new Set<string>())
+  // The explanation of a word looked up arriving: its dictionary form and how it is used here,
+  // how long it took, and what asked for it (the tap, More or Save). Kept once per lookup, and
+  // even after the drawer has moved on (tap, Save, next word), since the save is made with it.
+  const logExplained = (looked: { id: string; at: number } | null, found: WordAnalysis | undefined, why: 'tap' | 'more' | 'save') => {
+    if (!found || !looked || explainedFor.current.has(looked.id)) return
+    explainedFor.current.add(looked.id)
     log?.('explained', {
-      of: lookedUp.current.id, why, ms: now() - lookedUp.current.at, lemma: found.lemmaPlain || found.lemma,
+      of: looked.id, why, ms: now() - looked.at, lemma: found.lemmaPlain || found.lemma,
       partOfSpeech: found.partOfSpeech, form: found.form, ...(found.phrase?.text ? { phrase: found.phrase.lemmaPlain || found.phrase.lemma || found.phrase.text } : {}),
     })
   }
@@ -93,7 +96,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       ...next.context, word: next.text, ...(next.phrase ? { phrase: true } : {}), saved,
       ...(next.card ? { place: next.card.at, ...(next.card.lemma ? { lemma: next.card.lemma } : {}), glossed: !!next.card.meaning } : {}),
     })
-    lookedUp.current = id ? { id, at: now() } : null
+    const looked = lookedUp.current = id ? { id, at: now() } : null
     if (known?.analysis) { setAnalysis(known.analysis); setGloss(known.analysis.meaning); setBusy(false); return }
     if (known) setGloss(known.meaning)
     // On a card: its own meaning for the word at once, or the sentence's quick meanings (asked
@@ -108,8 +111,9 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
     }
     try {
       const result = await explainWord(next.text, next.sentence, session?.token)
+      logExplained(looked, result.analysis, 'tap')
       if (version.current !== current) return
-      setAnalysis(result.analysis); setGloss(result.gloss); logExplained(result.analysis, 'tap')
+      setAnalysis(result.analysis); setGloss(result.gloss)
     } catch (failure) { if (version.current === current) setError((failure as Error).message) }
     finally { if (version.current === current) setBusy(false) }
   }
@@ -118,12 +122,13 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   const [asked, setAsked] = useState(false)
   const explain = async () => {
     if (!tap || analysis || busy) return
-    const current = version.current
+    const current = version.current, looked = lookedUp.current
     setAsked(true); setBusy(true); setError(null)
     try {
       const result = await explainWord(tap.text, tap.sentence, session?.token)
+      logExplained(looked, result.analysis, 'more')
       if (version.current !== current) return
-      if (result.analysis) { setAnalysis(result.analysis); setGloss(result.gloss); setDetails(true); logExplained(result.analysis, 'more') }
+      if (result.analysis) { setAnalysis(result.analysis); setGloss(result.gloss); setDetails(true) }
       else if (!gloss) setGloss(result.gloss)
     } catch (failure) { if (version.current === current) setError((failure as Error).message) }
     finally { if (version.current === current) setBusy(false) }
@@ -199,7 +204,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
     if (!session) { router.push('/login'); return }
     if (!tap || (asPhrase ? !phrase || phraseSaved : wordSaved || isPhrase)) return
     // What was selected when Save was pressed; the selection may change before the entry is written.
-    const tapped = tap, unit = phrase, dragged = isPhrase, quickNow = quickMeaning, current = version.current, of = lookedUp.current?.id
+    const tapped = tap, unit = phrase, dragged = isPhrase, quickNow = quickMeaning, current = version.current, looked = lookedUp.current, of = looked?.id
     const key = tapKey(asPhrase ? unit!.text : tapped.text, tapped.sentence)
     if (noWordsYet) setFirstSave(true)
     setSaving(saves => new Set(saves).add(key)); setError(null); feel('saved')
@@ -208,7 +213,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       const explained: { analysis?: WordAnalysis; gloss: string } = busy || (!analysis && !!tapped.card)
         ? await explainWord(tapped.text, tapped.sentence, session.token).catch(() => ({ gloss: '' })) : { analysis, gloss }
       const found = explained.analysis
-      if (found && found !== analysis && version.current === current) logExplained(found, 'save')
+      logExplained(looked, found, 'save')
       const meaning = explained.gloss || quickNow
       if (!meaning) throw new Error('Its meaning could not be looked up.')
       if (!asPhrase && !found) throw new Error('It could not be explained just now, so it wasn\'t saved. Try again.')
