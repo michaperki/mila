@@ -17,6 +17,7 @@ import { plainSpelling } from '../lib/spelling'
 import { stop as stopSpeaking } from '../lib/speech'
 import { noteActivity } from '../lib/tree'
 import { explainWord, quickMeanings } from '../lib/recognition'
+import type { LogEvent } from '../lib/study-log'
 import type { Built, Encounter, Phrase, Session, VocabEntry, WordAnalysis } from '../lib/types'
 import { constructionsOf, encountersOf, lemmaKey, patternLabel, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
@@ -33,6 +34,8 @@ import { useHebrew } from '../state/script'
 export type Lookup = {
   text: string; sentence: string; translation?: string; phrase?: boolean; source?: () => Encounter['sourceRef']
   card?: { meaning?: string; lemma?: string; words: string[]; at: number }
+  // Where the tap was, kept with its `lookup` event (the passage and sentence, or the card).
+  context?: Record<string, unknown>
 }
 
 // When a save is written (read in the save handler, never while drawing).
@@ -41,7 +44,9 @@ const without = (set: Set<string>, key: string) => { const next = new Set(set); 
 
 // `quick` is the sentence's quick meaning for the word, shown until the explanation arrives.
 // `onLostError` says what went wrong with a save once the drawer has moved on to another word.
-export function useWordLookup(session: Session | null, { quick = '', onLostError }: { quick?: string; onLostError: (message: string) => void }) {
+// `log` keeps each lookup, its explanation arriving and each save or undo as learning events
+// (lib/study-log.ts), each later one with the id of the lookup it follows.
+export function useWordLookup(session: Session | null, { quick = '', onLostError, log }: { quick?: string; onLostError: (message: string) => void; log?: LogEvent }) {
   const [tap, setTap] = useState<Lookup | null>(null)
   const version = useRef(0)
   const [analysis, setAnalysis] = useState<WordAnalysis | undefined>()
@@ -67,12 +72,28 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   const byLemma = useMemo(() => savedByLemma(vocab), [vocab])
   const bySurface = useMemo(() => savedBySurface(vocab), [vocab])
 
+  const lookedUp = useRef<{ id: string; at: number } | null>(null)
+  // The explanation of the word looked up arriving: its dictionary form and how it is used here,
+  // how long it took, and what asked for it (the tap, More or Save).
+  const logExplained = (found: WordAnalysis | undefined, why: 'tap' | 'more' | 'save') => {
+    if (!found || !lookedUp.current) return
+    log?.('explained', {
+      of: lookedUp.current.id, why, ms: now() - lookedUp.current.at, lemma: found.lemmaPlain || found.lemma,
+      partOfSpeech: found.partOfSpeech, form: found.form, ...(found.phrase?.text ? { phrase: found.phrase.lemmaPlain || found.phrase.lemma || found.phrase.text } : {}),
+    })
+  }
   const open = async (next: Lookup) => {
     const current = ++version.current
     setTap(next); setDetails(false); setAnalysis(undefined); setGloss(''); setError(null); setBusy(true); setAsked(false)
     // Saved from this sentence: show what it was saved with instead of asking the model again.
     // Words saved before explanations were kept show their saved meaning while it loads.
     const known = savedTaps.get(tapKey(next.text, next.sentence))?.encounter
+    const saved = !!known || !!(next.card?.lemma ? byLemma.get(lemmaKey(next.card.lemma)) : bySurface.get(lemmaKey(next.text)))
+    const id = log?.('lookup', {
+      ...next.context, word: next.text, ...(next.phrase ? { phrase: true } : {}), saved,
+      ...(next.card ? { place: next.card.at, ...(next.card.lemma ? { lemma: next.card.lemma } : {}), glossed: !!next.card.meaning } : {}),
+    })
+    lookedUp.current = id ? { id, at: now() } : null
     if (known?.analysis) { setAnalysis(known.analysis); setGloss(known.analysis.meaning); setBusy(false); return }
     if (known) setGloss(known.meaning)
     // On a card: its own meaning for the word at once, or the sentence's quick meanings (asked
@@ -88,7 +109,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
     try {
       const result = await explainWord(next.text, next.sentence, session?.token)
       if (version.current !== current) return
-      setAnalysis(result.analysis); setGloss(result.gloss)
+      setAnalysis(result.analysis); setGloss(result.gloss); logExplained(result.analysis, 'tap')
     } catch (failure) { if (version.current === current) setError((failure as Error).message) }
     finally { if (version.current === current) setBusy(false) }
   }
@@ -102,7 +123,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
     try {
       const result = await explainWord(tap.text, tap.sentence, session?.token)
       if (version.current !== current) return
-      if (result.analysis) { setAnalysis(result.analysis); setGloss(result.gloss); setDetails(true) }
+      if (result.analysis) { setAnalysis(result.analysis); setGloss(result.gloss); setDetails(true); logExplained(result.analysis, 'more') }
       else if (!gloss) setGloss(result.gloss)
     } catch (failure) { if (version.current === current) setError((failure as Error).message) }
     finally { if (version.current === current) setBusy(false) }
@@ -153,6 +174,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
     const key = tapKey(asPhrase ? phrase!.text : tap.text, sentence)
     if (unsaving.has(key)) return
     feel('tick'); setUnsaving(current => new Set(current).add(key))
+    log?.('unsave', { of: lookedUp.current?.id, ...(asPhrase ? { phrase: true } : {}) })
     if (saving.has(key)) { undoAfterSave.current.add(key); return }
     void removeSave(savedTaps.get(key)?.id ?? (asPhrase ? phraseId : vocabId(lemma)), sentence, key)
   }
@@ -177,7 +199,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
     if (!session) { router.push('/login'); return }
     if (!tap || (asPhrase ? !phrase || phraseSaved : wordSaved || isPhrase)) return
     // What was selected when Save was pressed; the selection may change before the entry is written.
-    const tapped = tap, unit = phrase, dragged = isPhrase, quickNow = quickMeaning, current = version.current
+    const tapped = tap, unit = phrase, dragged = isPhrase, quickNow = quickMeaning, current = version.current, of = lookedUp.current?.id
     const key = tapKey(asPhrase ? unit!.text : tapped.text, tapped.sentence)
     if (noWordsYet) setFirstSave(true)
     setSaving(saves => new Set(saves).add(key)); setError(null); feel('saved')
@@ -186,6 +208,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       const explained: { analysis?: WordAnalysis; gloss: string } = busy || (!analysis && !!tapped.card)
         ? await explainWord(tapped.text, tapped.sentence, session.token).catch(() => ({ gloss: '' })) : { analysis, gloss }
       const found = explained.analysis
+      if (found && found !== analysis && version.current === current) logExplained(found, 'save')
       const meaning = explained.gloss || quickNow
       if (!meaning) throw new Error('Its meaning could not be looked up.')
       if (!asPhrase && !found) throw new Error('It could not be explained just now, so it wasn\'t saved. Try again.')
@@ -224,6 +247,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       // Undone while it was on its way: take it back out now that it has landed.
       if (undoAfterSave.current.delete(key)) { await removeSave(savedId, tapped.sentence, key); return }
       noteActivity('saved')
+      log?.('save', { of, id: savedId, ...(asPhrase ? { phrase: true } : {}) })
       // The saved words as the server now has them: this entry, with this sentence's encounter
       // in place of any earlier one from the same sentence.
       const { encounter: _added, createdAt: _created, ...rest } = entry

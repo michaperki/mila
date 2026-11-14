@@ -4,12 +4,13 @@ import { verifyAuth } from './lib/auth'
 import { getDb } from './lib/mongo'
 
 // Study events from the mobile app (apps/mobile/src/lib/study-log.ts): a session starting, every
-// card shown, turned over and answered, and a round ending, each with its session, its place in
+// card shown, turned over and answered, and a round ending, and in reading and Study alike each
+// sentence selected, word looked up and explained, and save made or undone, each with its session, its place in
 // it and what of its word had been shown before. They are kept as sent, per account, to look back
 // at what Study chose and what was remembered (scripts/study-events.mjs), and deleted with the
 // account. Each event's id is unique per account, so a batch sent again is kept once.
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
-const TYPES = new Set(['start', 'show', 'reveal', 'answer', 'end'])
+const TYPES = new Set(['start', 'show', 'reveal', 'answer', 'end', 'read', 'select', 'lookup', 'explained', 'save', 'unsave'])
 const MAX_EVENTS = 200
 let indexReady: Promise<unknown> | null = null
 

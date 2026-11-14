@@ -20,6 +20,7 @@ import { paragraphsOf, runsOf } from '../lib/page'
 import { type EnglishMode, getPref, rememberRead, setPref, TEXT_SIZES } from '../lib/prefs'
 import { noteActivity } from '../lib/tree'
 import { quickMeanings } from '../lib/recognition'
+import { type LogEvent, sendStudyLog, studySession } from '../lib/study-log'
 import { useSession } from '../state/session'
 import { useVowels } from '../state/vowels'
 import { isVowelled, pageWithVowels, withVowels } from '../lib/vowels'
@@ -74,6 +75,12 @@ export default function Reader() {
   // The Vowels button only appears for a page that is actually vowelled.
   const vowelled = useMemo(() => isVowelled(recognition?.text || ''), [recognition?.text])
   const docId = useRef(recognition?.id ?? Crypto.randomUUID())
+  // Sent when the reader opens (whatever is waiting) and when it is left.
+  useEffect(() => {
+    if (!session) return
+    void sendStudyLog(session.user.id, session.token)
+    return () => { void sendStudyLog(session.user.id, session.token) }
+  }, [session])
   // Each sentence read for the first time here feeds the tree (lib/tree.ts).
   const readSentences = useRef(new Set<number>())
   useEffect(() => {
@@ -94,6 +101,17 @@ export default function Reader() {
   }
   const sized = useMemo(() => ({ word: { fontSize: 21 * size, lineHeight: 32 * size }, english: { fontSize: 15 * size, lineHeight: 21 * size } }), [size])
   const segments = useMemo(() => (recognition ? segmentsOf(recognition) : []), [recognition])
+  // Reading kept as learning events (lib/study-log.ts): the passage, once something in it is
+  // selected, then each sentence selected (with whether its English showed) and word looked up.
+  const reading = useRef<ReturnType<typeof studySession> | null>(null)
+  const logRead: LogEvent = (type, fields) => {
+    if (!session) return ''
+    if (!reading.current) {
+      reading.current = studySession(session.user.id)
+      reading.current.log('read', { text: docId.current, ...(recognition?.source ? { source: recognition.source } : {}) })
+    }
+    return reading.current.log(type, fields)
+  }
   // A page read keeps the page's paragraphs: dividers go between paragraphs, not sentences.
   const paged = recognition?.source === 'page'
   const words = useMemo(() => segments.flatMap((segment, index) => readingWords(segment.he).map(word => ({ ...word, segment: index }))), [segments])
@@ -110,7 +128,7 @@ export default function Reader() {
   // The tapped word or dragged phrase, with its explanation and saving (components/WordDrawer.tsx);
   // a word's quick meaning from its sentence's shows until the explanation arrives.
   const tapped = selected === null ? undefined : words[selected]
-  const lookup = useWordLookup(session, { quick: tapped ? quick[tapped.segment]?.[selected! - indexOfFirstWord[tapped.segment]] || '' : '', onLostError: setError })
+  const lookup = useWordLookup(session, { quick: tapped ? quick[tapped.segment]?.[selected! - indexOfFirstWord[tapped.segment]] || '' : '', onLostError: setError, log: logRead })
   const { invalidate } = lookup
   useFocusEffect(useCallback(() => () => invalidate(), [invalidate]))
   // The sentence after this one that has words, where Next goes.
@@ -223,6 +241,7 @@ export default function Reader() {
   // A sentence becomes the active one, its English placed at once from the words' boxes (they
   // don't move when it is), so it never shows for a moment in the wrong place.
   const activate = (segment: number | null) => {
+    if (segment !== null && segment !== active) logRead('select', { text: docId.current, segment, english })
     setActive(segment); setBreakAt(segment === null ? null : breakFor(segment))
     if (segment !== null && hint) { setHint(false); setPref('readerHint', false) }
   }
@@ -238,6 +257,7 @@ export default function Reader() {
     void lookup.open({
       text: words.slice(index, to + 1).map(item => item.bare).join(' '), sentence: segment.he, translation: segment.en, phrase: to > index,
       source: () => (savedNow.current ? { textId: docId.current, chunkId: `${docId.current}-${first.segment}` } : undefined),
+      context: { text: docId.current, segment: first.segment, place: index - indexOfFirstWord[first.segment] },
     })
   }
   const close = () => { lookup.close(); setSelected(null) }

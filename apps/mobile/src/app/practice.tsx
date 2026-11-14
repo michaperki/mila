@@ -126,7 +126,7 @@ export default function Practice() {
   }
   // A word of a card's sentence looked up on its answer side, in the reader's drawer over the
   // card: saving it keeps it for later study and leaves this round as it is.
-  const lookup = useWordLookup(session, { onLostError: setError })
+  const lookup = useWordLookup(session, { onLostError: setError, log: (type, fields) => study.current?.log(type, fields) ?? '' })
 
   useEffect(() => {
     if (!session) return
@@ -344,7 +344,7 @@ export default function Practice() {
     const primed = primedAt.current[position] ?? isPrimed({ sequence: card.sequence, cardsAgo: shown?.wordCardsAgo, msAgo: shown?.wordMsAgo, lastAnswered: lastStudied(entry) }, now)
     primedAt.current[position] = primed
     study.current?.log('answer', {
-      ...cardFields(card, entry, position, roundStart), knew, primed, revised: answered !== undefined, quiz: !!choices,
+      ...cardFields(card, entry, position, roundStart), knew, primed, revised: answered !== undefined, quiz: !!choices, front: englishFirst ? 'en' : 'he',
       ms: shown ? now - shown.at : null, turnedOver: revealed.current.has(position),
     })
     const result = assess(start, knew, now, primed)
@@ -601,7 +601,7 @@ function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, l
     feel('select')
     const gloss = own ? { en: form.en, lemma: entry.lemmaPlain || entry.lemma } : form.glosses?.find(item => item.i === at)
     const words = form.sentence.split(/\s+/).filter(Boolean).map(bareWord)
-    void lookup.open({ text: word, sentence: form.sentence, translation: form.translation, card: { meaning: gloss?.en, lemma: gloss?.lemma || undefined, words, at } })
+    void lookup.open({ text: word, sentence: form.sentence, translation: form.translation, card: { meaning: gloss?.en, lemma: gloss?.lemma || undefined, words, at }, context: { key: `${entry.id}:${form.key}`, own } })
   })
   const looked = lookup?.tap?.sentence === form.sentence ? lookup.tap.card?.at : undefined
   const hebrew = <Text style={[practice.sentence, he]}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} onWord={onWord} looked={looked} /></Text>

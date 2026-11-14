@@ -4,12 +4,17 @@ import { request } from './api'
 
 // What happens in Study, kept as events: a session starting, every card shown, turned over and
 // answered (with which side came first, whether the answer was primed, and what of the word had
-// been shown before), and a round ending. They are for looking back at what Study chose, how
+// been shown before), and a round ending. Reading is kept the same way: a passage opened, each
+// sentence selected (and whether its English showed), and in both, each word looked up (where,
+// and whether it was saved already), its explanation arriving, and saves made or undone. They
+// are observations, not conclusions: a word looked up on a card that was then missed may or may
+// not be why it was missed. They are for looking back at what Study chose, how
 // often things came round and what was remembered (apps/web/scripts/study-events.mjs), and are
 // sent to apps/web/netlify/functions/study-events.ts. Until the server has them they wait in a
 // file on the phone, so a lost connection or a closed app loses nothing; each has its own id, so
 // one sent twice is kept once. Each is kept with whose it is, and only sent as that account.
-export type StudyEventType = 'start' | 'show' | 'reveal' | 'answer' | 'end'
+export type StudyEventType = 'start' | 'show' | 'reveal' | 'answer' | 'end' | 'read' | 'select' | 'lookup' | 'explained' | 'save' | 'unsave'
+export type LogEvent = (type: StudyEventType, fields?: Record<string, unknown>) => string
 export type StudyEvent = { id: string; session: string; seq: number; at: number; type: StudyEventType; owner: string } & Record<string, unknown>
 
 const file = new File(Paths.document, 'study-events.json')
@@ -27,18 +32,21 @@ const keep = () => {
   try { file.write(JSON.stringify(queue)) } catch { /* kept for this visit only */ }
 }
 
-// One study session's log: events are numbered in order, and `id` ties them together.
+// One study or reading session's log: events are numbered in order, and `id` ties them together.
+// `log` returns the event's id, so a later event can say which one it follows from.
 export function studySession(owner: string) {
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
   let seq = 0
   return {
     id,
-    log(type: StudyEventType, fields: Record<string, unknown> = {}) {
+    log: ((type, fields = {}) => {
       const events = pending()
-      events.push({ ...fields, id: `${id}:${seq}`, session: id, seq: seq++, at: Date.now(), type, owner })
+      const event = `${id}:${seq}`
+      events.push({ ...fields, id: event, session: id, seq: seq++, at: Date.now(), type, owner })
       if (events.length > LIMIT) events.splice(0, events.length - LIMIT)
       keep()
-    },
+      return event
+    }) as LogEvent,
   }
 }
 

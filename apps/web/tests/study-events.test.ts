@@ -17,6 +17,11 @@ describe('study events', () => {
     expect(docs).toEqual([expect.objectContaining({ id: 's:0', userId: 'user', key: 'w:word' }), expect.objectContaining({ id: 's:1', knew: true, primed: false, userId: 'user' })])
     expect(options).toEqual({ ordered: false })
   })
+  it('keeps reading and lookup events too', async () => {
+    const reading = ['read', 'select', 'lookup', 'explained', 'save', 'unsave'].map((type, seq) => event(seq, { type }))
+    expect((await post({ events: reading })).statusCode).toBe(200)
+    expect(insertMany.mock.calls[0][0]).toHaveLength(6)
+  })
   it('keeps a batch sent again once: duplicates are not a failure', async () => {
     insertMany.mockRejectedValueOnce(Object.assign(new Error('dup'), { code: 11000, writeErrors: [{ code: 11000 }] }))
     expect((await post({ events: [event(0)] })).statusCode).toBe(200)
