@@ -97,3 +97,21 @@ describe('learner model', () => {
     expect(guessing.words).toBeLessThan(found.words)
   })
 })
+
+describe('reading exposure', () => {
+  const owl: LearnerEntry = { id: 'native-owl', lemma: 'יַנְשׁוּף', lemmaPlain: 'ינשוף', encounters: [{ surface: 'הינשופים', at: now, sourceRef: { textId: 't1', chunkId: 't1-1' } }] }
+  const heart: LearnerEntry = { id: 'native-heart', lemma: 'לֵב', lemmaPlain: 'לב' }
+  const chunks = [{ text: 'ינשוף עף.' }, { text: 'הינשופים ובינשוף כלב.' }, { text: 'עוד ינשוף.' }]
+  it('counts a saved word in its forms, with prefixes, once per passage saved twice', async () => {
+    const { readingExposure } = await import('../netlify/functions/lib/exposure')
+    const found = readingExposure([{ textId: 't1', chunks }, { textId: 't2', chunks }], [owl, heart])
+    expect(found.duplicates).toBe(1)
+    const seen = found.words.get('ינשוף')!
+    // ינשוף, הינשופים, ב+ינשוף, ינשוף; כלב is a word of its own, not כ + לב.
+    expect(seen.total).toBe(4)
+    expect(found.words.get('לב')).toBeUndefined()
+    // No progress kept: read as far as the sentence the word was saved from.
+    expect(seen.read).toBe(3)
+    expect(found.withoutProgress).toBe(1)
+  })
+})

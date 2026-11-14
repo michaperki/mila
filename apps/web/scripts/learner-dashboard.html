@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Learner Dashboard</title>
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e4e1da; --soft: #f2efe8;
+  --known: #2f7d4f; --acquiring: #b7791f; --met: #5a6b8c; --unfamiliar: #a33b3b; --assumed: #b9b5ab; --accent: #2b5fa6;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --muted: #a09e97; --line: #34332f; --soft: #2a2926;
+    --known: #5fbf86; --acquiring: #e0a84a; --met: #8fa3cc; --unfamiliar: #e07a7a; --assumed: #5d5a53; --accent: #7aa7e6; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { padding: 20px 24px 8px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 24px 0 8px; }
+h3 { font-size: 14px; margin: 16px 0 6px; }
+.sub { color: var(--muted); }
+nav { display: flex; gap: 4px; flex-wrap: wrap; padding: 8px 24px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 2; }
+nav button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 6px 12px; border-radius: 999px; cursor: pointer; font: inherit; }
+nav button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+main { padding: 8px 24px 48px; max-width: 1200px; }
+section { display: none; } section.on { display: block; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.card .n { font-size: 22px; font-weight: 600; }
+.note { background: var(--soft); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+.warn { border-left: 3px solid var(--acquiring); }
+.bad { border-left: 3px solid var(--unfamiliar); }
+.ok { border-left: 3px solid var(--known); }
+table { border-collapse: collapse; width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: 12px; cursor: pointer; user-select: none; white-space: nowrap; }
+tr.click { cursor: pointer; } tr.click:hover td { background: var(--soft); }
+.he { font-family: "Noto Sans Hebrew", "Arial Hebrew", system-ui, sans-serif; direction: rtl; unicode-bidi: isolate; font-size: 15px; }
+.tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid currentColor; }
+.b-known { color: var(--known); } .b-acquiring { color: var(--acquiring); } .b-met { color: var(--met); } .b-unfamiliar { color: var(--unfamiliar); }
+.est { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.bar { position: relative; width: 90px; height: 10px; background: var(--soft); border-radius: 5px; }
+.bar .range { position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .3; border-radius: 5px; }
+.bar .dot { position: absolute; top: -2px; width: 4px; height: 14px; margin-left: -2px; background: var(--accent); border-radius: 2px; }
+.bar.assumed .range { background: var(--assumed); opacity: .5; } .bar.assumed .dot { background: var(--assumed); }
+.mix { display: inline-block; width: 60px; height: 8px; border-radius: 4px; background: var(--assumed); overflow: hidden; vertical-align: middle; }
+.mix span { display: block; height: 100%; background: var(--ink); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+input, select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+.muted { color: var(--muted); } .small { font-size: 12px; }
+.layers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 900px) { .layers { grid-template-columns: 1fr; } main, header, nav { padding-left: 16px; padding-right: 16px; } }
+.layer h3 { margin-top: 0; }
+.layer .kind { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+#detail { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; z-index: 5; overflow: auto; padding: 24px; }
+#detail.on { display: block; }
+#detail .sheet { background: var(--bg); max-width: 1100px; margin: 0 auto; border-radius: 12px; padding: 18px 20px; }
+.close { float: right; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+ul.ev { list-style: none; padding: 0; margin: 0; } ul.ev li { padding: 5px 0; border-bottom: 1px dashed var(--line); }
+.plus { color: var(--known); } .minus { color: var(--unfamiliar); } .zero { color: var(--muted); }
+svg text { fill: var(--muted); font-size: 11px; }
+.legend span { margin-right: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Learner dashboard</h1>
+  <div class="sub" id="headline"></div>
+</header>
+<nav id="tabs"></nav>
+<main>
+  <section id="overview"></section>
+  <section id="data"></section>
+  <section id="words"></section>
+  <section id="grammar"></section>
+  <section id="relevance"></section>
+  <section id="level"></section>
+  <section id="assumptions"></section>
+</main>
+<div id="detail"><div class="sheet" id="sheet"></div></div>
+<script id="data-json" type="application/json">__DATA__</script>
+<script>
+const D = JSON.parse(document.getElementById('data-json').textContent)
+const $ = (id) => document.getElementById(id)
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const he = (s) => `<span class="he">${esc(s)}</span>`
+const day = (t) => t && isFinite(t) ? new Date(t).toISOString().slice(0, 10) : '—'
+const when = (t) => t && isFinite(t) ? new Date(t).toISOString().slice(0, 16).replace('T', ' ') : '—'
+const pct = (p) => `${Math.round(p * 100)}%`
+const PRIOR = D.weights.prior
+// How much of an estimate is assumption: the prior's weight against the evidence's.
+const assumed = (e) => PRIOR / (PRIOR + e.evidence)
+const est = (e) => {
+  const a = assumed(e)
+  return `<span class="est" title="80% range ${pct(e.low)}–${pct(e.high)}; evidence ${e.evidence} answers' worth; ${Math.round(a * 100)}% of this is the starting assumption">
+    <span class="bar ${a > 0.67 ? 'assumed' : ''}"><span class="range" style="left:${e.low * 100}%;width:${(e.high - e.low) * 100}%"></span><span class="dot" style="left:${e.p * 100}%"></span></span>
+    ${pct(e.p)} <span class="muted small">${pct(e.low)}–${pct(e.high)}</span></span>`
+}
+const mix = (e) => `<span class="mix" title="${Math.round((1 - assumed(e)) * 100)}% evidence, ${Math.round(assumed(e) * 100)}% assumption"><span style="width:${(1 - assumed(e)) * 100}%"></span></span>`
+const band = (b) => `<span class="tag b-${b}">${b}</span>`
+const directAnswers = (w) => w.observed.filter(o => o.type === 'answer').length
+const words = D.words
+
+const TABS = [['overview', 'Overview'], ['data', 'Data collected'], ['words', 'Words'], ['grammar', 'Grammar'], ['relevance', 'Knowledge × relevance'], ['level', 'Vocabulary check'], ['assumptions', 'Assumptions']]
+$('tabs').innerHTML = TABS.map(([id, label]) => `<button data-tab="${id}">${label}</button>`).join('')
+const show = (id) => {
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === id))
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === id))
+  try { localStorage.setItem('tab', id) } catch {}
+}
+$('tabs').onclick = (e) => { if (e.target.dataset.tab) show(e.target.dataset.tab) }
+
+const counts = (key) => words.reduce((m, w) => (m[w[key]] = (m[w[key]] || 0) + 1, m), {})
+const bands = counts('band')
+const C = D.dataset.checks
+const withEvidence = words.filter(w => w.recognition.evidence >= 1).length
+$('headline').innerHTML = `Model ${esc(D.version)} · generated ${when(D.generated)} UTC · ${words.length} words · ${Object.values(D.dataset.types).reduce((s, t) => s + t.count, 0)} events · ${D.textsCount} passages`
+
+// Overview
+$('overview').innerHTML = `
+  <div class="note warn">Every estimate here mixes <b>evidence</b> (what you did) with a <b>starting assumption</b> (how common the word is, given a level). Grey bars mean the estimate is still mostly assumption. Only ${withEvidence} of ${words.length} words have at least one answer's worth of evidence for reading.</div>
+  <div class="cards">
+    <div class="card"><div class="muted">Words by band</div>${['known', 'acquiring', 'met', 'unfamiliar'].map(b => `<div>${band(b)} ${bands[b] || 0}</div>`).join('')}</div>
+    <div class="card"><div class="muted">Card answers overall</div><div class="n">${pct(D.overall.p)}</div><div class="small muted">recalled, 80% range ${pct(D.overall.low)}–${pct(D.overall.high)}, from ${D.overall.evidence} answers' worth (older counts less)</div></div>
+    <div class="card"><div class="muted">Level the model starts from</div><div class="n">~${D.level.words}</div><div class="small muted">range ${D.level.low}–${D.level.high}; ${esc(D.level.basis)}. A starting point for words with no evidence, not a measure of ability (see Vocabulary check).</div></div>
+    <div class="card"><div class="muted">Recorded so far</div><div class="small">${C.answers} answers (since ${day(D.dataset.types.answer?.first)}) · ${C.lookups} lookups · ${C.saves} saves in events · ${C.keptResults} older card results (no dates) · ${C.encounters} saved encounters</div></div>
+  </div>
+  <h2>Where the evidence is</h2>
+  <table><tr><th>Words with…</th><th>Count</th></tr>
+    ${[['recorded answers (with dates)', words.filter(w => directAnswers(w) > 0).length], ['any answers (incl. older results)', words.filter(w => w.answers > 0).length],
+       ['lookups recorded as events', words.filter(w => w.observed.some(o => o.type === 'lookup')).length], ['3+ answers', words.filter(w => w.answers >= 3).length],
+       ['met in your reading (counted)', words.filter(w => w.exposure).length], ['nothing but the starting assumption', words.filter(w => !w.evidence.some(e => e.weight > 0)).length]]
+      .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>
+  <h2>Weakest grammar so far</h2>
+  ${grammarTable(D.grammar.slice(0, 5))}`
+
+// Data collected
+const T = D.dataset.types
+const sideNote = C.answersWithSide
+  ? `<div class="note ok">Answers record which side came first since ${when(C.firstAnswerWithSide)} (${C.answersWithSide} of ${C.answers}).</div>`
+  : `<div class="note bad">No answer yet records which side came first: the app on the phone hasn't run the update with the new events (last answer without it: ${when(C.lastAnswerWithoutSide)}). Fully close and reopen Mila (an update applies on the launch after it downloads).</div>`
+const lookNote = C.lookups
+  ? `<div class="note ok">${C.lookups} lookups recorded (${C.readerLookups} in the reader, ${C.cardLookups} on cards); ${C.explainedLinked} of ${C.explained} explanations linked to their lookup; ${C.selects} sentence selections in ${C.reads} reading sessions.</div>`
+  : `<div class="note bad">No reading or lookup events have arrived yet.</div>`
+$('data').innerHTML = `
+  <h2>Checks on the newest events</h2>${sideNote}${lookNote}
+  <h2>Event types</h2>
+  <table><tr><th>Type</th><th>What it records</th><th>Count</th><th>Days</th><th>First</th><th>Last</th></tr>
+  ${Object.entries({ start: 'a Study session starting, with its settings', show: 'a card shown: why it was chosen, side, past results, when the word/card was last seen', reveal: 'a card turned over, with time taken', answer: 'knew / still learning, primed, choices, side (new), time', end: 'a round finished', read: 'a passage opened and something selected (new)', select: 'a sentence selected, with the English setting (new)', lookup: 'a word tapped: where, already saved, card glosses (new)', explained: 'the explanation arriving: lemma, part of speech, form, latency (new)', save: 'a word saved, linked to its lookup (new)', unsave: 'a save undone (new)' })
+    .map(([t, what]) => `<tr><td>${t}</td><td class="small">${what}</td><td>${T[t]?.count ?? 0}</td><td>${T[t]?.days ?? 0}</td><td>${day(T[t]?.first)}</td><td>${day(T[t]?.last)}</td></tr>`).join('')}</table>
+  <h2>Kept outside events</h2>
+  <table><tr><th>Source</th><th>Amount</th><th>Limits</th></tr>
+    <tr><td>Saved words</td><td>${C.savedWords}</td><td class="small">dictionary form, part of speech, root, binyan, gloss</td></tr>
+    <tr><td>Encounters (where saved from)</td><td>${C.encounters}</td><td class="small">dated; before reading events these are the only lookups kept, and only for saved words</td></tr>
+    <tr><td>Card results</td><td>${C.keptResults}</td><td class="small">last 3 per card, only the latest dated, no side: from before ${day(T.answer?.first)} they can't be replayed in time</td></tr>
+    <tr><td>Passages</td><td>${C.texts} (${C.tokens} words, ${C.readTokens} read)</td><td class="small">full text and how far read; no time spent per sentence. ${C.duplicates} saved more than once (counted once); ${C.withoutProgress} from before progress was kept, taken as read to the last sentence a word was saved from.</td></tr></table>
+  <h2>By day</h2>
+  <table><tr><th>Day</th>${Object.keys(T).map(t => `<th>${t}</th>`).join('')}</tr>
+  ${Object.entries(D.dataset.perDay).sort().reverse().map(([d, by]) => `<tr><td>${d}</td>${Object.keys(T).map(t => `<td>${by[t] ?? ''}</td>`).join('')}</tr>`).join('')}</table>
+  <h2>Is it enough to learn from?</h2>
+  <table><tr><th>Use</th><th>Rough need</th><th>Have</th><th>Verdict</th></tr>
+    <tr><td>Check calibration of word estimates</td><td>a few hundred dated answers</td><td>${C.answers}</td><td>${C.answers >= 300 ? 'enough to start' : 'not yet: early look only'}</td></tr>
+    <tr><td>Fit memory-model (FSRS) parameters to you</td><td>~1,000 reviews</td><td>${C.answers}</td><td>use published defaults</td></tr>
+    <tr><td>Separate recognition from production</td><td>answers with side, both sides, per word</td><td>${C.answersWithSide}</td><td>${C.answersWithSide >= 100 ? 'starting' : 'not yet'}</td></tr>
+    <tr><td>Grammar slot strengths</td><td>~5+ answers per slot, across words</td><td>${D.grammar.filter(g => g.answers >= 5).length} slots qualify</td><td>${D.grammar.some(g => g.answers >= 5) ? 'partial' : 'not yet'}</td></tr>
+    <tr><td>Reading-based evidence (lookups vs. words read)</td><td>lookups linked to lemmas + reading coverage</td><td>${C.lookups} lookups</td><td>${C.lookups ? 'starting' : 'waiting for events'}</td></tr></table>
+  <h2>Missing signals</h2>
+  <ul class="small">
+    <li>Words read without a lookup aren't linked to lemmas (exposure here matches only forms already seen for saved words).</li>
+    <li>No skips as such: a card shown and never answered is the only trace.</li>
+    <li>No time spent reading a sentence; no listening or production beyond self-graded cards.</li>
+    <li>Answers are self-graded (knew / still learning): no check of what was actually recalled.</li>
+    <li>No later test of transfer: whether a studied word is understood in a new sentence while reading.</li>
+  </ul>`
+
+// Words
+let sortKey = 'lastAt', sortDir = -1
+const COLS = [['lemma', 'Word'], ['band', 'Band'], ['rec', 'Read (recognition)'], ['pro', 'Say (production)'], ['mix', 'Evidence vs assumption'], ['answers', 'Answers'], ['rank', 'Rank (Hebrew)'], ['seen', 'In your reading'], ['lastAt', 'Last evidence']]
+const value = (w, k) => ({ rec: w.recognition.p, pro: w.production.p, mix: -assumed(w.recognition), seen: w.exposure?.read ?? 0, rank: w.rank ?? 1e9 }[k] ?? w[k])
+$('words').innerHTML = `
+  <div class="controls">
+    <input id="q" placeholder="Search Hebrew or English">
+    <select id="fb"><option value="">All bands</option><option>known</option><option>acquiring</option><option>met</option><option>unfamiliar</option></select>
+    <label><input type="checkbox" id="fe"> only words with evidence</label>
+    <span class="muted small" id="wc"></span>
+  </div>
+  <table id="wt"></table>`
+const renderWords = () => {
+  const q = $('q').value.trim().toLowerCase(), fb = $('fb').value, fe = $('fe').checked
+  const list = words.filter(w => (!fb || w.band === fb) && (!fe || w.recognition.evidence >= 0.5) && (!q || (w.lemma + ' ' + w.key + ' ' + (w.gloss || '')).toLowerCase().includes(q)))
+    .sort((a, b) => { const x = value(a, sortKey), y = value(b, sortKey); return (x > y ? 1 : x < y ? -1 : 0) * sortDir })
+  $('wc').textContent = `${list.length} words`
+  $('wt').innerHTML = `<tr>${COLS.map(([k, l]) => `<th data-k="${k}">${l}${sortKey === k ? (sortDir > 0 ? ' ↑' : ' ↓') : ''}</th>`).join('')}</tr>` +
+    list.slice(0, 400).map(w => `<tr class="click" data-key="${esc(w.key)}">
+      <td>${he(w.lemma)}<div class="small muted">${esc((w.gloss || '').slice(0, 60))}</div></td><td>${band(w.band)}</td>
+      <td>${est(w.recognition)}</td><td>${est(w.production)}</td><td>${mix(w.recognition)}</td>
+      <td>${w.answers}${directAnswers(w) ? ` <span class="muted small">(${directAnswers(w)} dated)</span>` : ''}</td>
+      <td>${w.rank ?? '<span class="muted">not listed</span>'}</td><td>${w.exposure ? `${w.exposure.read}<span class="muted small"> / ${w.exposure.total}</span>` : '<span class="muted">—</span>'}</td><td>${day(w.lastAt)}</td></tr>`).join('')
+}
+$('wt').onclick = (e) => {
+  const th = e.target.closest('th'); if (th) { const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : (k === 'lemma' || k === 'rank' ? 1 : -1); sortKey = k; renderWords(); return }
+  const tr = e.target.closest('tr.click'); if (tr) openWord(tr.dataset.key)
+}
+;['q', 'fb', 'fe'].forEach(id => $(id).addEventListener('input', renderWords))
+renderWords()
+
+// One word, in three layers.
+function openWord(key) {
+  const w = words.find(x => x.key === key); if (!w) return
+  const obs = [
+    ...w.observed.map(o => ({ at: o.at, text: describe(o) })),
+    ...(w.encounters || []).map(m => ({ at: m.at, text: `saved from a page: ${he(m.surface)} — ${he(m.context)}` })),
+  ].sort((a, b) => b.at - a.at)
+  const cards = (w.cards || []).filter(c => c.results?.length)
+  $('sheet').innerHTML = `<button class="close" onclick="closeWord()">Close</button>
+    <h2 style="margin-top:0">${he(w.lemma)} ${band(w.band)}</h2><div class="muted">${esc(w.gloss || '')}</div>
+    <div class="layers" style="margin-top:14px">
+      <div class="card layer"><div class="kind">1 · Observed</div><h3>What you did</h3>
+        ${obs.length ? `<ul class="ev">${obs.map(o => `<li><span class="muted small">${when(o.at)}</span><br>${o.text}</li>`).join('')}</ul>` : '<div class="muted">No dated observations.</div>'}
+        ${cards.length ? `<h3>Card results kept</h3><ul class="ev">${cards.map(c => `<li>${esc(c.stage)} ${esc(c.slot)} ${c.he ? he(c.he) : ''}: ${c.results.map((r, i) => (r ? '✓' : '✗') + (c.primed?.[i] ? 'ᵖ' : '')).join(' ')} <span class="muted small">last ${day(c.last)}</span></li>`).join('')}</ul><div class="small muted">ᵖ primed. Only the last 3 per card are kept, and only the latest is dated.</div>` : ''}
+      </div>
+      <div class="card layer"><div class="kind">2 · Derived</div><h3>Features</h3>
+        <table>
+          <tr><td>Part of speech</td><td>${esc(w.partOfSpeech || '—')}${w.binyan ? ` · ${esc(w.binyan)}` : ''}${w.root ? ` · root ${he(w.root)}` : ''}</td></tr>
+          <tr><td>Rank in spoken Hebrew</td><td>${w.rank ? `${w.rank} <span class="muted small">(as ${he(w.rankForm)})</span>` : '<span class="muted">not on the list</span>'}</td></tr>
+          <tr><td>In your reading</td><td>${w.exposure ? `${w.exposure.read} times read, ${w.exposure.total} in your passages, in ${w.exposure.texts} of them<br><span class="small">${Object.entries(w.exposure.forms).map(([f, n]) => `${he(f)} ×${n}`).join(' · ')}</span>` : '<span class="muted">not found (expressions aren\'t counted; only forms seen before are matched)</span>'}</td></tr>
+          <tr><td>Saved</td><td>${w.saved ? day(w.createdAt) : 'no'}${w.encounters?.length ? ` · met ${w.encounters.length}×` : ''}</td></tr>
+          <tr><td>Cards</td><td>${(w.cards || []).length} written, ${cards.length} answered</td></tr>
+        </table>
+      </div>
+      <div class="card layer"><div class="kind">3 · Estimated</div><h3>What the model concludes</h3>
+        <table>
+          <tr><td>Reading it</td><td>${est(w.recognition)}<div class="small muted">started at ${pct(w.prior.recognition)} (assumption) · ${w.recognition.evidence} answers' worth of evidence</div></td></tr>
+          <tr><td>Saying it</td><td>${est(w.production)}<div class="small muted">started at ${pct(w.prior.production)} (assumption) · ${w.production.evidence} answers' worth</div></td></tr>
+          <tr><td>Band</td><td>${band(w.band)}<div class="small muted">${bandRule(w)}</div></td></tr>
+        </table>
+        <h3>Evidence, as weighed</h3>
+        ${w.evidence.length ? `<ul class="ev">${w.evidence.map(e => `<li><span class="${e.weight === 0 ? 'zero' : e.knew ? 'plus' : 'minus'}">${e.weight === 0 ? '○' : e.knew ? '+' : '−'}${e.weight.toFixed(2)}</span> ${esc(e.channel)} · ${esc(e.what)}${e.uncertain ? ' <span class="tag zero">noted, not counted</span>' : ''}<br><span class="muted small">${day(e.at)}</span></li>`).join('')}</ul>` : '<div class="muted">None: the estimate is the starting assumption alone.</div>'}
+        <div class="small muted">Weights are before ageing: evidence counts half as much every ${D.halfLife} days.</div>
+      </div>
+    </div>`
+  $('detail').classList.add('on')
+}
+function closeWord() { $('detail').classList.remove('on') }
+$('detail').onclick = (e) => { if (e.target.id === 'detail') closeWord() }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeWord() })
+function bandRule(w) {
+  if (w.band === 'known') return 'reading at least 75%, and its 80% range above 55%'
+  if (w.band === 'acquiring') return 'saved and being studied, not yet known'
+  if (w.band === 'met') return 'saved, not yet studied'
+  return 'looked up, never saved'
+}
+function describe(o) {
+  if (o.type === 'answer') return `<b>${o.knew ? 'knew' : 'still learning'}</b> · ${esc(o.kind)} ${esc(o.form || o.stage || '')}${o.front ? ` · ${o.front === 'en' ? 'English first' : 'Hebrew first'}` : ' · side not recorded'}${o.primed ? ' · primed' : ''}${o.quiz ? ' · choices' : ''}${o.ms ? ` · ${Math.round(o.ms / 1000)}s` : ''}<div class="small muted">${esc(o.why || '')}</div>`
+  if (o.type === 'show') return `card shown · ${esc(o.kind)} ${esc(o.form || '')}${o.front ? ` · ${o.front === 'en' ? 'English first' : 'Hebrew first'}` : ''}`
+  if (o.type === 'reveal') return `turned over after ${Math.round((o.ms || 0) / 1000)}s`
+  if (o.type === 'lookup') return `looked up ${he(o.word)} ${o.text ? 'while reading' : 'on a card'}${o.saved ? ' (already saved)' : ''}${o.explained ? ` · explained in ${Math.round(o.explained.ms / 100) / 10}s (${esc(o.explained.why)})` : ''}`
+  if (o.type === 'lookup on this card') return `${he(o.word)} looked up on this word's card${o.lemma ? ` (${he(o.lemma)})` : ''}`
+  if (o.type === 'save') return 'saved'
+  if (o.type === 'unsave') return 'save undone'
+  return esc(o.type)
+}
+
+// Grammar
+function grammarTable(list) {
+  if (!list.length) return '<div class="muted">No answers on form cards yet.</div>'
+  return `<table><tr><th>Form</th><th>Estimate</th><th>Evidence vs assumption</th><th>Answers</th><th>Words</th></tr>${list.map(g => `<tr><td>${esc(g.label)}</td><td>${est(g.estimate)}</td><td>${mix(g.estimate)}</td><td>${g.answers}</td><td>${g.words.map(he).join(' ')}</td></tr>`).join('')}</table>`
+}
+$('grammar').innerHTML = `
+  <div class="note warn">Each form starts from how you do on cards overall (${pct(D.overall.p)}), so a form with few answers sits near that. Slots, not constructions: a verb's tense and person, a noun's number, an adjective's gender and number, as cards are written.</div>
+  ${grammarTable(D.grammar)}`
+
+// Knowledge × relevance
+const plotted = words.filter(w => w.exposure && w.exposure.read > 0)
+const W = 760, H = 380, P = 40
+const maxSeen = Math.max(...plotted.map(w => w.exposure.read), 2)
+const x = (n) => P + Math.log(n) / Math.log(maxSeen) * (W - 2 * P)
+const y = (p) => H - P - p * (H - 2 * P)
+const color = (w) => assumed(w.recognition) > 0.67 ? 'var(--assumed)' : `var(--${w.band})`
+const opportunities = plotted.filter(w => w.recognition.p < 0.6).sort((a, b) => b.exposure.read - a.exposure.read || a.recognition.p - b.recognition.p).slice(0, 25)
+$('relevance').innerHTML = `
+  <div class="note">How often a saved word comes up in what you've read (across, log scale) against how likely you are to know it (up). Upper left: rare in your reading and probably known. Lower right: common in your reading and not yet known, the likeliest to be worth learning. Grey: estimate still mostly assumption. Only saved words matched in your ${D.textsCount} passages are shown (${plotted.length}).</div>
+  <svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;background:var(--panel);border:1px solid var(--line);border-radius:10px">
+    <line x1="${P}" y1="${y(0)}" x2="${W - P}" y2="${y(0)}" stroke="var(--line)"/><line x1="${P}" y1="${y(1)}" x2="${P}" y2="${y(0)}" stroke="var(--line)"/>
+    <line x1="${P}" y1="${y(0.5)}" x2="${W - P}" y2="${y(0.5)}" stroke="var(--line)" stroke-dasharray="3 3"/>
+    <text x="${P}" y="${H - 12}">seen once</text><text x="${W - P - 80}" y="${H - 12}">seen ${maxSeen}×</text><text x="4" y="${y(1) + 4}">100%</text><text x="4" y="${y(0.5) + 4}">50%</text><text x="10" y="${y(0) + 4}">0%</text>
+    ${plotted.map(w => `<g style="cursor:pointer" data-key="${esc(w.key)}"><title>${esc(w.lemma)} · read ${w.exposure.read}× · ${pct(w.recognition.p)} (${pct(w.recognition.low)}–${pct(w.recognition.high)})</title>
+      <line x1="${x(w.exposure.read)}" x2="${x(w.exposure.read)}" y1="${y(w.recognition.low)}" y2="${y(w.recognition.high)}" stroke="${color(w)}" stroke-opacity=".35" stroke-width="3"/>
+      <circle cx="${x(w.exposure.read)}" cy="${y(w.recognition.p)}" r="4" fill="${color(w)}"/></g>`).join('')}
+  </svg>
+  <div class="legend small"><span>${band('known')}</span><span>${band('acquiring')}</span><span>${band('met')}</span><span><span class="tag" style="color:var(--assumed)">mostly assumption</span></span></div>
+  <h2>Common in your reading, not yet known</h2>
+  <table><tr><th>Word</th><th>Read</th><th>Reading it</th><th>Evidence vs assumption</th><th>Band</th></tr>
+  ${opportunities.map(w => `<tr class="click" data-key="${esc(w.key)}"><td>${he(w.lemma)} <span class="small muted">${esc((w.gloss || '').slice(0, 40))}</span></td><td>${w.exposure.read}×</td><td>${est(w.recognition)}</td><td>${mix(w.recognition)}</td><td>${band(w.band)}</td></tr>`).join('')}</table>
+  <h2>Frequent in your reading, not saved</h2>
+  <div class="note small">Forms as written, 3+ times in your passages, matching no saved word. Not on the frequency list usually means a name. A common form here is probably known; a rarer one may be worth a look. Forms, not words: one word can appear as several.</div>
+  <table><tr><th>Form</th><th>Times</th><th>Rank</th></tr>${D.unmatched.map(u => `<tr><td>${he(u.form)}</td><td>${u.count}</td><td>${u.rank ?? '<span class="muted">not listed</span>'}</td></tr>`).join('')}</table>`
+$('relevance').onclick = (e) => { const g = e.target.closest('[data-key]'); if (g) openWord(g.dataset.key) }
+
+// Vocabulary check
+const L = D.levelCheck
+$('level').innerHTML = L ? (() => {
+  const real = L.filter(i => !i.madeUp && i.mark !== '-'), made = L.filter(i => i.madeUp)
+  const bandsL = [[1, 1000], [1001, 5000], [5001, 18000], [18001, 30000]]
+  return `
+  <div class="note warn">The check samples words <i>as written</i> in spoken Hebrew (subtitles), on their own. It mixes knowing a word with decoding one of its forms out of context, and your Hebrew comes mostly from written narrative. Its level is where you'd recognize about half of such forms, not a vocabulary size. Your answers fall off more gently with rarity than the model assumes (see Assumptions).</div>
+  <div class="cards">
+    <div class="card"><div class="muted">Level from the check</div><div class="n">~${D.level.words}</div><div class="small muted">80% range ${D.level.low}–${D.level.high}</div></div>
+    <div class="card"><div class="muted">Real words known</div><div class="n">${real.filter(i => i.mark === 'x').length}/${real.length}</div></div>
+    <div class="card"><div class="muted">Made-up words said known</div><div class="n">${made.filter(i => i.mark === 'x').length}/${made.length}</div><div class="small muted">guessing hardly at all</div></div>
+  </div>
+  <table><tr><th>Ranks</th><th>Known</th></tr>${bandsL.map(([a, b]) => { const h = real.filter(i => i.rank >= a && i.rank <= b); return `<tr><td>${a}–${b}</td><td>${h.filter(i => i.mark === 'x').length}/${h.length}</td></tr>` }).join('')}</table>
+  <h2>Items</h2>
+  <table><tr><th>Rank</th><th>Form</th><th>Answer</th></tr>${[...L].sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9)).map(i => `<tr><td>${i.rank ?? 'made-up'}</td><td>${he(i.word)}</td><td>${i.mark === 'x' ? '<span class="plus">known</span>' : i.mark === '-' ? 'left out' : '<span class="muted">not known</span>'}</td></tr>`).join('')}</table>`
+})() : '<div class="muted">No vocabulary check scored yet.</div>'
+
+// Assumptions
+$('assumptions').innerHTML = `
+  <div class="note">Everything here is a choice made for a first model, not something learned from data. Calibration (next stage) is how each will be tested.</div>
+  <table><tr><th>Assumption</th><th>Value</th><th>Status</th></tr>
+    <tr><td>Starting chance a word is known, by rank</td><td>half at the level (~${D.level.words}), 9 in 10 at a third of it, 1 in 10 at three times it</td><td class="small">The steepness is a guess. Your vocabulary check falls off more gently (a flatter curve fits it clearly better), so rare words you know start too low.</td></tr>
+    <tr><td>Rank of a word</td><td>most common of its dictionary form and the forms you met it in, in spoken Hebrew (subtitles)</td><td class="small">Forms as written, not words; spoken, not written Hebrew.</td></tr>
+    <tr><td>Production prior</td><td>${D.weights.productionPrior} × recognition prior</td><td class="small">Untested.</td></tr>
+    <tr><td>Starting assumption's weight</td><td>${D.weights.prior} answers' worth</td><td class="small">Untested.</td></tr>
+    ${Object.entries({ answer: 'answer, not primed', primed: 'answer just after seeing the Hebrew', quiz: 'multiplier for answers picked from choices', formCard: 'a form card\'s answer, for the word itself', lookup: 'lookup while reading, against knowing it', cardLookup: 'lookup on a card in Study, against knowing it', either: 'answers with no side recorded, to each side' })
+      .map(([k, v]) => `<tr><td>Weight: ${v}</td><td>${D.weights[k]}</td><td class="small">Untested.</td></tr>`).join('')}
+    <tr><td>Ageing of evidence</td><td>half every ${D.halfLife} days</td><td class="small">Stands in for forgetting and learning; a memory model (FSRS) would do this per card.</td></tr>
+    <tr><td>A word looked up on a missed card</td><td>noted, not counted, against the card</td><td class="small">Its role in the miss is unknown.</td></tr>
+  </table>`
+
+let start = 'overview'
+try { start = localStorage.getItem('tab') || start } catch {}
+// A link can open a tab (#tab=words) or a word (#word=לנהוג).
+const hash = new URLSearchParams(location.hash.slice(1))
+if (hash.get('tab')) start = hash.get('tab')
+show(TABS.some(([id]) => id === start) ? start : 'overview')
+if (hash.get('word')) openWord(hash.get('word'))
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-import { plainWord, rankOf } from './frequency.ts'
+import { plainWord, rankedForm, rankOf } from './frequency.ts'
 
 // What Mila can tell of a learner's Hebrew, from what it has seen them do: a first, deliberately
 // simple model, kept apart from what is decided with it (lib/profile.ts) so it can be replaced.
@@ -34,7 +34,7 @@ const DAY = 86_400_000
 export type Results = { results?: boolean[]; primed?: boolean[]; last?: number }
 export type LearnerEntry = Results & {
   id: string; lemma: string; lemmaPlain?: string; gloss?: string; partOfSpeech?: string; head?: { partOfSpeech?: string }
-  createdAt?: number | string; encounters?: { surface?: string; at?: number }[]
+  createdAt?: number | string; encounters?: { surface?: string; at?: number; sourceRef?: { textId: string; chunkId: string } }[]
   forms?: (Results & { key: string; stage: string; slot: string; he?: string })[]
   checkpoints?: Record<string, Results>
 }
@@ -53,6 +53,8 @@ export type Estimate = { p: number; low: number; high: number; evidence: number 
 export type Band = 'known' | 'acquiring' | 'met' | 'unfamiliar'
 export type WordState = {
   key: string; lemma: string; id?: string; gloss?: string; partOfSpeech?: string; rank?: number
+  // The form the rank was found for, and what the estimates started from before any evidence.
+  rankForm?: string; prior: { recognition: number; production: number }
   saved: boolean; answers: number; lastAt: number
   recognition: Estimate; production: Estimate; band: Band; evidence: Evidence[]
 }
@@ -207,7 +209,8 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
 
   const overall = estimate(0.5, allAnswers, 'recognition', now)
   const states: WordState[] = [...words.entries()].map(([key, item]) => {
-    const rank = rankOf(item.entry?.lemmaPlain || item.lemma, ...(item.entry?.encounters || []).map(met => met.surface), ...(item.entry?.forms || []).map(form => form.he))
+    const ranked = rankedForm(item.entry?.lemmaPlain || item.lemma, ...(item.entry?.encounters || []).map(met => met.surface), ...(item.entry?.forms || []).map(form => form.he))
+    const rank = ranked?.rank
     const prior = priorKnown(rank, level)
     const recognition = estimate(prior, item.evidence, 'recognition', now)
     const production = estimate(prior * WEIGHTS.productionPrior, item.evidence, 'production', now)
@@ -217,7 +220,8 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
       : saved && item.answers > 0 ? 'acquiring' : saved ? 'met' : 'unfamiliar'
     return {
       key, lemma: item.entry?.lemma || item.lemma, ...(item.entry ? { id: item.entry.id, gloss: item.entry.gloss, partOfSpeech: item.entry.partOfSpeech } : {}),
-      ...(rank ? { rank } : {}), saved, answers: item.answers, lastAt, recognition, production, band,
+      ...(ranked ? { rank: ranked.rank, rankForm: ranked.form } : {}),
+      prior: { recognition: Math.round(prior * 100) / 100, production: Math.round(prior * WEIGHTS.productionPrior * 100) / 100 }, saved, answers: item.answers, lastAt, recognition, production, band,
       evidence: item.evidence.sort((a, b) => b.at - a.at),
     }
   })
