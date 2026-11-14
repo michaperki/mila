@@ -51,5 +51,14 @@ export function resumeRound(saved: SavedRound | null, entries: VocabEntry[]): Re
   return { deck, position: moved.get(from)!, flipped: from === saved.position && !!saved.flipped, answers: remap(saved.answers), before: remap(saved.before) }
 }
 
-// Where a saved round is, for Home ("card 12 of 30").
-export const roundProgress = (saved: SavedRound | null) => (saved?.cards?.length ? { at: Math.min(saved.position, saved.cards.length - 1) + 1, of: saved.cards.length } : null)
+// A round left this long ago isn't simply resumed: Study asks whether to go on with it or start a
+// new one (answers are saved as they are given, so a new round loses only the place in this one).
+// Sooner, Study opens on it at once, so leaving by accident never costs the round.
+export const ASK_AFTER = 6 * 60 * 60 * 1000
+// `savedAt` is when the round was last changed, so a round being studied is never stale.
+export const askBeforeResuming = (saved: SavedRound | null, now = Date.now()) => !!saved && now - (saved.savedAt ?? 0) >= ASK_AFTER
+
+// Where a saved round is, for Home ("card 12 of 30") and the question on coming back to it, with
+// when it was last studied.
+export const roundProgress = (saved: SavedRound | null) => (saved?.cards?.length
+  ? { at: Math.min(saved.position, saved.cards.length - 1) + 1, of: saved.cards.length, savedAt: saved.savedAt } : null)

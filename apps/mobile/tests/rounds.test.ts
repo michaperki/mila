@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { resumeRound, roundProgress, roundToSave } from '../src/lib/rounds.ts'
+import { ASK_AFTER, askBeforeResuming, resumeRound, roundProgress, roundToSave } from '../src/lib/rounds.ts'
 import type { Card } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types'
 
@@ -55,7 +55,14 @@ test('nothing to resume when nothing is left from where it stopped', () => {
   assert.equal(resumeRound(roundToSave('me', [], 0, 0, false, {}, {}), [a]), null)
 })
 
-test('says where a saved round is', () => {
-  assert.deepEqual(roundProgress(roundToSave('me', deck, 0, 2, false, {}, {})), { at: 3, of: 5 })
+test('says where a saved round is and when it was last studied', () => {
+  assert.deepEqual(roundProgress(roundToSave('me', deck, 0, 2, false, {}, {}, 1000)), { at: 3, of: 5, savedAt: 1000 })
   assert.equal(roundProgress(null), null)
+})
+
+test('a round left for hours is asked about, one just left is resumed', () => {
+  const saved = roundToSave('me', deck, 0, 2, false, {}, {}, 0)
+  assert.equal(askBeforeResuming(saved, ASK_AFTER - 1), false)
+  assert.equal(askBeforeResuming(saved, ASK_AFTER), true)
+  assert.equal(askBeforeResuming(null, ASK_AFTER), false)
 })

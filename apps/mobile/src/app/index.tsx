@@ -11,11 +11,11 @@ import { Button, colors, ErrorNotice, Pressy, TextButton } from '../components/u
 import { request } from '../lib/api'
 import { textFromDocument } from '../lib/documents'
 import { feel } from '../lib/feedback'
-import { freshStages, studyPool } from '../lib/forms'
+import { ago, freshStages, studyPool } from '../lib/forms'
 import { APPEAR, DISAPPEAR } from '../lib/motion'
 import { latestRead } from '../lib/library'
 import { getPref, setPref } from '../lib/prefs'
-import { roundProgress } from '../lib/rounds'
+import { askBeforeResuming, roundProgress } from '../lib/rounds'
 import { loadRound } from '../lib/saved-round'
 import { type LastRead, parseLastRead } from '../lib/today'
 import { lastShown, loadTree, rememberTree, SAPLING, takeTended, type Tree, treeLine } from '../lib/tree'
@@ -54,15 +54,18 @@ export default function Home() {
   // A suggestion, never a count.
   const pool = useMemo(() => studyPool(entries), [entries])
   const next = useMemo(() => freshStages([...pool.started].reverse(), 1)[0], [pool])
-  // A round of Study left unfinished, which Study opens on (lib/rounds.ts).
-  const [round, setRound] = useState<{ at: number; of: number } | null>(null)
+  // A round of Study left unfinished, which Study opens on (lib/rounds.ts), and when it was last
+  // studied, said when it was hours ago.
+  const [round, setRound] = useState<{ at: number; of: number; since: string } | null>(null)
 
   useFocusEffect(useCallback(() => {
     setFocused(true); setVisit(value => value + 1); setHour(hourNow())
     // Where reading stopped as this phone remembers it, at once; then as the library has it.
     void getPref('lastRead').then(value => setLastRead(parseLastRead(value)))
     const signedIn = sessionNow.current
-    setRound(signedIn ? roundProgress(loadRound(signedIn.user.id)) : null)
+    const saved = signedIn ? loadRound(signedIn.user.id) : null
+    const progress = roundProgress(saved)
+    setRound(progress ? { ...progress, since: askBeforeResuming(saved) ? ago(progress.savedAt) : '' } : null)
     if (signedIn) void request<{ texts?: TextDoc[] }>('texts', { token: signedIn.token }).then(({ texts = [] }) => {
       library.current = texts
       void getPref('lastRead').then(value => {
@@ -158,7 +161,7 @@ export default function Home() {
         <View style={home.action}>
           {/* Green when Mila has something new to suggest: information, never a badge. */}
           <Button secondary={!next && !round} title="Study" style={home.button}
-            detail={session && round ? `Continue · ${round.at} of ${round.of}` : session && next ? `${next.label} · ${next.entry.lemma}`
+            detail={session && round ? `Continue · ${round.at} of ${round.of}${round.since ? ` · ${round.since}` : ''}` : session && next ? `${next.label} · ${next.entry.lemma}`
               : session && entries.length ? `${pool.started.length} words started · ${pool.unstarted.length} not yet` : undefined}
             onPress={() => router.push(session ? '/practice' : '/login')} />
           <TextButton title="Your words" onPress={() => router.push('/vocabulary')} />

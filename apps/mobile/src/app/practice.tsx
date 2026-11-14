@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import Animated from 'react-native-reanimated'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -13,7 +13,7 @@ import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { assess, type Card, cardKey, checkpointGroup, checkpointRecord, cuedTranslation, deckOf, exposureOf, firstSense, followUps, type Include, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
+import { ago, assess, type Card, cardKey, checkpointGroup, checkpointRecord, cuedTranslation, deckOf, exposureOf, firstSense, followUps, type Include, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
@@ -24,7 +24,7 @@ import { bothForms, constructionsOf } from '../lib/words'
 import { Constructions } from '../components/Constructions'
 import { useWordLookup, WordDrawer, type WordLookup } from '../components/WordDrawer'
 import { ensureForms } from '../lib/word-forms'
-import { resumeRound, roundToSave } from '../lib/rounds'
+import { askBeforeResuming, resumeRound, roundToSave } from '../lib/rounds'
 import { clearRound, loadRound, saveRound } from '../lib/saved-round'
 import { sendStudyLog, studySession } from '../lib/study-log'
 import { appInfo } from '../lib/app-info'
@@ -51,8 +51,9 @@ type Loaded = Table | { error: string }
 // remembered. New stages' cards are written in the background. A long press on the card count
 // shows why each card is in the round (lib/forms.ts deckOf), to see what Mila is choosing.
 // The round is kept on the phone as it goes (lib/rounds.ts): leaving Study, or Mila, only pauses
-// it, and Study opens again on the same card and side. Finishing it, Done or a new round from
-// the settings ends it. Everything shown and answered is logged (lib/study-log.ts), and cards
+// it, and Study opens again on the same card and side (after hours away, once the learner says
+// to go on with it rather than start a new one). Finishing it, Done or a new round from the top
+// bar ends it. Everything shown and answered is logged (lib/study-log.ts), and cards
 // are written only for the words a round is about to draw on (lib/forms.ts upcoming).
 export default function Practice() {
   const { session } = useSession()
@@ -83,6 +84,8 @@ export default function Practice() {
   const [picks, setPicks] = useState<Record<number, string>>({})
   const [unlocked, setUnlocked] = useState<string[]>([])
   const [done, setDone] = useState(false)
+  // A round left hours ago, until the learner chooses to go on with it or start a new one.
+  const [away, setAway] = useState<{ at: number; of: number; savedAt: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tables, setTables] = useState<Record<string, Loaded>>({})
   // The latest copy of each word, so results and new stages build on each other within a session.
@@ -139,8 +142,10 @@ export default function Practice() {
         setWords(Object.fromEntries(entries.map(entry => [entry.id, entry])))
         study.current = studySession(session.user.id)
         void sendStudyLog(session.user.id, session.token)
-        // The round left unfinished, if anything of it is left, or a new one.
-        const resumed = resumeRound(loadRound(session.user.id), entries)
+        // The round left unfinished, if anything of it is left, or a new one. One left hours ago
+        // waits for the learner to say whether to go on with it.
+        const saved = loadRound(session.user.id)
+        const resumed = resumeRound(saved, entries)
         let cards = resumed ? resumed.deck : deckOf(entries, chosen)
         // Its words, and the next a round will draw on, get the cards of their open stages
         // written now. Studying starts with what is ready; only if nothing is does it wait.
@@ -150,6 +155,7 @@ export default function Practice() {
         if (resumed) {
           setDeck(resumed.deck); setPosition(resumed.position); setFlipped(resumed.flipped)
           setAnswers(resumed.answers); setBefore(resumed.before)
+          if (askBeforeResuming(saved)) setAway({ at: resumed.position + 1, of: resumed.deck.length, savedAt: saved!.savedAt })
           return
         }
         if (!cards.length && entries.length) {
@@ -181,13 +187,14 @@ export default function Practice() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deck, position, token])
 
-  // The round as it stands, kept after each change; let go once it is over.
+  // The round as it stands, kept after each change; let go once it is over. Not while Study is
+  // asking whether to go on with it, so leaving without choosing asks again next time.
   const owner = session?.user.id
   useEffect(() => {
-    if (!owner || !deck) return
+    if (!owner || !deck || away) return
     if (done) clearRound()
     else saveRound(roundToSave(owner, deck, roundStart, position, flipped, answers, before))
-  }, [owner, deck, roundStart, position, flipped, answers, before, done])
+  }, [owner, deck, roundStart, position, flipped, answers, before, done, away])
 
   // Each card as it is shown, once per position (again only if the position now holds another
   // card), with what of its word and of itself this visit had shown before, and its record.
@@ -237,6 +244,22 @@ export default function Practice() {
     setRoundStart(deck.length); setDeck([...deck, ...again]); setPosition(deck.length)
     setWay('next'); setFlipped(false); setDone(false)
   }
+  // From the top bar: partway through a round, asked first, since the place in it is let go.
+  const confirmNewRound = () => {
+    const midway = position > roundStart && position < deck.length - 1
+    const start = () => { feel('advance'); lookup.close(); newRound() }
+    if (!midway) { start(); return }
+    Alert.alert('Start a new round?', `You're on card ${position - roundStart + 1} of ${deck.length - roundStart}. Your answers so far are saved.`, [
+      { text: 'Keep going', style: 'cancel' },
+      { text: 'New round', onPress: start },
+    ])
+  }
+  if (away) return <Page>
+    <Text style={styles.title}>Welcome back</Text>
+    <Text style={styles.copy}>You stopped at card {away.at} of {away.of}, {ago(away.savedAt)}. Your answers are saved either way.</Text>
+    <Button title="Continue this round" onPress={() => { feel('advance'); setAway(null) }} />
+    <Button secondary title="Start a new round" onPress={() => { feel('advance'); setAway(null); newRound() }} />
+  </Page>
   if (done) return <Summary answered={Object.keys(answers).length} words={new Set(Object.keys(answers).map(i => deck[Number(i)].entry.id)).size}
     unlocked={unlocked} error={error} onMore={newRound} />
 
@@ -274,12 +297,12 @@ export default function Practice() {
 
   const summary = [FRONTS[settings.front], settings.order === 'shuffle' ? 'Shuffled' : 'Smart order', INCLUDES[settings.include],
     settings.quiz && 'Quiz forms', cursiveAnswers && 'Answers in כתב יד'].filter(Boolean).join(' · ')
-  const sheet = settingsOpen && <SettingsSheet settings={settings} change={change} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)} onNewRound={() => { setSettingsOpen(false); feel('advance'); newRound() }} onClose={() => setSettingsOpen(false)} />
+  const sheet = settingsOpen && <SettingsSheet settings={settings} change={change} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)} onClose={() => setSettingsOpen(false)} />
 
   const card = deck[position]
   const progress = { at: position - roundStart + 1, of: deck.length - roundStart }
   if (!card) return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <TopBar summary={summary} progress={null} canGoBack={false} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onSettings={() => setSettingsOpen(true)} />
+    <TopBar summary={summary} progress={null} canGoBack={false} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onNewRound={confirmNewRound} onSettings={() => setSettingsOpen(true)} />
     <View style={[styles.content, { gap: 12 }]}>
       <Text style={styles.copy}>{settings.include === 'sentences' ? 'No sentence cards yet. They are written for each word as you save it.' : 'Nothing to study with these settings.'}</Text>
       <Button title="Study words and sentences" onPress={() => change({ include: 'both' })} />
@@ -383,7 +406,7 @@ export default function Practice() {
         : Object.keys(answers).length < 3 ? 'Swipe right if you knew it, left if you\'re still learning.' : ''
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <TopBar summary={summary} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onWhy={toggleWhy} onSettings={() => setSettingsOpen(true)} />
+    <TopBar summary={summary} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onNewRound={confirmNewRound} onWhy={toggleWhy} onSettings={() => setSettingsOpen(true)} />
     <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: 'center', paddingBottom: 24 + insets.bottom }]}>
       <ErrorNotice message={error} />
       {why && !!card.why && <Text style={practice.why}>{card.why}</Text>}
@@ -441,10 +464,11 @@ const HINTS: Record<Side, ReactNode> = {
   left: <Text style={[practiceHint.tag, practiceHint.learning]}>Still learning</Text>,
 }
 
-// Done, the arrows and where the round is, and the settings button; below, the settings in force
-// in one quiet line, which opens them too (SettingsSheet).
-function TopBar({ summary, progress, canGoBack, onBack, onNext, onDone, onWhy, onSettings }: {
-  summary: string; progress: { at: number; of: number } | null; canGoBack: boolean; onBack: () => void; onNext: () => void; onDone: () => void; onWhy?: () => void; onSettings: () => void
+// Done, the arrows and where the round is, a new round and the settings button; below, the
+// settings in force in one quiet line, which opens them too (SettingsSheet).
+function TopBar({ summary, progress, canGoBack, onBack, onNext, onDone, onNewRound, onWhy, onSettings }: {
+  summary: string; progress: { at: number; of: number } | null; canGoBack: boolean; onBack: () => void; onNext: () => void; onDone: () => void
+  onNewRound: () => void; onWhy?: () => void; onSettings: () => void
 }) {
   return <View style={practice.top}>
     <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
@@ -453,6 +477,9 @@ function TopBar({ summary, progress, canGoBack, onBack, onNext, onDone, onWhy, o
         <Arrow icon="chevron-back" label="Previous card" disabled={!canGoBack} onPress={onBack} />
         <Text style={practice.progress} onLongPress={onWhy} accessibilityLabel={progress ? `Card ${progress.at} of ${progress.of}` : undefined}>{progress ? `${progress.at} / ${progress.of}` : ''}</Text>
         <Arrow icon="chevron-forward" label="Next card" onPress={onNext} />
+        <Pressy moment="tick" accessibilityRole="button" accessibilityLabel="Start a new round" onPress={onNewRound} style={practice.arrow}>
+          <Ionicons name="refresh-outline" size={22} color={colors.ink} />
+        </Pressy>
         <Pressy moment="tick" accessibilityRole="button" accessibilityLabel={`Study settings: ${summary}`} onPress={onSettings} style={practice.arrow}>
           <Ionicons name="options-outline" size={22} color={colors.ink} />
         </Pressy>
@@ -466,10 +493,10 @@ function TopBar({ summary, progress, canGoBack, onBack, onNext, onDone, onWhy, o
 
 // The settings, grouped: what is studied and how (Study) and how answers look (Display). Each
 // shows its choices with the one in force selected; changes apply as they do from the top bar
-// (the order and which cards from the next card, which side first at once). New round leaves
-// the round in front of the learner for a fresh one.
-function SettingsSheet({ settings, change, cursive, onCursive, onNewRound, onClose }: {
-  settings: Settings; change: (patch: Partial<Settings>) => void; cursive: boolean; onCursive: () => void; onNewRound: () => void; onClose: () => void
+// (the order and which cards from the next card, which side first at once). A new round is
+// started from the top bar.
+function SettingsSheet({ settings, change, cursive, onCursive, onClose }: {
+  settings: Settings; change: (patch: Partial<Settings>) => void; cursive: boolean; onCursive: () => void; onClose: () => void
 }) {
   const insets = useSafeAreaInsets()
   return <View style={StyleSheet.absoluteFill}>
@@ -486,13 +513,6 @@ function SettingsSheet({ settings, change, cursive, onCursive, onNewRound, onClo
       <Choice label="Order" options={ORDERS} value={settings.order} onChange={order => change({ order })} />
       <Choice label="Cards" options={INCLUDES} value={settings.include} onChange={include => change({ include })} />
       <Toggle label="Quiz forms" detail="Choose a sentence's missing form from the word's forms" value={settings.quiz} onChange={() => change({ quiz: !settings.quiz })} />
-      <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
-        <View style={{ flex: 1, gap: 1 }}>
-          <Text style={practice.settingLabel}>New round</Text>
-          <Text style={practice.settingDetail}>This round is kept until you finish it; start a fresh one instead</Text>
-        </View>
-        <Pressy moment="tick" accessibilityRole="button" onPress={onNewRound} style={practice.newRound}><Text style={practice.newRoundText}>Start</Text></Pressy>
-      </View>
       <Text style={practice.group}>Display</Text>
       <Toggle label="Answers in כתב יד" detail="Cursive on the answer side; questions stay in print" value={cursive} onChange={onCursive} />
     </DraggableSheet>
@@ -718,8 +738,6 @@ const practice = StyleSheet.create({
   segmentOn: { backgroundColor: colors.white, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } },
   segmentText: { fontSize: 14, fontWeight: '600', color: colors.muted },
   segmentTextOn: { color: colors.green },
-  newRound: { minHeight: 38, paddingHorizontal: 16, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.line },
-  newRoundText: { fontSize: 15, fontWeight: '600', color: colors.green },
   done: { fontSize: 16, fontWeight: '600', color: colors.green },
   progress: { fontSize: 14, color: colors.muted, minWidth: 52, textAlign: 'center', fontVariant: ['tabular-nums'] },
   why: { fontSize: 12, color: colors.muted, textAlign: 'center', fontVariant: ['tabular-nums'] },
