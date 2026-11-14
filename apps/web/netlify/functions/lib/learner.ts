@@ -1,0 +1,264 @@
+import { plainWord, rankOf } from './frequency.ts'
+
+// What Mila can tell of a learner's Hebrew, from what it has seen them do: a first, deliberately
+// simple model, kept apart from what is decided with it (lib/profile.ts) so it can be replaced.
+//
+// Each word has two estimates, recognition (reading it, Hebrew first) and production (saying it,
+// English first), each the chance the learner knows it, with how sure that is: a Beta
+// distribution started from how common the word is and how many words the learner knows
+// (`Level`), then moved by evidence. Evidence is weighed, not believed: an answer recalled
+// without being primed counts fully, a primed one a quarter, a looked-up word counts against
+// knowing it then, and older evidence counts less (half every EVIDENCE_HALF_LIFE days), since
+// learning goes on. Answers from before Study recorded which side came first count half to each.
+// A card missed after another of its words was looked up is noted against the card, with no
+// weight: what made it hard isn't known. Grammar (a stage's form for a person or number, as
+// cards are written: `verb:past:2sg.f`) is estimated the same way from the cards of every word,
+// starting from how the learner does on cards overall. Nothing here is stored: it is worked out
+// afresh from the saved words and study events, so a better model can be run on the same history.
+
+export const MODEL_VERSION = 'learner-v1'
+export const WEIGHTS = {
+  answer: 1, // an answer recalled or missed, not primed
+  primed: 0.25, // the same, just after the word's Hebrew was shown (lib/forms.ts isPrimed)
+  quiz: 0.6, // an answer picked from choices, by its weight above
+  formCard: 0.5, // a form card's answer, for the word (the rest is the form's: grammar)
+  lookup: 0.7, // the word looked up while reading (or saved from a page, before lookups were kept)
+  cardLookup: 0.5, // the word looked up on a card in Study
+  either: 0.5, // evidence that doesn't say which side came first, for each side
+  prior: 2, // how many answers' worth the starting estimate is
+  productionPrior: 0.6, // producing a word is harder than recognizing it: the prior chance, scaled
+}
+export const EVIDENCE_HALF_LIFE = 30 // days
+const DAY = 86_400_000
+
+export type Results = { results?: boolean[]; primed?: boolean[]; last?: number }
+export type LearnerEntry = Results & {
+  id: string; lemma: string; lemmaPlain?: string; gloss?: string; partOfSpeech?: string; head?: { partOfSpeech?: string }
+  createdAt?: number | string; encounters?: { surface?: string; at?: number }[]
+  forms?: (Results & { key: string; stage: string; slot: string; he?: string })[]
+  checkpoints?: Record<string, Results>
+}
+export type LearnerEvent = { session: string; seq: number; at: number; type: string } & Record<string, unknown>
+
+// How many of the most common words the learner knows (the rank at which a word is as likely
+// known as not), with a range and where it came from.
+export type Level = { words: number; low: number; high: number; basis: string }
+export type Channel = 'recognition' | 'production'
+export type Evidence = { at: number; channel: Channel | 'either'; knew: boolean; weight: number; what: string; uncertain?: boolean }
+// The chance known, with an 80% range, and how much evidence (in answers' worth) is behind it.
+export type Estimate = { p: number; low: number; high: number; evidence: number }
+// known: likely known (recognition at least 75%, and surely over 55%); acquiring: saved and being
+// studied, not yet known; met: saved, not yet studied; unfamiliar: looked up, never saved. Words
+// never met have no band: how common they are says how likely they are known (priorKnown).
+export type Band = 'known' | 'acquiring' | 'met' | 'unfamiliar'
+export type WordState = {
+  key: string; lemma: string; id?: string; gloss?: string; partOfSpeech?: string; rank?: number
+  saved: boolean; answers: number; lastAt: number
+  recognition: Estimate; production: Estimate; band: Band; evidence: Evidence[]
+}
+export type SkillState = { key: string; label: string; estimate: Estimate; answers: number; words: string[] }
+export type LearnerState = { version: string; at: number; level: Level; words: WordState[]; grammar: SkillState[]; overall: Estimate }
+
+export const lemmaKeyOf = (lemma: string) => plainWord(lemma).replace(/[׳'"״]/g, '').replace(/[\s־-]+/g, ' ')
+
+// The chance a word of this rank is known by a learner of this level: half at the level, about
+// nine in ten at a third of it, one in ten at three times it.
+export const priorKnown = (rank: number | undefined, level: Level) =>
+  1 / (1 + Math.exp((Math.log(rank ?? 60000) - Math.log(level.words)) / 0.5))
+// The rank below which words are most likely known (four in five).
+export const commonUpTo = (level: Level) => Math.round(level.words * Math.exp(-0.5 * Math.log(4)))
+
+export function estimate(prior: number, evidence: Evidence[], channel: Channel, now: number): Estimate {
+  let a = prior * WEIGHTS.prior
+  let b = (1 - prior) * WEIGHTS.prior
+  let total = 0
+  for (const item of evidence) {
+    if (item.channel !== channel && item.channel !== 'either') continue
+    const weight = item.weight * (item.channel === 'either' ? WEIGHTS.either : 1) * 0.5 ** (Math.max(0, now - item.at) / (EVIDENCE_HALF_LIFE * DAY))
+    if (item.knew) a += weight; else b += weight
+    total += weight
+  }
+  const p = a / (a + b)
+  const sd = Math.sqrt((a * b) / ((a + b) ** 2 * (a + b + 1)))
+  const round = (x: number) => Math.round(x * 100) / 100
+  return { p: round(p), low: round(Math.max(0, p - 1.28 * sd)), high: round(Math.min(1, p + 1.28 * sd)), evidence: round(total) }
+}
+
+// Which word a card key is of, and what kind of card: `${wordId}:word`, `${wordId}:${stage}:${slot}`
+// or `${wordId}:checkpoint:${stage}` (apps/mobile/src/lib/forms.ts cardKey).
+export function parseCardKey(key: string) {
+  const [wordId, ...rest] = key.split(':')
+  if (rest[0] === 'word') return { wordId, kind: 'word' as const }
+  if (rest[0] === 'checkpoint') return { wordId, kind: 'checkpoint' as const, stage: rest[1] }
+  return { wordId, kind: 'form' as const, stage: rest[0], slot: rest[1] }
+}
+const kindOf = (entry: LearnerEntry) => {
+  const pos = entry.partOfSpeech === 'expression' ? entry.head?.partOfSpeech : entry.partOfSpeech
+  return pos === 'verb' || pos === 'adjective' || pos === 'noun' ? pos : 'other'
+}
+// Cards that show the word itself (its meanings, or the word card) rather than one of its forms.
+const isWordCard = (stage?: string) => !stage || stage === 'meanings'
+
+export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], level: Level, now = Date.now()): LearnerState {
+  const byId = new Map(entries.map(entry => [entry.id, entry]))
+  const words = new Map<string, { lemma: string; entry?: LearnerEntry; evidence: Evidence[]; answers: number; forms: string[] }>()
+  const word = (lemma: string, entry?: LearnerEntry) => {
+    const key = lemmaKeyOf(entry?.lemmaPlain || lemma)
+    let found = words.get(key)
+    if (!found) words.set(key, found = { lemma: entry?.lemmaPlain || plainWord(lemma), entry, evidence: [], answers: 0, forms: [] })
+    if (entry && !found.entry) found.entry = entry
+    return found
+  }
+  const skills = new Map<string, { label: string; evidence: Evidence[]; answers: number; words: Set<string> }>()
+  const skill = (key: string, label: string) => {
+    let found = skills.get(key)
+    if (!found) skills.set(key, found = { label, evidence: [], answers: 0, words: new Set() })
+    return found
+  }
+  const allAnswers: Evidence[] = []
+  for (const entry of entries) word(entry.lemma, entry)
+
+  // An answer: to its word (in full for its meanings and word card, half for a form card) and to
+  // the form's grammar.
+  const answered = (entry: LearnerEntry, card: { kind: string; stage?: string; slot?: string }, item: Omit<Evidence, 'weight' | 'what'> & { primed?: boolean; quiz?: boolean; when?: string }) => {
+    const base = (item.primed ? WEIGHTS.primed : WEIGHTS.answer) * (item.quiz ? WEIGHTS.quiz : 1)
+    const label = card.kind === 'word' ? 'word card' : card.kind === 'checkpoint' ? `${card.stage} checkpoint` : `${card.stage} ${card.slot}`
+    const side = item.channel === 'production' ? 'English first' : item.channel === 'recognition' ? 'Hebrew first' : 'side not recorded'
+    const what = `${item.knew ? 'knew' : 'missed'} ${label} (${side}${item.primed ? ', primed' : ''}${item.quiz ? ', choices' : ''}${item.when ? `, ${item.when}` : ''})`
+    const own = word(entry.lemma, entry)
+    own.evidence.push({ at: item.at, channel: item.channel, knew: item.knew, weight: base * (isWordCard(card.stage) && card.kind !== 'checkpoint' ? 1 : WEIGHTS.formCard), what })
+    own.answers++
+    const evidence = { at: item.at, channel: item.channel, knew: item.knew, weight: base, what: `${own.lemma}: ${what}` }
+    allAnswers.push(evidence)
+    if (card.kind === 'word' || isWordCard(card.stage)) return
+    const kind = kindOf(entry)
+    const key = card.kind === 'checkpoint' ? `${kind}:${card.stage}:checkpoint` : `${kind}:${card.stage}:${card.slot}`
+    const found = skill(key, card.kind === 'checkpoint' ? `${kind} ${card.stage}, whole tense` : `${kind} ${card.stage}, ${card.slot}`)
+    found.evidence.push(evidence); found.answers++; found.words.add(own.lemma)
+  }
+
+  // Answers Study has recorded, with which side came first (from the answer, or the card's show).
+  const sorted = [...events].sort((a, b) => a.at - b.at || a.seq - b.seq)
+  // A changed answer replaces the one given before on the same card.
+  const final = new Map<string, LearnerEvent>()
+  for (const event of sorted) if (event.type === 'answer') final.set(`${event.session}:${event.position}:${event.key}`, event)
+  const shownFront = new Map<string, string>()
+  const recorded = new Map<string, number>()
+  const lookups = new Map<string, LearnerEvent>()
+  let readerLogSince = Infinity
+  for (const event of sorted) {
+    if (event.type === 'show') shownFront.set(`${event.session}:${event.position}`, String(event.front))
+    if (event.type === 'answer' && typeof event.key === 'string') {
+      if (final.get(`${event.session}:${event.position}:${event.key}`) !== event) continue
+      const card = parseCardKey(event.key)
+      const entry = byId.get(card.wordId)
+      if (!entry) continue
+      const front = (event.front as string | undefined) ?? shownFront.get(`${event.session}:${event.position}`)
+      recorded.set(event.key, (recorded.get(event.key) ?? 0) + 1)
+      answered(entry, card, { at: event.at, knew: !!event.knew, primed: !!event.primed, quiz: !!event.quiz, channel: front === 'en' ? 'production' : front === 'he' ? 'recognition' : 'either' })
+    }
+    if (event.type === 'lookup') {
+      lookups.set(String(event.id), event)
+      if (event.text) readerLogSince = Math.min(readerLogSince, event.at)
+      if (event.lemma && typeof event.lemma === 'string' && !event.own) lookedUp(event, event.lemma)
+    }
+    if (event.type === 'explained' && typeof event.lemma === 'string') {
+      const lookup = lookups.get(String(event.of))
+      if (lookup && !lookup.lemma && !lookup.own && !lookup.phrase) lookedUp(lookup, event.lemma)
+    }
+  }
+  function lookedUp(event: LearnerEvent, lemma: string) {
+    const entry = [...byId.values()].find(item => lemmaKeyOf(item.lemmaPlain || item.lemma) === lemmaKeyOf(lemma))
+    const onCard = typeof event.key === 'string'
+    word(lemma, entry).evidence.push({
+      at: event.at, channel: 'recognition', knew: false, weight: onCard ? WEIGHTS.cardLookup : WEIGHTS.lookup,
+      what: onCard ? `looked up on a card in Study (${String(event.word)})` : `looked up while reading (${String(event.word)})`,
+    })
+    // The card it was looked up on: noted, not counted, as what may have made it hard.
+    if (onCard) {
+      const target = byId.get(parseCardKey(event.key as string).wordId)
+      if (target && lemmaKeyOf(target.lemmaPlain || target.lemma) !== lemmaKeyOf(lemma)) {
+        word(target.lemma, target).evidence.push({ at: event.at, channel: 'either', knew: false, weight: 0, uncertain: true, what: `${plainWord(lemma)} was looked up on this card: maybe why it was hard, maybe not` })
+      }
+    }
+  }
+
+  // What was kept before events: each card's last few results (when, only the latest), and each
+  // time the word was saved from a page, before lookups were recorded.
+  for (const entry of entries) {
+    const cards: { key: string; card: { kind: string; stage?: string; slot?: string }; results: Results }[] = [
+      { key: `${entry.id}:word`, card: { kind: 'word' }, results: entry },
+      ...(entry.forms || []).map(form => ({ key: `${entry.id}:${form.key}`, card: { kind: 'form', stage: form.stage, slot: form.slot }, results: form as Results })),
+      ...Object.entries(entry.checkpoints || {}).map(([stage, results]) => ({ key: `${entry.id}:checkpoint:${stage}`, card: { kind: 'checkpoint', stage }, results })),
+    ]
+    for (const { key, card, results } of cards) {
+      const kept = results.results || []
+      const earlier = kept.length - (recorded.get(key) ?? 0)
+      for (let i = 0; i < earlier; i++) {
+        answered(entry, card, { at: results.last ?? now, knew: kept[i], primed: !!results.primed?.[i], channel: 'either', when: 'date not kept' })
+      }
+    }
+    const own = word(entry.lemma, entry)
+    for (const met of entry.encounters || []) {
+      if ((met.at ?? 0) >= readerLogSince) continue
+      own.evidence.push({ at: met.at ?? now, channel: 'recognition', knew: false, weight: WEIGHTS.lookup, what: `saved from a page (${met.surface ?? ''})` })
+    }
+  }
+
+  const overall = estimate(0.5, allAnswers, 'recognition', now)
+  const states: WordState[] = [...words.entries()].map(([key, item]) => {
+    const rank = rankOf(item.entry?.lemmaPlain || item.lemma, ...(item.entry?.encounters || []).map(met => met.surface), ...(item.entry?.forms || []).map(form => form.he))
+    const prior = priorKnown(rank, level)
+    const recognition = estimate(prior, item.evidence, 'recognition', now)
+    const production = estimate(prior * WEIGHTS.productionPrior, item.evidence, 'production', now)
+    const lastAt = Math.max(0, ...item.evidence.map(evidence => evidence.at))
+    const saved = !!item.entry
+    const band: Band = recognition.p >= 0.75 && recognition.low >= 0.55 ? 'known'
+      : saved && item.answers > 0 ? 'acquiring' : saved ? 'met' : 'unfamiliar'
+    return {
+      key, lemma: item.entry?.lemma || item.lemma, ...(item.entry ? { id: item.entry.id, gloss: item.entry.gloss, partOfSpeech: item.entry.partOfSpeech } : {}),
+      ...(rank ? { rank } : {}), saved, answers: item.answers, lastAt, recognition, production, band,
+      evidence: item.evidence.sort((a, b) => b.at - a.at),
+    }
+  })
+  // A grammar slot starts from how the learner does on cards overall.
+  const grammar: SkillState[] = [...skills.entries()].map(([key, item]) => ({
+    key, label: item.label, answers: item.answers, words: [...item.words],
+    estimate: estimate(overall.p, item.evidence.map(evidence => ({ ...evidence, channel: 'recognition' as const })), 'recognition', now),
+  })).sort((a, b) => a.estimate.p - b.estimate.p)
+  return { version: MODEL_VERSION, at: now, level, words: states, grammar, overall }
+}
+
+// A first guess at the level, before a vocabulary check: words are looked up mostly where what is
+// known runs out, so the level is put at the most common quarter of the words saved from reading
+// (ranged from the tenth to the half). Rough; a vocabulary check replaces it (levelFromCheck).
+export function levelFromSaves(entries: LearnerEntry[]): Level {
+  const ranks = entries.filter(entry => entry.encounters?.length)
+    .map(entry => rankOf(entry.lemmaPlain || entry.lemma, ...(entry.encounters || []).map(met => met.surface)) ?? 60000)
+    .sort((a, b) => a - b)
+  if (ranks.length < 10) return { words: 2000, low: 500, high: 8000, basis: 'default (too few saved words to guess from)' }
+  const at = (q: number) => ranks[Math.floor(q * (ranks.length - 1))]
+  return { words: at(0.25), low: at(0.1), high: at(0.5), basis: `guessed from ${ranks.length} words saved while reading` }
+}
+
+// The level from a vocabulary check: words from across the frequency list answered known or not,
+// with made-up words among them to see how often "known" is said of a word that isn't one. The
+// level is the one that best explains the answers, a "known" being a word known or a guess (at
+// the rate the made-up words show), and its range those that explain them nearly as well.
+export function levelFromCheck(answers: { rank: number; known: boolean }[], madeUp: { known: boolean }[]): Level {
+  const guess = Math.min(0.5, (madeUp.filter(item => item.known).length + 0.5) / (madeUp.length + 1))
+  const likelihood = (words: number) => answers.reduce((sum, { rank, known }) => {
+    const knows = priorKnown(rank, { words, low: 0, high: 0, basis: '' })
+    const yes = knows + (1 - knows) * guess
+    return sum + Math.log(known ? yes : 1 - yes)
+  }, 0)
+  const grid = Array.from({ length: 123 }, (_, i) => Math.round(100 * 1.05 ** i))
+  const scored = grid.map(words => ({ words, score: likelihood(words) }))
+  const best = scored.reduce((a, b) => (b.score > a.score ? b : a))
+  // About an 80% range: within 0.82 of the best log-likelihood.
+  const near = scored.filter(item => item.score >= best.score - 0.82).map(item => item.words)
+  return {
+    words: best.words, low: Math.min(...near), high: Math.max(...near),
+    basis: `vocabulary check: ${answers.filter(item => item.known).length} of ${answers.length} words known, ${madeUp.filter(item => item.known).length} of ${madeUp.length} made-up words said known`,
+  }
+}
