@@ -16,6 +16,21 @@ export function wordAt(rects: ReadonlyMap<number, Rect>, x: number, y: number): 
   return best
 }
 
+// The last word on the row where `word` sits: a selected sentence's English goes in right after
+// it, so the rows above keep their words and every row below only moves down, the same words on
+// each. `words` are the paragraph's words in order. Rows are told apart by height, so a word a
+// little taller or lower (a vowel mark) is still on its row. Unmeasured, the word itself.
+export function rowEnd(rects: ReadonlyMap<number, Rect>, words: readonly number[], word: number): number {
+  const own = rects.get(word)
+  if (!own) return word
+  let end = word
+  for (const index of words) {
+    const rect = rects.get(index)
+    if (index > end && rect && Math.abs(rect.y - own.y) < own.height / 2) end = index
+  }
+  return end
+}
+
 export const MAX_PHRASE_WORDS = 8
 
 // The selected range from the word the drag started on to the one under the finger.

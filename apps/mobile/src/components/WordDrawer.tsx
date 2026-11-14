@@ -5,7 +5,7 @@ import Ionicons from '@expo/vector-icons/Ionicons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Animated from 'react-native-reanimated'
 import { ListenButton } from './Listen'
-import { Button, colors, ErrorNotice, styles, TextButton } from './ui'
+import { Button, colors, ErrorNotice, Pill, styles, TextButton } from './ui'
 import { DraggableSheet } from './Motion'
 import { Constructions } from './Constructions'
 import { APPEAR } from '../lib/motion'
@@ -138,9 +138,11 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   // the explanation arrives (the dictionary form it is saved under comes from it), even if the
   // drawer is closed meanwhile. Without an explanation a single word isn't saved: as written it
   // would be a second entry for a word already saved under its dictionary form.
+  // Words dragged across are saved only as the unit the explanation found them to make (asPhrase),
+  // under its dictionary form, never as written: בהתה חזרה is saved as לִבְהוֹת חֲזָרָה.
   const save = async (asPhrase = false) => {
     if (!session) { router.push('/login'); return }
-    if (!tap || (asPhrase ? !phrase || phraseSaved : wordSaved)) return
+    if (!tap || (asPhrase ? !phrase || phraseSaved : wordSaved || isPhrase)) return
     // What was selected when Save was pressed; the selection may change before the entry is written.
     const tapped = tap, unit = phrase, dragged = isPhrase, quickNow = quickMeaning, current = version.current
     const key = tapKey(asPhrase ? unit!.text : tapped.text, tapped.sentence)
@@ -152,9 +154,9 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       const found = explained.analysis
       const meaning = explained.gloss || quickNow
       if (!meaning) throw new Error('Its meaning could not be looked up.')
-      if (!asPhrase && !dragged && !found) throw new Error('It could not be explained just now, so it wasn\'t saved. Try again.')
-      const lemmaNow = dragged ? tapped.text : found?.lemma || tapped.text
-      const id = vocabId(asPhrase ? unit!.lemmaPlain || unit!.lemma || unit!.text : dragged ? lemmaNow : found?.lemmaPlain || lemmaNow)
+      if (!asPhrase && !found) throw new Error('It could not be explained just now, so it wasn\'t saved. Try again.')
+      const lemmaNow = found?.lemma || tapped.text
+      const id = vocabId(asPhrase ? unit!.lemmaPlain || unit!.lemma || unit!.text : found?.lemmaPlain || lemmaNow)
       // The entry is the dictionary form; this sentence is added to it as one encounter.
       const encounter: Encounter = {
         surface: asPhrase ? unit!.text : tapped.text, meaning: asPhrase ? unit!.meaning : meaning, context: tapped.sentence, at: now(),
@@ -171,8 +173,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       }
       const entry: VocabEntry & { encounter: Encounter } = {
         id, createdAt: now(), frequency: 1, encounter,
-        ...(asPhrase ? expressionEntry(unit!, found)
-          : dragged ? { lemma: lemmaNow, gloss: found?.lemmaMeaning || meaning, partOfSpeech: 'phrase' } : {
+        ...(asPhrase ? expressionEntry(unit!, found) : {
             lemma: lemmaNow, gloss: found?.lemmaMeaning || meaning,
             ...(found?.lemmaPlain ? { lemmaPlain: found.lemmaPlain } : {}),
             ...(found?.partOfSpeech ? { partOfSpeech: found.partOfSpeech } : {}),
@@ -222,9 +223,11 @@ export type WordLookup = ReturnType<typeof useWordLookup>
 
 // The drawer itself: compact by default (meaning and save); details expand on request. `style`
 // places it (the screen's overlay, its sides and safe area); `onClose` closes it, by default
-// just the drawer.
-export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close }: {
+// just the drawer. `onPickWord` opens one of the words dragged across (by its place among them),
+// offered when they don't make a unit, so one of them can be saved instead.
+export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close, onPickWord }: {
   lookup: WordLookup; v: (text: string) => string; style?: StyleProp<ViewStyle>; onLayout?: (event: LayoutChangeEvent) => void; onClose?: () => void
+  onPickWord?: (offset: number) => void
 }) {
   const he = useHebrew()
   const { height: screenHeight } = useWindowDimensions()
@@ -317,10 +320,18 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close 
       {leadPhrase
         ? <Button secondary={phraseSaved} title={phraseSaved ? `${isPattern ? 'Pattern' : 'Expression'} saved ✓` : lookup.inYourWords ? 'Add this example' : isPattern ? 'Save pattern' : 'Save expression'} detail={phraseSaved ? 'Tap to undo' : undefined}
           busy={unsaving.has(tapKey(phrase!.text, sentence))} moment={phraseSaved ? null : undefined} onPress={() => (phraseSaved ? lookup.unsave(true) : void lookup.save(true))} style={{ flex: 1 }} />
-        : <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : inYourWords ? 'Add this example' : isPhrase ? 'Save phrase' : 'Save word'} detail={wordSaved ? 'Tap to undo' : undefined}
+        : isPhrase ? null
+        : <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : inYourWords ? 'Add this example' : 'Save word'} detail={wordSaved ? 'Tap to undo' : undefined}
           busy={unsaving.has(tapKey(tap.text, sentence))} moment={wordSaved ? null : undefined} onPress={() => (wordSaved ? lookup.unsave() : void lookup.save())} style={{ flex: 1 }} />}
     </View>
-    {leadPhrase && !phraseIsWord && <TextButton title={unsaving.has(tapKey(tap.text, sentence)) ? 'Undoing…' : wordSaved ? `${isolateHebrew(tap.text)} saved on its own ✓ · Undo` : `Save just ${isolateHebrew(tap.text)}`}
+    {/* Words dragged across that aren't one phrase are not saved as written: one of them can be. */}
+    {isPhrase && !phrase && !busy && !!onPickWord && <View style={{ gap: 6 }}>
+      <Text style={drawer.label}>Not one phrase · tap a word to save it</Text>
+      <View style={[styles.row, { flexDirection: 'row-reverse', gap: 6 }]}>
+        {tap.text.split(/\s+/).map((word, i) => <Pill key={i} label={v(word)} accessibilityLabel={`Open ${word}`} onPress={() => onPickWord(i)} />)}
+      </View>
+    </View>}
+    {leadPhrase && !phraseIsWord && !isPhrase && <TextButton title={unsaving.has(tapKey(tap.text, sentence)) ? 'Undoing…' : wordSaved ? `${isolateHebrew(tap.text)} saved on its own ✓ · Undo` : `Save just ${isolateHebrew(tap.text)}`}
       onPress={() => (wordSaved ? lookup.unsave() : void lookup.save())} />}
     {fillsPattern && <TextButton title={unsaving.has(tapKey(phrase!.text, sentence)) ? 'Undoing…' : phraseSaved ? 'Pattern saved ✓ · Undo' : `Save the pattern ${isolateHebrew(plainSpelling(phrase!.pattern!))}`}
       onPress={() => (phraseSaved ? lookup.unsave(true) : void lookup.save(true))} />}

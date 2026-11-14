@@ -46,9 +46,10 @@ export function paragraphsOf(segments: ReadingSegment[], paged: boolean): number
   return groups
 }
 
-// A paragraph is drawn as runs of flowing words. The active sentence gets a run of its own
-// so its highlight and English sit directly under it; with every translation showing,
-// each sentence is its own run (interlinear reading).
+// A paragraph as runs of flowing words: with every translation showing, each sentence is its own
+// run (interlinear reading), which is how the reader uses it. Otherwise the active sentence gets
+// a run of its own; the reader now keeps such a paragraph as one flow instead (reader.tsx), so
+// that selecting a sentence doesn't move its words.
 export type Run = { segments: number[]; active: boolean }
 export function runsOf(members: number[], everySentence: boolean, active: number | null): Run[] {
   if (everySentence) return members.map(s => ({ segments: [s], active: s === active }))

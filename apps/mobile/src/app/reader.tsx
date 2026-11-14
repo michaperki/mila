@@ -13,7 +13,7 @@ import { APPEAR, REFLOW, SHEET_IN, SHEET_OUT } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { FeedbackButton } from '../components/Feedback'
 import { request } from '../lib/api'
-import { rangeOf, type Rect, wordAt } from '../lib/selection'
+import { rangeOf, type Rect, rowEnd, wordAt } from '../lib/selection'
 import { documentFromRecognition, segmentsOf } from '../lib/documents'
 import { readingWords, titleFrom } from '../lib/ocr-cleanup'
 import { paragraphsOf, runsOf } from '../lib/page'
@@ -93,22 +93,6 @@ export default function Reader() {
     feel('tick'); setSize(next); setPref('textSize', String(next))
   }
   const sized = useMemo(() => ({ word: { fontSize: 21 * size, lineHeight: 32 * size }, english: { fontSize: 15 * size, lineHeight: 21 * size } }), [size])
-  // Keep the active sentence in view above whatever covers the bottom of the screen.
-  useEffect(() => {
-    if (active === null) return
-    const id = requestAnimationFrame(() => {
-      const run = activeRun.current
-      if (!run || !frame.current) return
-      frame.current.measureInWindow((_x, frameY, _w, frameHeight) => run.measureInWindow((_rx, runY, _rw, runHeight) => {
-        const top = frameY + 8
-        const bottom = frameY + frameHeight - overlayHeight - 12
-        if (runY >= top && runY + runHeight <= bottom) return
-        const delta = runY < top || runHeight > bottom - top ? runY - top : runY + runHeight - bottom
-        scroller.current?.scrollTo({ y: Math.max(0, scrollY.current + delta), animated: true })
-      }))
-    })
-    return () => cancelAnimationFrame(id)
-  }, [active, overlayHeight, english])
   const segments = useMemo(() => (recognition ? segmentsOf(recognition) : []), [recognition])
   // A page read keeps the page's paragraphs: dividers go between paragraphs, not sentences.
   const paged = recognition?.source === 'page'
@@ -159,6 +143,48 @@ export default function Reader() {
   }, [playing, active, session, segments, sentenceAfter])
   // Sentences flow together within a paragraph, like a page in a book.
   const paragraphs = useMemo(() => paragraphsOf(segments, paged), [segments, paged])
+  // With English for the selected sentence only, the paragraph stays one flow of words and the
+  // English goes in after the last word on the row the sentence ends on (rowEnd), so selecting
+  // a sentence moves no word sideways: rows above stay, rows below only move down. `breakAt` is
+  // that word, from the words' boxes; it is worked out again whenever the active paragraph's
+  // words are laid out anew (another text size, the phone turned).
+  const breakFor = useCallback((segment: number) => {
+    const members = paragraphs.find(group => group.includes(segment)) ?? []
+    const inParagraph = words.flatMap((word, i) => (members.includes(word.segment) ? [i] : []))
+    return rowEnd(wordBoxes.current, inParagraph, indexOfLastWord[segment])
+  }, [paragraphs, words, indexOfLastWord])
+  const [breakAt, setBreakAt] = useState<number | null>(null)
+  const [laidOut, setLaidOut] = useState(0)
+  useEffect(() => {
+    if (active === null || english !== 'tap') return
+    const id = requestAnimationFrame(() => setBreakAt(current => { const next = breakFor(active); return current === next ? current : next }))
+    return () => cancelAnimationFrame(id)
+  }, [active, english, laidOut, breakFor])
+  // The English's box in its paragraph, to keep it in view with its sentence.
+  const englishBox = useRef<Rect | null>(null)
+  // Keep the active sentence (and its English) in view above whatever covers the bottom of the
+  // screen. `activeRun` is the sentence's own run with every translation showing, else its
+  // paragraph, of which only the sentence's rows and its English count.
+  useEffect(() => {
+    if (active === null) return
+    const id = requestAnimationFrame(() => {
+      const run = activeRun.current
+      if (!run || !frame.current) return
+      const first = wordBoxes.current.get(indexOfFirstWord[active])
+      const end = (english === 'tap' && englishBox.current) || wordBoxes.current.get(indexOfLastWord[active])
+      const span = english !== 'all' && first && end ? { top: first.y, bottom: end.y + end.height } : null
+      frame.current.measureInWindow((_x, frameY, _w, frameHeight) => run.measureInWindow((_rx, runTop, _rw, runFull) => {
+        const runY = span ? runTop + span.top : runTop
+        const runHeight = span ? span.bottom - span.top : runFull
+        const top = frameY + 8
+        const bottom = frameY + frameHeight - overlayHeight - 12
+        if (runY >= top && runY + runHeight <= bottom) return
+        const delta = runY < top || runHeight > bottom - top ? runY - top : runY + runHeight - bottom
+        scroller.current?.scrollTo({ y: Math.max(0, scrollY.current + delta), animated: true })
+      }))
+    })
+    return () => cancelAnimationFrame(id)
+  }, [active, overlayHeight, english, breakAt, indexOfFirstWord, indexOfLastWord])
 
   // Upserts by id, so re-opening the same capture can't create a duplicate. A passage just saved
   // is the one being read, so Continue reading goes to it even before a sentence is selected.
@@ -194,11 +220,20 @@ export default function Reader() {
 
   if (!recognition) return <Page><Text style={styles.title}>Find something to read.</Text><Button title="Open camera" onPress={() => router.replace('/camera')} /></Page>
 
+  // A sentence becomes the active one, its English placed at once from the words' boxes (they
+  // don't move when it is), so it never shows for a moment in the wrong place.
+  const activate = (segment: number | null) => {
+    setActive(segment); setBreakAt(segment === null ? null : breakFor(segment))
+    if (segment !== null && hint) { setHint(false); setPref('readerHint', false) }
+  }
+  // A word tapped (or words dragged across) in any sentence: it is explained, and its sentence
+  // becomes the active one, with its English, in the same tap.
   const select = (index: number, to = index) => {
     const first = words[index]
     if (!first) return
     feel('select')
-    setSelected(index); setSelectedTo(to); setActive(first.segment)
+    setSelected(index); setSelectedTo(to)
+    if (first.segment !== active) { activate(first.segment); remember(first.segment) }
     const segment = segments[first.segment]
     void lookup.open({
       text: words.slice(index, to + 1).map(item => item.bare).join(' '), sentence: segment.he, translation: segment.en, phrase: to > index,
@@ -218,14 +253,13 @@ export default function Reader() {
   const goSentence = (step: number) => {
     const next = sentences[activePosition + step]
     if (next === undefined) return
-    feel('tick'); close(); setActive(next); remember(next)
+    feel('tick'); close(); activate(next); remember(next)
   }
-  const leaveSentence = () => { close(); setActive(null) }
-  // The first tap on a sentence only selects the sentence (its English, the sentence bar and
-  // quick meanings); words are tapped or dragged once their sentence is selected.
+  const leaveSentence = () => { close(); activate(null) }
+  // A tap beside a sentence's words (between rows, at a row's end) selects only the sentence:
+  // its English, the sentence bar and its words' quick meanings.
   const chooseSentence = (segment: number) => {
-    feel('tick'); close(); setActive(segment); remember(segment)
-    if (hint) { setHint(false); setPref('readerHint', false) }
+    feel('tick'); close(); activate(segment); remember(segment)
   }
   const last = selected === null ? null : (selectedTo ?? selected)
   const word = selected === null || last === null ? null
@@ -236,9 +270,9 @@ export default function Reader() {
   const englishSpoken: Record<EnglishMode, string> = { tap: 'for the tapped sentence', all: 'for every sentence', off: 'off' }
   const cycleEnglish = () => setEnglish(value => { setPref('english', nextEnglish[value]); return nextEnglish[value] })
   const toggleNiqqud = () => setShowNiqqud(!showNiqqud)
-  // Drag across words to explain them together. A mostly horizontal move takes over from
-  // the word's tap; positions come from each word's box in its paragraph. The selection
-  // stays inside the sentence the drag started in.
+  // Drag across words to explain them together, in any sentence. A mostly horizontal move takes
+  // over from the word's tap; positions come from each word's box in its paragraph. The
+  // selection stays inside the sentence the drag started in.
   const boxesOf = (indices: number[]) => new Map(indices.flatMap(i => { const box = wordBoxes.current.get(i); return box ? [[i, box] as const] : [] }))
   const wordUnder = (event: GestureResponderEvent) => {
     const current = drag.current
@@ -257,7 +291,7 @@ export default function Reader() {
       const dy = Math.abs(event.nativeEvent.pageY - current.y0)
       if (dx < 10 || dx < dy * 1.5) return false
       const start = wordAt(boxesOf(current.words), current.x0 - current.origin.x, current.y0 - current.origin.y)
-      if (start === undefined || words[start].segment !== active) return false
+      if (start === undefined) return false
       current.start = start
       return true
     },
@@ -299,6 +333,43 @@ export default function Reader() {
 
   const wordsOf = (segment: number) => indexOfFirstWord[segment] === undefined ? [] : words.slice(indexOfFirstWord[segment], indexOfLastWord[segment] + 1).map((item, offset) => ({ ...item, i: indexOfFirstWord[segment] + offset }))
   const englishOf = (segment: number) => { const { en, marker } = segments[segment]; return en ? `${marker ? `${marker}. ` : ''}${en}` : '' }
+  // A sentence as drawn: its list marker, its text when it has no words to tap, and its words.
+  // `flowing`: in a paragraph drawn as one flow, where the active sentence is marked on its own
+  // words (not a band around a run of its own) and the words' layout says where its English goes.
+  const sentenceViews = (s: number, flowing: boolean) => [
+    segments[s].marker ? <Text key={`m${s}`} style={[reader.word, sized.word, reader.marker]}>{segments[s].marker}.</Text> : null,
+    indexOfFirstWord[s] === undefined ? <Text key={`t${s}`} style={[reader.word, sized.word, he]}>{segments[s].he}</Text> : null,
+    ...wordsOf(s).map(item => {
+      const inSelection = highlighted && item.i >= highlighted.from && item.i <= highlighted.to
+      return <Pressable key={item.i} accessibilityRole="button" accessibilityLabel={`Explain ${item.bare}`} onPress={() => void select(item.i)}
+        onLayout={event => { wordBoxes.current.set(item.i, event.nativeEvent.layout); if (flowing && s === active) setLaidOut(value => value + 1) }}
+        style={[reader.wordBox, flowing && s === active && reader.activeWord, inSelection && reader.selectedWord]}>
+        <Text style={[reader.word, sized.word, segments[s].heading && reader.heading, he]}>{pageWithVowels(item.surface, showNiqqud)}</Text>
+      </Pressable>
+    }),
+  ]
+  // A paragraph as one flow of words; the active sentence's English (EN · tap) goes in on a row
+  // of its own after the row the sentence ends on (breakAt), or right after the sentence until
+  // its words have been measured.
+  const flowOf = (p: number, members: number[]) => {
+    const key = `${p}`
+    const flowWords = members.flatMap(wordsOf).map(item => item.i)
+    const holds = active !== null && members.includes(active)
+    const translation = english === 'tap' && holds ? englishOf(active!) : ''
+    const nodes = members.flatMap(s => sentenceViews(s, true))
+    if (translation) {
+      const end = breakAt !== null && breakAt >= indexOfLastWord[active!] && flowWords.includes(breakAt) ? breakAt : indexOfLastWord[active!]
+      const at = nodes.findIndex(node => node?.key === String(end))
+      nodes.splice(at + 1, 0, <Animated.Text key="en" entering={APPEAR} selectable onPress={() => {}}
+        onLayout={event => { englishBox.current = event.nativeEvent.layout }}
+        style={[reader.english, sized.english, reader.flowEnglish, segments[active!].heading && { fontWeight: '600' }]}>{translation}</Animated.Text>)
+    }
+    return <AnimatedPressable key={key} accessible={false} layout={REFLOW} onPress={event => tapRun(key, flowWords, event)} style={reader.run}>
+      <View style={reader.line} ref={view => { if (view) lines.current.set(key, view); else lines.current.delete(key); if (holds) activeRun.current = view }} {...dragHandlers(key, flowWords)}>
+        {nodes}
+      </View>
+    </AnimatedPressable>
+  }
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
     {/* The toolbar stays put while the passage scrolls under it. Whole-page listening is gone,
@@ -321,7 +392,7 @@ export default function Reader() {
     <View ref={frame} style={{ flex: 1 }}>
     <ScrollView ref={scroller} scrollEnabled={!dragRange} scrollEventThrottle={32} onScroll={event => { scrollY.current = event.nativeEvent.contentOffset.y }}
       contentContainerStyle={[styles.content, { gap: 10, paddingTop: 10, paddingBottom: active !== null ? overlayHeight + 24 : 36, paddingLeft: 22 + insets.left, paddingRight: 22 + insets.right }]}>
-      {active === null && hint && <Text style={[styles.copy, { fontSize: 13, lineHeight: 18 }]}>Tap a sentence to select it, then tap a word for its meaning or drag across words for a phrase.</Text>}
+      {active === null && hint && <Text style={[styles.copy, { fontSize: 13, lineHeight: 18 }]}>Tap a word for its meaning, or beside the words for just the sentence’s English. Drag across words for a phrase.</Text>}
       {!!recognition.readError && <Text style={reader.edge}>Read with basic text recognition, so some letters may be wrong.</Text>}
       <View style={[styles.card, { gap: 0, paddingVertical: 6, paddingHorizontal: 14 }]}>
         {paragraphs.map((members, p) => {
@@ -330,28 +401,18 @@ export default function Reader() {
           return <View key={p} style={[reader.paragraph, p > 0 && !paged && reader.divider]}>
             {first.joined && <Text style={reader.edge}>Starts on the previous page</Text>}
             {first.cutStart && <Text style={reader.edge}>Continued from the previous page</Text>}
-            {runsOf(members, english === 'all', active).map(run => {
+            {english === 'all' ? runsOf(members, true, active).map(run => {
+              // Every translation showing: each sentence is a run of its own, its English under it.
               const key = `${p}-${run.segments[0]}`
-              const runWords = run.segments.flatMap(wordsOf)
-              const translation = english === 'all' || (english === 'tap' && run.active) ? run.segments.map(englishOf).filter(Boolean).join(' ') : ''
-              return <AnimatedPressable key={key} accessible={false} layout={REFLOW} ref={(view: View | null) => { if (run.active) activeRun.current = view }} onPress={event => tapRun(key, runWords.map(item => item.i), event)} style={[reader.run, run.active && reader.activeRun]}>
-                <View style={reader.line} ref={view => { if (view) lines.current.set(key, view); else lines.current.delete(key) }} {...dragHandlers(key, runWords.map(item => item.i))}>
-                  {run.segments.map(s => [
-                    segments[s].marker ? <Text key={`m${s}`} style={[reader.word, sized.word, reader.marker]}>{segments[s].marker}.</Text> : null,
-                    indexOfFirstWord[s] === undefined ? <Text key={`t${s}`} style={[reader.word, sized.word, he]}>{segments[s].he}</Text> : null,
-                    ...wordsOf(s).map(item => {
-                      const inSelection = highlighted && item.i >= highlighted.from && item.i <= highlighted.to
-                      return <Pressable key={item.i} accessibilityRole="button" accessibilityLabel={`Explain ${item.bare}`} onPress={() => (s === active ? void select(item.i) : chooseSentence(s))}
-                        onLayout={event => { wordBoxes.current.set(item.i, event.nativeEvent.layout) }}
-                        style={[reader.wordBox, inSelection && reader.selectedWord]}>
-                        <Text style={[reader.word, sized.word, segments[s].heading && reader.heading, he]}>{pageWithVowels(item.surface, showNiqqud)}</Text>
-                      </Pressable>
-                    }),
-                  ])}
+              const runWords = run.segments.flatMap(wordsOf).map(item => item.i)
+              const translation = run.segments.map(englishOf).filter(Boolean).join(' ')
+              return <AnimatedPressable key={key} accessible={false} layout={REFLOW} ref={(view: View | null) => { if (run.active) activeRun.current = view }} onPress={event => tapRun(key, runWords, event)} style={[reader.run, run.active && reader.activeRun]}>
+                <View style={reader.line} ref={view => { if (view) lines.current.set(key, view); else lines.current.delete(key) }} {...dragHandlers(key, runWords)}>
+                  {run.segments.map(s => sentenceViews(s, false))}
                 </View>
                 {!!translation && <Animated.Text entering={APPEAR} selectable style={[reader.english, sized.english, first.heading && { fontWeight: '600' }]}>{translation}</Animated.Text>}
               </AnimatedPressable>
-            })}
+            }) : flowOf(p, members)}
             {last.cutEnd && <Text style={reader.edge}>Continues on the next page</Text>}
           </View>
         })}
@@ -376,7 +437,7 @@ export default function Reader() {
     </Animated.View>}
 
     {/* Word drawer: compact by default (meaning and save); details expand on request. */}
-    {word && <WordDrawer lookup={lookup} v={v} onClose={close} style={[overlaySides, { paddingBottom: 12 + insets.bottom }]} onLayout={event => setOverlayHeight(event.nativeEvent.layout.height)} />}
+    {word && <WordDrawer lookup={lookup} v={v} onClose={close} onPickWord={offset => { if (selected !== null) select(selected + offset) }} style={[overlaySides, { paddingBottom: 12 + insets.bottom }]} onLayout={event => setOverlayHeight(event.nativeEvent.layout.height)} />}
   </View>
 }
 
@@ -392,6 +453,10 @@ const reader = StyleSheet.create({
   // The active sentence: a quiet band behind it; the selected word stands out on top.
   activeRun: { backgroundColor: '#EFEBDA', borderRadius: 10, marginHorizontal: -8, paddingHorizontal: 8, paddingVertical: 6, marginVertical: 2 },
   selectedWord: { backgroundColor: colors.lime, borderWidth: 1, borderColor: colors.green, borderRadius: 6 },
+  // In a paragraph drawn as one flow: the active sentence's words, and its English on a row of
+  // its own among them (a full-width item in the wrapping row is a row to itself).
+  activeWord: { backgroundColor: '#EFEBDA' },
+  flowEnglish: { width: '100%', paddingTop: 1, paddingBottom: 6 },
   edge: { fontSize: 12, color: colors.muted, fontStyle: 'italic' },
   divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   line: { flexDirection: 'row-reverse', flexWrap: 'wrap', columnGap: 2 },

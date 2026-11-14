@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { rangeOf, wordAt } from '../src/lib/selection.ts'
+import { rangeOf, rowEnd, wordAt } from '../src/lib/selection.ts'
 
 // Two right-to-left rows: words 0–2 on the first, 3–4 on the second.
 const rects = new Map([
@@ -17,6 +17,15 @@ test('finds the word under the finger, or the nearest on the same row', () => {
   assert.equal(wordAt(rects, 10, 45), 4) // past the end of the second row
   assert.equal(wordAt(rects, 230, 31), 0) // between rows, still the top row's word
   assert.equal(wordAt(new Map(), 0, 0), undefined)
+})
+
+test('the English goes after the last word on the row a sentence ends on', () => {
+  const all = [0, 1, 2, 3, 4]
+  assert.equal(rowEnd(rects, all, 1), 2) // ends mid-row: the row's other word stays above it
+  assert.equal(rowEnd(rects, all, 2), 2)
+  assert.equal(rowEnd(rects, all, 3), 4)
+  assert.equal(rowEnd(new Map([...rects, [2, { ...rects.get(2)!, y: 3 }]]), all, 1), 2) // a little lower, same row
+  assert.equal(rowEnd(new Map(), all, 1), 1)
 })
 
 test('range runs either way from the start word and is capped', () => {
