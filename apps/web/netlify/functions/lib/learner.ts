@@ -101,7 +101,9 @@ const kindOf = (entry: LearnerEntry) => {
 // Cards that show the word itself (its meanings, or the word card) rather than one of its forms.
 const isWordCard = (stage?: string) => !stage || stage === 'meanings'
 
-export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], level: Level, now = Date.now()): LearnerState {
+// `keptAreEarlier`: the cards' kept results are only those from before events were recorded (as
+// lib/calibration.ts replays history), rather than the latest few, which events may also hold.
+export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], level: Level, now = Date.now(), { keptAreEarlier = false } = {}): LearnerState {
   const byId = new Map(entries.map(entry => [entry.id, entry]))
   const words = new Map<string, { lemma: string; entry?: LearnerEntry; evidence: Evidence[]; answers: number; forms: string[] }>()
   const word = (lemma: string, entry?: LearnerEntry) => {
@@ -195,7 +197,7 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
     ]
     for (const { key, card, results } of cards) {
       const kept = results.results || []
-      const earlier = kept.length - (recorded.get(key) ?? 0)
+      const earlier = keptAreEarlier ? kept.length : kept.length - (recorded.get(key) ?? 0)
       for (let i = 0; i < earlier; i++) {
         answered(entry, card, { at: results.last ?? now, knew: kept[i], primed: !!results.primed?.[i], channel: 'either', when: 'date not kept' })
       }

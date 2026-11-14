@@ -10,6 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { MongoClient } from 'mongodb'
 import { readingExposure } from '../netlify/functions/lib/exposure.ts'
+import { PREDICTORS, replay, score, scoreBy, splitBy } from '../netlify/functions/lib/calibration.ts'
 import { commonUpTo, EVIDENCE_HALF_LIFE, learnerState, levelFromSaves, MODEL_VERSION, parseCardKey, WEIGHTS, lemmaKeyOf } from '../netlify/functions/lib/learner.ts'
 
 const envFile = [new URL('../.env', import.meta.url), new URL('../../../.env', import.meta.url)].find(url => existsSync(url) && /MONGODB_URI=/.test(readFileSync(url, 'utf8')))
@@ -103,10 +104,36 @@ try {
     return items.map((item, i) => ({ ...item, mark: marks[i]?.[2] ?? ' ' }))
   })()
 
+  // Calibration: every answer predicted again from what was known just before it (lib/calibration.ts).
+  const checkLevel = kept('level.json')
+  const predictions = replay(entries, events, checkLevel ? { checkLevel } : {})
+  const keyOfPrediction = item => keyOfId(item.wordId)
+  const readCount = item => exposure.words.get(keyOfPrediction(item))?.read ?? 0
+  const calibration = {
+    n: predictions.length, right: predictions.filter(item => item.knew).length,
+    first: Math.min(...predictions.map(item => item.at)), last: Math.max(...predictions.map(item => item.at)),
+    scores: PREDICTORS.filter(name => predictions.some(item => name in item.p)).map(name => score(predictions, name)),
+    groups: scoreBy(predictions, {
+      'not primed': item => !item.primed, primed: item => item.primed,
+      'word card': item => item.kind === 'word', 'meanings card': item => item.stage === 'meanings', 'form card': item => item.kind !== 'word' && item.stage !== 'meanings',
+      "card's first answer": item => item.cardAnswersBefore === 0, 'card answered before': item => item.cardAnswersBefore > 0,
+      'English first': item => item.front === 'en', 'Hebrew first': item => item.front === 'he',
+    }),
+    splits: [
+      splitBy(predictions, 'Rank of the word in spoken Hebrew', item => (item.rank == null ? 'not listed' : item.rank <= 1000 ? '1–1,000' : item.rank <= 5000 ? '1,001–5,000' : 'over 5,000')),
+      splitBy(predictions, 'Times read in your passages (today\'s count: looks ahead)', item => { const n = readCount(item); return n === 0 ? 'none found' : n === 1 ? 'once' : n <= 3 ? '2–3' : '4+' }),
+      splitBy(predictions, 'Days since the word was saved', item => (item.savedDaysBefore == null ? null : item.savedDaysBefore < 7 ? 'under a week' : item.savedDaysBefore < 21 ? '1–3 weeks' : '3+ weeks')),
+      splitBy(predictions, 'Primed (just saw the Hebrew)', item => (item.primed ? 'primed' : 'not primed')),
+      splitBy(predictions, 'In a learning sequence', item => (item.sequence ? 'in sequence' : 'on its own')),
+      splitBy(predictions, 'Answers on this card before', item => (item.cardAnswersBefore === 0 ? 'none' : item.cardAnswersBefore === 1 ? 'one' : 'two or more')),
+    ],
+    answers: predictions.map(item => ({ at: item.at, lemma: item.lemma, key: keyOfPrediction(item), kind: item.kind, stage: item.stage, knew: item.knew, primed: item.primed, p: item.p })),
+  }
+
   const data = {
     generated: now, version: MODEL_VERSION, level, commonUpTo: commonUpTo(level), weights: WEIGHTS, halfLife: EVIDENCE_HALF_LIFE,
     overall: state.overall, grammar: state.grammar, words, dataset, levelCheck,
-    unmatched: exposure.unmatched.slice(0, 80), textsCount: exposure.texts,
+    unmatched: exposure.unmatched.slice(0, 80), textsCount: exposure.texts, calibration,
   }
   const template = readFileSync(new URL('./learner-dashboard.html', import.meta.url), 'utf8')
   const html = template.replace('__DATA__', JSON.stringify(data).replace(/</g, '\\u003c'))

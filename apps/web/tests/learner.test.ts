@@ -115,3 +115,21 @@ describe('reading exposure', () => {
     expect(found.withoutProgress).toBe(1)
   })
 })
+
+describe('calibration replay', () => {
+  it('predicts each answer only from what came before it', async () => {
+    const { replay, score, studyState } = await import('../netlify/functions/lib/calibration')
+    const entry: LearnerEntry = { id: 'native-v', lemma: 'לכתוב', lemmaPlain: 'לכתוב', createdAt: now - 10 * DAY, results: [false, true, true], last: now - 1000, encounters: [{ surface: 'כתב', at: now - 10 * DAY }] }
+    const events = [answer(1, 'native-v:word', false, 'he', { at: now - 3000 }), answer(2, 'native-v:word', true, 'he', { at: now - 2000 }), answer(3, 'native-v:word', true, 'he', { at: now - 1000 })]
+    const predictions = replay([entry], events)
+    expect(predictions).toHaveLength(3)
+    // The first answer has no card history before it; the third has one miss and one right.
+    expect(predictions[0].cardAnswersBefore).toBe(0)
+    expect(predictions[0].p['card so far']).toBe(0.5)
+    expect(predictions[2].p['card so far']).toBe(0.5)
+    expect(predictions[1].p['card so far']).toBeCloseTo(1 / 3)
+    expect(score(predictions, 'card so far').n).toBe(3)
+    expect(studyState([true, true], [false, true])).toBe('familiar')
+    expect(studyState([true, true], [true, true])).toBe('learning')
+  })
+})

@@ -76,6 +76,7 @@ svg text { fill: var(--muted); font-size: 11px; }
   <section id="grammar"></section>
   <section id="relevance"></section>
   <section id="level"></section>
+  <section id="calibration"></section>
   <section id="assumptions"></section>
 </main>
 <div id="detail"><div class="sheet" id="sheet"></div></div>
@@ -102,7 +103,7 @@ const band = (b) => `<span class="tag b-${b}">${b}</span>`
 const directAnswers = (w) => w.observed.filter(o => o.type === 'answer').length
 const words = D.words
 
-const TABS = [['overview', 'Overview'], ['data', 'Data collected'], ['words', 'Words'], ['grammar', 'Grammar'], ['relevance', 'Knowledge × relevance'], ['level', 'Vocabulary check'], ['assumptions', 'Assumptions']]
+const TABS = [['overview', 'Overview'], ['data', 'Data collected'], ['words', 'Words'], ['grammar', 'Grammar'], ['relevance', 'Knowledge × relevance'], ['level', 'Vocabulary check'], ['calibration', 'Calibration'], ['assumptions', 'Assumptions']]
 $('tabs').innerHTML = TABS.map(([id, label]) => `<button data-tab="${id}">${label}</button>`).join('')
 const show = (id) => {
   document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === id))
@@ -314,6 +315,41 @@ $('level').innerHTML = L ? (() => {
   <h2>Items</h2>
   <table><tr><th>Rank</th><th>Form</th><th>Answer</th></tr>${[...L].sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9)).map(i => `<tr><td>${i.rank ?? 'made-up'}</td><td>${he(i.word)}</td><td>${i.mark === 'x' ? '<span class="plus">known</span>' : i.mark === '-' ? 'left out' : '<span class="muted">not known</span>'}</td></tr>`).join('')}</table>`
 })() : '<div class="muted">No vocabulary check scored yet.</div>'
+
+// Calibration
+const K = D.calibration
+const PRELIM = K.n < 300
+const fmt = (x) => x == null ? '—' : x.toFixed(3)
+const scoreRow = (s) => `<tr><td>${esc(s.name)}</td><td>${fmt(s.logLoss)} <span class="muted small">${fmt(s.logLossRange[0])}–${fmt(s.logLossRange[1])}</span></td><td>${fmt(s.brier)}</td><td>${fmt(s.auc)}</td><td>${pct(s.meanP)} / ${pct(s.observed)}</td>
+  <td>${s.vsBaseline ? `<span class="${s.vsBaseline.range[1] < 0 ? 'plus' : s.vsBaseline.range[0] > 0 ? 'minus' : ''}">${s.vsBaseline.diff > 0 ? '+' : ''}${fmt(s.vsBaseline.diff)}</span> <span class="muted small">${fmt(s.vsBaseline.range[0])} to ${fmt(s.vsBaseline.range[1])} · better in ${Math.round(s.vsBaseline.better * 100)}% of resamples</span>` : '<span class="muted">baseline</span>'}</td></tr>`
+const reliability = (s) => {
+  const S = 220, P = 28, sc = (v) => P + v * (S - 2 * P), yc = (v) => S - P - v * (S - 2 * P)
+  return `<div class="card" style="display:inline-block;margin:0 10px 10px 0"><div class="small"><b>${esc(s.name)}</b></div>
+    <svg viewBox="0 0 ${S} ${S}" width="${S}"><line x1="${sc(0)}" y1="${yc(0)}" x2="${sc(1)}" y2="${yc(1)}" stroke="var(--line)" stroke-dasharray="3 3"/>
+    <line x1="${sc(0)}" y1="${yc(0)}" x2="${sc(1)}" y2="${yc(0)}" stroke="var(--line)"/><line x1="${sc(0)}" y1="${yc(0)}" x2="${sc(0)}" y2="${yc(1)}" stroke="var(--line)"/>
+    <text x="${P}" y="${S - 8}">predicted 0</text><text x="${S - P - 18}" y="${S - 8}">1</text><text x="2" y="${yc(1) + 4}">1</text>
+    ${s.bins.filter(b => b.n).map(b => `<circle cx="${sc(b.meanP)}" cy="${yc(b.observed)}" r="${3 + Math.sqrt(b.n) * 1.6}" fill="var(--accent)" fill-opacity=".45"><title>${b.n} answers predicted ${pct(b.meanP)} on average; ${pct(b.observed)} right</title></circle>
+      <text x="${sc(b.meanP) + 6}" y="${yc(b.observed) - 6}">${b.n}</text>`).join('')}</svg></div>`
+}
+$('calibration').innerHTML = `
+  <div class="note ${PRELIM ? 'bad' : 'ok'}"><b>${PRELIM ? 'Preliminary' : 'Enough to start trusting'}:</b> ${K.n} answers (${K.right} right), ${day(K.first)} to ${day(K.last)}. ${PRELIM ? 'Ranges are wide and a difference counts only where its whole 80% range is on one side of zero (green or red). Expect conclusions to change by a few hundred answers.' : ''}</div>
+  <div class="note">This measures <b>prediction</b>: whether the model expects the answers you give. It says nothing yet about whether choosing cards by it would teach you more; that needs comparing what you remember later under different choices.</div>
+  <div class="note small">Each answer is predicted from only what was known just before it: words saved by then, earlier events, and older card results dated no later than they can have been. Exceptions, marked: <i>model, check level</i> uses the vocabulary check taken later, and the reading counts below use today's passages.</div>
+  <h2>All answers</h2>
+  <table><tr><th>Predictor</th><th>Log loss (lower better; 0.693 = always 50%)</th><th>Brier</th><th>Ranking (AUC, 0.5 = chance)</th><th>Predicted / right</th><th>Log loss vs overall so far</th></tr>${K.scores.map(scoreRow).join('')}</table>
+  <h3>Reliability: predicted chance against how often answers were right</h3>
+  <div>${K.scores.filter(s => ['model', 'card so far', 'overall so far'].includes(s.name)).map(reliability).join('')}</div>
+  <div class="small muted">On the dashed line, a prediction of 30% is right 30% of the time. Circle size: answers in the bin.</div>
+  <h2>By kind of answer</h2>
+  ${K.groups.filter(g => g.n).map(g => `<h3>${esc(g.group)} · ${g.n} answers, ${g.right} right</h3>${g.scores.length ? `<table><tr><th>Predictor</th><th>Log loss</th><th>Brier</th><th>AUC</th><th>Predicted / right</th><th>vs overall so far</th></tr>${g.scores.map(scoreRow).join('')}</table>` : '<div class="muted small">Too few to score.</div>'}`).join('')}
+  ${K.groups.filter(g => !g.n).length ? `<div class="muted small">No answers yet: ${K.groups.filter(g => !g.n).map(g => esc(g.group)).join(', ')}.</div>` : ''}
+  <h2>What goes with knowing (exploratory)</h2>
+  <div class="note small">Answers split by one feature at a time: how often they were right, against what the model predicted. Associations in a few dozen answers, not causes.</div>
+  ${K.splits.map(sp => `<h3>${esc(sp.label)}</h3><table><tr><th>Group</th><th>Answers</th><th>Right</th><th>Model predicted</th></tr>${sp.groups.map(g => `<tr><td>${esc(g.value)}</td><td>${g.n}</td><td>${g.right} (${pct(g.right / g.n)})</td><td>${pct(g.meanModel)}</td></tr>`).join('')}</table>`).join('')}
+  <h2>Each answer</h2>
+  <table><tr><th>When</th><th>Word</th><th>Card</th><th>Answer</th><th>Model</th><th>Card so far</th><th>Overall so far</th></tr>
+  ${[...K.answers].reverse().map(a => `<tr class="click" data-key="${esc(a.key)}"><td class="small">${when(a.at)}</td><td>${he(a.lemma)}</td><td class="small">${esc(a.kind)} ${esc(a.stage || '')}${a.primed ? ' · primed' : ''}</td><td>${a.knew ? '<span class="plus">knew</span>' : '<span class="minus">still learning</span>'}</td><td>${pct(a.p.model)}</td><td>${pct(a.p['card so far'])}</td><td>${pct(a.p['overall so far'])}</td></tr>`).join('')}</table>`
+$('calibration').onclick = (e) => { const r = e.target.closest('[data-key]'); if (r && r.dataset.key !== 'null') openWord(r.dataset.key) }
 
 // Assumptions
 $('assumptions').innerHTML = `
