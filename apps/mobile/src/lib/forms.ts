@@ -259,7 +259,8 @@ export function newCards(entry: VocabEntry) {
 // brought in behind the card before it (followUps).
 // `variant`: which of the card's sentences a round of new sentences shows (shownForm); otherwise
 // it is chosen as the card comes up (variantOf).
-export type Card = { entry: VocabEntry; form: FormCard | null; checkpoint?: string; why?: string; sequence?: boolean; variant?: number }
+// `mode: 'fresh'`: in a round of new sentences, a different setting from an ordinary round.
+export type Card = { entry: VocabEntry; form: FormCard | null; checkpoint?: string; why?: string; sequence?: boolean; variant?: number; mode?: 'fresh' }
 export const cardKey = ({ entry, form, checkpoint }: Card) => `${entry.id}:${checkpoint ? `checkpoint:${checkpoint}` : form ? form.key : 'word'}`
 export const resultsOf = ({ entry, form, checkpoint }: Card): Results => (checkpoint ? checkpointRecord(entry, checkpoint) : form ?? entry)
 
@@ -379,7 +380,10 @@ export function deckOf(entries: VocabEntry[], { include, order }: { include: Inc
   }
   const others = mix(taken, incoming, 0.5)
   const rest = rules.familiarRestDays * DAY
-  const familiar = studied.flatMap(cardsOf).filter(card => state(card) === 'familiar').sort((a, b) => lastOf(a) - lastOf(b))
+  // A familiar card is a check on what was learned, so only of a word the round doesn't otherwise
+  // show: met just after another card of its word, it would only show what that card just primed.
+  const inPlay = new Set(others.map(card => card.entry.id))
+  const familiar = studied.flatMap(cardsOf).filter(card => state(card) === 'familiar' && !inPlay.has(card.entry.id)).sort((a, b) => lastOf(a) - lastOf(b))
   const rested = familiar.filter(card => now - lastOf(card) >= rest).filter((card, i, all) => all.findIndex(other => other.entry.id === card.entry.id) === i)
   const some = (others.length ? rested.slice(0, Math.ceil(others.length / rules.familiarEvery)) : (rested.length ? rested : familiar).slice(0, rules.roundSize))
     .map(card => ({ ...card, why: `familiar · last seen ${ago(lastOf(card), now)}` }))
@@ -480,7 +484,9 @@ export const writerOf = (form: FormCard, variant = 0) => (variant > 0 ? form.var
 // being learned that have sentence cards studied already, least recently studied first, each with
 // the stage it was studied in last (all of that stage's cards get a new sentence, word-forms.ts
 // fresh). Nothing about the words' progress changes; their cards' results go on as before.
-export function freshPicks(entries: VocabEntry[], words = 4): { entry: VocabEntry; stage: string }[] {
+export const FRESH_WORDS = 6
+export const FRESH_PER_WORD = 2
+export function freshPicks(entries: VocabEntry[], words = FRESH_WORDS): { entry: VocabEntry; stage: string }[] {
   const out: { entry: VocabEntry; stage: string }[] = []
   for (const entry of studyPool(entries, 'both').started) {
     const studied = activeForms(entry).filter(form => form.results?.length).sort((a, b) => (b.last ?? 0) - (a.last ?? 0))
@@ -489,10 +495,23 @@ export function freshPicks(entries: VocabEntry[], words = 4): { entry: VocabEntr
   }
   return out
 }
-// Its cards with their new sentences, once written: each card of the stage that has one.
+// Its cards with their new sentences, once written: those of the stage that have one, the ones
+// still being learned first, FRESH_PER_WORD of them (the rest come round in ordinary rounds, which
+// show a card's sentences in turn).
 export const freshCards = (entry: VocabEntry, stage: string): Card[] => (entry.forms || [])
   .filter(form => form.stage === stage && personalVariant(form))
-  .map(form => ({ entry, form, variant: personalVariant(form), why: 'new sentence · written for what you know' }))
+  .sort((a, b) => Number(stateOf(a) === 'familiar') - Number(stateOf(b) === 'familiar') || (a.last ?? 0) - (b.last ?? 0))
+  .slice(0, FRESH_PER_WORD)
+  .map(form => ({ entry, form, variant: personalVariant(form), mode: 'fresh' as const, why: 'new sentence · written for what you know' }))
+// The round: a card of each word in turn, so a word's two cards are as far apart as the round
+// allows, never back to back.
+export const freshRound = (cards: Card[][]): Card[] =>
+  Array.from({ length: Math.max(0, ...cards.map(list => list.length)) }, (_, i) => cards.flatMap(list => list[i] ?? [])).flat()
+
+// Whether another card of this card's word came just before it in the round (within
+// ProgressRules.primedCards), so that answering it is helped by having just seen the word.
+export const justAfterItsWord = (deck: Card[], at: number, from = 0) =>
+  deck.slice(Math.max(from, at - ProgressRules.primedCards), at).some(card => card.entry.id === deck[at]?.entry.id)
 
 // Fill in the blank: a sentence card asked as its sentence with the word left out and four
 // Hebrew options (quizOf), which tests choosing the right word or form in context rather than
@@ -500,22 +519,29 @@ export const freshCards = (entry: VocabEntry, stage: string): Card[] => (entry.f
 // now and then, on about one in three sentence cards that have been answered before (never at a
 // first meeting, which is a flashcard), settled by the card and how often it was answered, so
 // going back shows the same; 'all': every card that can be (Quiz forms before); 'off': none.
+// It is a check on what is known, so in 'some' never just after another card of its word
+// (`primed`, as isPrimed says), where it would only show what that card just put in mind.
 export type ChoiceMode = 'some' | 'all' | 'off'
-export function asChoice(card: Card, record: Results, mode: ChoiceMode) {
+export function asChoice(card: Card, record: Results, mode: ChoiceMode, primed = false) {
   if (mode === 'off' || card.checkpoint) return false
   if (mode === 'all') return true
-  if (!card.form || !record.results?.length) return false
+  if (!card.form || !record.results?.length || primed || card.sequence) return false
   return [...`${cardKey(card)}:${record.results.length}`].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7) % 3 === 0
 }
 
-// Reorders so two cards of the same word are not back to back, where another card can go between.
-export function spread<T extends { entry: VocabEntry }>(cards: T[]): T[] {
+// Reorders so cards of the same word are a few cards apart (SPREAD_GAP) where the round has room
+// for it, keeping the order otherwise: two uses of a word met one after the other are practised
+// with the first still in mind. Where it can't be that far, as far as it can. A learning sequence
+// (followUps), which puts a word's cards together on purpose, is added after this.
+export const SPREAD_GAP = 4
+export function spread<T extends { entry: VocabEntry }>(cards: T[], gap = SPREAD_GAP): T[] {
   const left = [...cards]
   const out: T[] = []
+  const since = (id: string) => { const at = out.map(card => card.entry.id).lastIndexOf(id); return at === -1 ? Infinity : out.length - at }
   while (left.length) {
-    const previous = out[out.length - 1]?.entry.id
-    const i = left.findIndex(card => card.entry.id !== previous)
-    out.push(...left.splice(i === -1 ? 0 : i, 1))
+    let i = left.findIndex(card => since(card.entry.id) >= gap)
+    if (i === -1) i = left.reduce((best, card, at) => (since(card.entry.id) > since(left[best].entry.id) ? at : best), 0)
+    out.push(...left.splice(i, 1))
   }
   return out
 }
@@ -577,6 +603,10 @@ export function quizOf(entries: VocabEntry[], { entry, form }: Card, english: bo
   const key = (text: string) => stripNiqqud(text).trim().toLowerCase()
   const answer = form ? form.he : valueOf(entry)
   if (!answer) return null
+  // A meaning card written with distractors of its own (words that look as if they could go in the
+  // blank but don't fit this sentence) chooses among those; older cards among the saved words.
+  const own = (form?.distractors || []).filter((item, i, all) => key(item) !== key(answer) && all.findIndex(other => key(other) === key(item)) === i).slice(0, 3)
+  if (own.length === 3) return { options: shuffle([answer, ...own], seed), answer }
   // An expression chooses among other expressions, a word among other words: the same part of
   // speech first, then words the learner has practised (so the choice is between words they know,
   // and which fits is what it asks), then those about as common as this one; taken from the best

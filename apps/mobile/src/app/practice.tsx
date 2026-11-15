@@ -13,7 +13,7 @@ import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { ago, asChoice, assess, type Card, cardKey, type ChoiceMode, checkpointGroup, freshCards, freshPicks, shownForm, spread, variantOf, writerOf, checkpointRecord, cuedTranslation, deckOf, exposureOf, firstSense, followUps, type Include, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
+import { ago, asChoice, assess, type Card, cardKey, type ChoiceMode, checkpointGroup, freshCards, freshPicks, freshRound, justAfterItsWord, shownForm, variantOf, writerOf, checkpointRecord, cuedTranslation, deckOf, exposureOf, firstSense, followUps, type Include, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
@@ -36,6 +36,12 @@ import { ScriptContext, useCursive, useHebrew } from '../state/script'
 const bare = (text: string) => stripNiqqud(bareWord(text))
 type Settings = { front: Front; order: Order; include: Include; choices: ChoiceMode }
 const CHOICES: Record<ChoiceMode, string> = { some: 'Sometimes', all: 'Always', off: 'Off' }
+// How long a filled-in blank stays to show how it went before the next card: enough to see the
+// right answer, longer beside a wrong one.
+// A blank, drawn as a line long enough to see in Hebrew or English.
+const BLANK = '＿＿＿'
+const RIGHT_PAUSE = 900
+const WRONG_PAUSE = 2200
 const FRONTS: Record<Front, string> = { he: 'Hebrew first', en: 'English first', mixed: 'Mixed' }
 const INCLUDES: Record<Include, string> = { both: 'Words & sentences', words: 'Words', sentences: 'Sentences' }
 const ORDERS: Record<Order, string> = { smart: 'Smart', shuffle: 'Shuffled' }
@@ -131,15 +137,23 @@ export default function Practice() {
   // How a card is put to the learner: which of its sentences (lib/forms.ts shownForm), settled
   // from its record before this visit's answer so answering doesn't change it, and whether it is a
   // fill in the blank (asChoice) with its options. Who wrote the sentence is logged with it.
-  const presentation = (card: Card, entry: VocabEntry, record: Results, english: boolean) => {
+  const presentation = (card: Card, entry: VocabEntry, record: Results, english: boolean, primed: boolean) => {
     const stored = card.form ? entry.forms?.find(item => item.key === card.form!.key) || card.form : null
     const variant = stored ? card.variant ?? variantOf(stored, record) : 0
     const shown = stored ? shownForm(stored, variant) : null
-    const quiz = settings && asChoice(card, record, settings.choices)
+    const quiz = settings && asChoice(card, record, settings.choices, primed)
       ? quizOf(Object.values(words), { entry, form: shown }, english, `${cardKey(card)}-${record.results?.length ?? 0}`) : null
     return { shown, variant, quiz, writer: stored ? writerOf(stored, variant) : undefined }
   }
   const [writing, setWriting] = useState<number | null>(null)
+  // A filled-in blank moves on by itself after a moment to take in the result, longer when it was
+  // wrong; going anywhere else first, or looking up a word on it, stops that.
+  const advancing = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [pausing, setPausing] = useState(false)
+  const clearAdvance = () => { if (advancing.current) { clearTimeout(advancing.current); advancing.current = null } }
+  const stopAdvancing = () => { clearAdvance(); setPausing(false) }
+  useEffect(() => { if (lookup.tap) clearAdvance() }, [lookup.tap])
+  useEffect(() => clearAdvance, [])
 
   useEffect(() => {
     if (!session) return
@@ -225,9 +239,10 @@ export default function Practice() {
     shownAt.current[position] = { at: now, key, wordCardsAgo: word?.cardsAgo ?? null, wordMsAgo: word?.msAgo ?? null }
     seen.current.push({ key, word: entry.id, at: now })
     const front = frontOf(card, position)
-    const shownAs = card.checkpoint ? null : presentation(card, entry, record, front !== 'en')
+    const shownAs = card.checkpoint ? null : presentation(card, entry, record, front !== 'en', justAfterItsWord(deck!, position, roundStart))
     study.current.log('show', {
-      ...cardFields(card, entry, position, roundStart), front, quiz: !!shownAs?.quiz, exercise: shownAs?.quiz ? 'choice' : 'card',
+      ...cardFields(card, entry, position, roundStart), front: shownAs?.quiz ? null : front, quiz: !!shownAs?.quiz, exercise: shownAs?.quiz ? 'choice' : 'card',
+      ...(shownAs?.quiz ? { tests: !card.form || card.form.stage === 'meanings' ? 'word' : 'form' } : {}),
       ...(shownAs?.variant ? { variant: shownAs.variant } : {}), ...(shownAs?.writer ? { writer: shownAs.writer } : {}),
       wordShown: word, cardShown: self, results: record.results ?? [], primed: record.primed ?? [], lastAnswered: record.last ?? null, wordLastStudied: lastStudied(entry) || null,
     })
@@ -283,13 +298,13 @@ export default function Practice() {
     }
     feel('advance'); setWriting(picks.length); setError(null)
     const written = await Promise.all(picks.map(({ entry, stage }) => freshSentences(words[entry.id] || entry, stage, session.token).catch(() => null)))
-    const cards = written.flatMap((entry, i) => (entry ? freshCards(entry, picks[i].stage) : []))
+    const cards = freshRound(written.map((entry, i) => (entry ? freshCards(entry, picks[i].stage) : [])))
     setWriting(null)
     if (!cards.length) { setError('New sentences couldn\'t be written just now. Try again in a moment.'); return }
     const fresh = written.filter((entry): entry is VocabEntry => !!entry)
     setWords(current => ({ ...current, ...Object.fromEntries(fresh.map(entry => [entry.id, entry])) }))
     fresh.forEach(entry => putEntry(session, entry))
-    setRoundStart(deck.length); setDeck([...deck, ...spread(cards)]); setPosition(deck.length)
+    setRoundStart(deck.length); setDeck([...deck, ...cards]); setPosition(deck.length)
     setWay('next'); setFlipped(false); setDone(false)
   }
   if (writing !== null) return <Page>
@@ -313,11 +328,10 @@ export default function Practice() {
   const go = (step: 1 | -1, quiet = false, added = 0) => {
     const to = position + step
     if (to < roundStart) return false
-    lookup.close()
+    lookup.close(); stopAdvancing()
     if (to >= deck.length + added) { setDone(true); return true }
     if (!quiet) feel('advance')
     setWay(step === 1 ? 'next' : 'previous'); setPosition(to); setFlipped(false)
-    setPicks(current => { const { [to]: _gone, ...rest } = current; return rest })
     return true
   }
   const stopStudying = () => { stopSpeaking(); if (Object.keys(answers).length) setDone(true); else { clearRound(); router.back() } }
@@ -361,15 +375,18 @@ export default function Practice() {
   // The card as shown: one of its sentences, and as a fill in the blank or turned over. Fill in
   // the blank: a word card shown in Hebrew asks for its meaning, shown in English for the word. A
   // checkpoint is always recalled and turned over.
-  const shownAs = checkpoint ? null : presentation(card, entry, before[position] ?? record, !englishFirst)
+  const shownAs = checkpoint ? null : presentation(card, entry, before[position] ?? record, !englishFirst, justAfterItsWord(deck, position, roundStart))
   const form = shownAs?.shown ?? stored
   const stage = form ? stagesOf(entry).find(item => item.key === form.stage) : null
   const loaded = tables[entry.id]
   const rows = checkpoint && loaded && 'groups' in loaded ? loaded.groups.find(group => group.key === checkpointGroup(entry, checkpoint))?.rows ?? [] : []
   const quiz = shownAs?.quiz ?? null
   const choices = quiz?.options ?? null
-  const picked = picks[position] ?? null
-  const right = !!quiz && picked !== null && bare(picked) === bare(quiz.answer)
+  // A blank already filled (on going back, or in a round resumed, where the choice itself wasn't
+  // kept: '' then) shows how it was answered and can't be answered again.
+  const picked = picks[position] ?? (!!quiz && answers[position] !== undefined ? '' : null)
+  const right = !!quiz && !!picked && bare(picked) === bare(quiz.answer)
+  const testsForm = !!form && form.stage !== 'meanings'
   const answered = answers[position]
   // A checkpoint can only be answered once its forms are there to check against.
   const answerable = !checkpoint || rows.length > 0
@@ -447,13 +464,13 @@ export default function Practice() {
   const listen = checkpoint ? undefined : form ? form.sentence : entry.feminine ? `${entry.lemma}, ${entry.feminine}` : entry.lemma
   const side = (english: boolean, answerSide: boolean) => <ScriptContext.Provider value={answerSide ? 'answers' : 'print'}>
     {form
-      ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={answerSide ? vAnswer : vQuestion} lookup={answerSide ? lookup : undefined} />
+      ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} hideMeaning={!!choices && !testsForm} v={answerSide ? vAnswer : vQuestion} lookup={answerSide ? lookup : undefined} />
       : <WordSide entry={entry} english={english} answer={answerSide} v={answerSide ? vAnswer : vQuestion} />}
   </ScriptContext.Provider>
   const hint = checkpoint
     ? (!answerable ? (loaded && 'error' in loaded ? 'The forms could not be loaded, so swipe to skip this one.' : '')
       : flipped ? 'Swipe right if you knew them all, left if not.' : 'Say them to yourself, then tap to check.')
-    : choices ? (picked !== null ? 'Swipe to go on.' : '')
+    : choices ? (picked !== null && (!pausing || !!lookup.tap) ? 'Answered. Swipe or → to go on.' : testsForm ? 'Choose the form that fits.' : 'Choose the word that fits.')
       : answered !== undefined ? `${answered ? 'You knew it' : 'Still learning'}. Swipe again to change.`
         : Object.keys(answers).length < 3 ? 'Swipe right if you knew it, left if you\'re still learning.' : ''
 
@@ -475,13 +492,16 @@ export default function Practice() {
               back={<ScriptContext.Provider value="answers"><CheckpointSide entry={entry} stage={checkpoint} rows={rows} loading={!loaded} answer v={vAnswer} /></ScriptContext.Provider>} />
             : choices
               ? <View style={[styles.card, practice.card]}>
-                <ScriptContext.Provider value="print"><CardHead label={stage?.label} lemma={vQuestion(entry.lemma)} listen={picked !== null ? listen : undefined} /></ScriptContext.Provider>
+                <ScriptContext.Provider value="print"><CardHead label={stage?.label} lemma={testsForm || picked !== null ? vQuestion(entry.lemma) : undefined} listen={picked !== null ? listen : undefined} /></ScriptContext.Provider>
                 {side(!form && englishFirst, picked !== null)}
                 <ScriptContext.Provider value="print"><Choices choices={choices} answer={quiz!.answer} picked={picked} v={vQuestion} onPick={option => {
-                  if (!tapped()) return
+                  // Once only: a quick second tap, or a blank answered before, records nothing more.
+                  if (!tapped() || picked !== null || advancing.current) return
                   const isRight = bare(option) === bare(quiz!.answer)
                   setPicks(current => ({ ...current, [position]: option })); feel(isRight ? 'right' : 'wrong')
-                  answer(isRight, true, option)
+                  const added = answer(isRight, true, option)
+                  setPausing(true)
+                  advancing.current = setTimeout(() => { advancing.current = null; setPausing(false); go(1, true, added) }, isRight ? RIGHT_PAUSE : WRONG_PAUSE)
                 }} /></ScriptContext.Provider>
                 {picked !== null && <Text style={[practice.verdict, { color: right ? colors.green : colors.red }]}>{right ? 'Right' : 'Not quite'}</Text>}
               </View>
@@ -567,7 +587,7 @@ function SettingsSheet({ settings, change, cursive, onCursive, onClose, onFresh 
       <Choice label="Fill in the blank" options={CHOICES} value={settings.choices} onChange={choices => change({ choices })} />
       <Text style={practice.settingDetail}>A sentence you’ve studied, with its word left out, and four to choose from</Text>
       <Text style={practice.group}>Try</Text>
-      <Pressy moment="advance" accessibilityRole="button" onPress={onFresh} style={practice.tryRow}>
+      <Pressy moment="press" accessibilityRole="button" onPress={onFresh} style={practice.tryRow}>
         <Ionicons name="sparkles-outline" size={20} color={colors.green} />
         <View style={{ flex: 1, gap: 1 }}>
           <Text style={practice.settingLabel}>New sentences</Text>
@@ -651,8 +671,10 @@ const heardOf = (form: FormCard) => form.said || (form.stage === 'meanings' ? fo
 // alone to listen to), the form with the constructions the word is used in, and the translation.
 // On the answer side each word of the sentence can be tapped to look it up (`lookup`); the
 // question side is only turned over by a tap, so a lookup never gives the answer away.
-function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, lookup }: {
-  entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; hideMark: boolean; v: (text: string) => string; lookup?: WordLookup
+// `hideMeaning`, for a blank that asks for the word: the English with the word's own words left
+// out too, so the sentence says what is needed and the choice is which word says it.
+function SentenceSide({ entry, form, english, answer: answerSide, hideMark, hideMeaning = false, v, lookup }: {
+  entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; hideMark: boolean; hideMeaning?: boolean; v: (text: string) => string; lookup?: WordLookup
 }) {
   const he = useHebrew()
   // A word tapped at its place among the sentence's words (`at`): what the card says it means
@@ -669,7 +691,7 @@ function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, l
   if (!answerSide) return <>
     {english ? <Text style={practice.english}><Marked text={cuedTranslation(form)} mark={form.enMark} /></Text> : hebrew}
     {/* Fill in the blank: what the whole sentence says, so the choice is the Hebrew that says it here. */}
-    {hideMark && <Text style={practice.hint}><Marked text={cuedTranslation(form)} mark={form.enMark} /></Text>}
+    {hideMark && <Text style={practice.hint}><Marked text={cuedTranslation(form)} mark={form.enMark} blank={hideMeaning} /></Text>}
   </>
   const heard = heardOf(form)
   return <View style={{ gap: 8, alignSelf: 'stretch' }}>
@@ -703,7 +725,7 @@ function MarkedHebrew({ sentence, mark, form, blank, onWord, looked }: {
     const selected = !!word && looked === place && practice.looked
     if (!piece.marked) return <Text key={i} {...tap} style={selected}>{piece.text}</Text>
     const own = formWords[k++] ?? ''
-    if (blank) return <Text key={i}>{prefixOf(piece.text, own)}<Text style={practice.blank}>{' '.repeat(6)}</Text></Text>
+    if (blank) return <Text key={i}>{prefixOf(piece.text, own)}<Text style={practice.blank}>{BLANK}</Text></Text>
     return <Text key={i} {...tap} style={[practice.mark, selected]}>{piece.text}</Text>
   })}</>
 }
@@ -712,8 +734,9 @@ function MarkedHebrew({ sentence, mark, form, blank, onWord, looked }: {
 // unmarked if they aren't found. Each word is marked on its own and the spaces between are not:
 // iOS draws a marked run that wraps onto the next line of centred text from that line's edge,
 // far wider than the words, so no marked run may contain a place where the line can break.
-function Marked({ text, mark }: { text: string; mark?: string }) {
-  return <>{englishPieces(text, mark).map((piece, i) => (piece.marked ? <Text key={i} style={practice.mark}>{piece.text}</Text> : piece.text))}</>
+// `blank`: the marked words left out, as a blank.
+function Marked({ text, mark, blank = false }: { text: string; mark?: string; blank?: boolean }) {
+  return <>{englishPieces(text, mark).map((piece, i) => (piece.marked ? <Text key={i} style={blank ? practice.blank : practice.mark}>{blank ? BLANK : piece.text}</Text> : piece.text))}</>
 }
 
 // A checkpoint: recall a whole tense (or an adjective's forms) at once. The question side gives
@@ -767,7 +790,7 @@ function Choices({ choices, answer: correct, picked, v, onPick }: { choices: str
 const cardFields = (card: Card, entry: VocabEntry, position: number, roundStart: number) => ({
   position, round: roundStart, key: cardKey(card), wordId: entry.id, lemma: entry.lemmaPlain || entry.lemma,
   kind: card.checkpoint ? 'checkpoint' : card.form ? 'form' : 'word', form: card.form?.key, stage: card.checkpoint ?? card.form?.stage,
-  why: card.why, sequence: !!card.sequence,
+  why: card.why, sequence: !!card.sequence, ...(card.mode ? { mode: card.mode } : {}),
 })
 const share = (session: Session, ready: VocabEntry) => putEntry(session, withNewForms(cachedVocab(session)?.find(item => item.id === ready.id), ready))
 
@@ -827,7 +850,7 @@ const practice = StyleSheet.create({
   sentence: { fontSize: 22, lineHeight: 36, color: colors.ink, writingDirection: 'rtl', textAlign: 'center' },
   mark: { backgroundColor: colors.lime, fontWeight: '600' },
   english: { fontSize: 20, lineHeight: 30, color: colors.ink, textAlign: 'center' },
-  blank: { textDecorationLine: 'underline', textDecorationColor: colors.green, color: colors.green },
+  blank: { color: colors.green, fontWeight: '700' },
   // A word of the sentence looked up on the answer side.
   looked: { color: colors.green, textDecorationLine: 'underline', textDecorationColor: colors.green },
   hint: { fontSize: 15, color: colors.muted, textAlign: 'center' },

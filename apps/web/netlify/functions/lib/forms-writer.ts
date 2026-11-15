@@ -64,6 +64,8 @@ export type Cue = { cue: string; after: string }
 export type WrittenForm = {
   key: string; stage: string; slot: string; he: string; en: string; sentence: string; mark: string; said?: string
   translation: string; enMark: string; cue: string; cueAfter?: string; cues: Cue[]; usage?: string; glosses?: Gloss[]
+  // A meanings card's three wrong words for filling in its blank (see Distractors in SYSTEM).
+  distractors?: string[]
   // Which writer wrote it ('base', or 'personal-v1' when told about the learner, lib/profile.ts) and
   // what its other words were to the learner then (supportOfCard), to compare how the two go.
   // Cards written before the split have neither.
@@ -73,7 +75,7 @@ export type WrittenForm = {
   // its results stay as they are; Study shows one or another (apps/mobile/src/lib/forms.ts).
   variants?: Variant[]
 }
-export type Variant = Pick<WrittenForm, 'he' | 'en' | 'sentence' | 'mark' | 'said' | 'translation' | 'enMark' | 'cue' | 'cueAfter' | 'cues' | 'usage' | 'glosses' | 'writer' | 'support'> & { at: number }
+export type Variant = Pick<WrittenForm, 'he' | 'en' | 'sentence' | 'mark' | 'said' | 'translation' | 'enMark' | 'cue' | 'cueAfter' | 'cues' | 'usage' | 'glosses' | 'distractors' | 'writer' | 'support'> & { at: number }
 // What a word of a card's sentence means there, for looking it up on the card without asking the
 // model: `i` is the word's place among the sentence's words (split at spaces, as the card draws
 // them), so a word that comes twice has a meaning for each place; `lemma` its dictionary form
@@ -99,7 +101,7 @@ export const schema = {
       type: 'array',
       items: {
         type: 'object', additionalProperties: false,
-        required: ['slot', 'form', 'english', 'usage', 'agreesWith', 'sentence', 'inSentence', 'said', 'translation', 'inTranslation', 'cues', 'glosses'],
+        required: ['slot', 'form', 'english', 'usage', 'agreesWith', 'sentence', 'inSentence', 'said', 'translation', 'inTranslation', 'cues', 'glosses', 'distractors'],
         properties: {
           slot: { type: 'string' },
           form: { type: 'string', description: 'The form, fully vocalized.' },
@@ -128,6 +130,10 @@ export const schema = {
                 after: { type: 'string', description: 'The word of the translation naming that person, copied exactly from it ("secretary", "you", "I"), the first time they are mentioned; the cue is shown right after it.' },
               },
             },
+          },
+          distractors: {
+            type: 'array', items: { type: 'string' },
+            description: 'On a meanings card: three other Hebrew words, fully vocalized, of the same part of speech and in the same form as this one (an infinitive for an infinitive), that a learner could be tempted to put in its place but that do not fit this sentence (see Distractors). On any other card: [].',
           },
           glosses: {
             type: 'array', description: 'Every word of the sentence except this form\'s own words (inSentence), in order, a word that comes twice glossed each time.',
@@ -170,6 +176,8 @@ Constructions: when you are told the constructions the word is used in (לְהַ
 Patterns: when the word is learned as a pattern (נָטוּל + [שֵׁם עֶצֶם], "free of [noun]"), every card uses the pattern, with a different everyday word in its open place each time (נטול סוכר, נטולת דאגות, נטולי שומן), so the pattern is what is learned and not one example of it. "english" is the pattern's meaning with that card's word in its open place, marked for the form as usual ("free of sugar (f.)"), and inSentence and inTranslation list only the pattern's own words, not the word in its open place.
 
 Glosses: for each card, after its translation, gloss every other word of its sentence (glosses), so the learner can tap any word on the card for its meaning there.
+
+Distractors: on a meanings card the learner may be asked to fill the word's place in the sentence from four words, so give three that make them think about what the sentence says: common words of the same kind that are related in some way (the same situation, a near meaning, a similar look or sound) but clearly wrong here once the sentence is understood. Never a word that would also fit the sentence, a synonym, or a rare word.
 
 ${CUE_RULES}
 
@@ -228,7 +236,7 @@ export function promptFor(entry: Entry, stage: string, slots: Slot[], retry: { s
 
 export type Generated = {
   slot: string; form: string; english: string; usage?: string; agreesWith?: Agreement; sentence: string; inSentence: string[]; said: string; translation: string; inTranslation: string[]
-  cues?: { cue: string; after: string }[]; cue?: string; cueAfter?: string; glosses?: { w: string; lemma: string; en: string }[]
+  cues?: { cue: string; after: string }[]; cue?: string; cueAfter?: string; glosses?: { w: string; lemma: string; en: string }[]; distractors?: string[]
 }
 // A word as a card's tap finds it: without niqqud, maqaf or the punctuation around it (as
 // apps/mobile/src/lib/ocr-cleanup.ts bareWord trims it).
@@ -284,6 +292,7 @@ export function cardsOf(generated: Generated[], stage: string, slots: Slot[]) {
       cue: cues[0]?.cue ?? '', ...(cues[0]?.after ? { cueAfter: cues[0].after } : {}), cues,
       ...(item.usage?.trim() ? { usage: item.usage.trim() } : {}),
       ...(item.glosses?.length ? { glosses: placeGlosses(item.sentence, item.glosses) } : {}),
+      ...(stage === 'meanings' && item.distractors?.filter(word => word?.trim()).length === 3 ? { distractors: item.distractors.map(word => word.trim()) } : {}),
     })
   }
   return { forms, rejected }

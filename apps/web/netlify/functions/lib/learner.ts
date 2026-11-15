@@ -19,7 +19,9 @@ import { isListed, PREFIXES, plainWord, rankedForm, rankOf } from './frequency.t
 // learner-v1.1: ranges from the Beta distribution itself (they collapsed to 0–0% near the ends),
 // starting assumptions never surer than PRIOR_FLOOR, older results dated no later than they can
 // have been and marked undated, and lookups without a dictionary form matched by spelling.
-export const MODEL_VERSION = 'learner-v1.1'
+// learner-v1.2: a blank filled from choices counts by what it tested (answered), not as a card
+// recalled from whichever side its showing had.
+export const MODEL_VERSION = 'learner-v1.2'
 export const WEIGHTS = {
   answer: 1, // an answer recalled or missed, not primed
   primed: 0.25, // the same, just after the word's Hebrew was shown (lib/forms.ts isPrimed)
@@ -234,15 +236,18 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
   for (const entry of entries) word(entry.lemma, entry)
 
   // An answer: to its word (in full for its meanings and word card, half for a form card) and to
-  // the form's grammar.
-  const answered = (entry: LearnerEntry, card: { kind: string; stage?: string; slot?: string }, item: Omit<Evidence, 'weight' | 'what'> & { primed?: boolean; quiz?: boolean }) => {
+  // the form's grammar. A blank filled from choices (`tests`) says less than a recalled answer
+  // (WEIGHTS.quiz), and what it says depends on what it tested: the word's meaning in context (to
+  // reading it), or which of its forms the sentence needs (to the grammar only: choosing the wrong
+  // form isn't not knowing the word).
+  const answered = (entry: LearnerEntry, card: { kind: string; stage?: string; slot?: string }, item: Omit<Evidence, 'weight' | 'what'> & { primed?: boolean; quiz?: boolean; tests?: 'word' | 'form' }) => {
     const base = (item.primed ? WEIGHTS.primed : WEIGHTS.answer) * (item.quiz ? WEIGHTS.quiz : 1)
     const label = card.kind === 'word' ? 'word card' : card.kind === 'checkpoint' ? `${card.stage} checkpoint` : `${card.stage} ${card.slot}`
     const side = item.channel === 'production' ? 'English first' : item.channel === 'recognition' ? 'Hebrew first' : 'side not recorded'
-    const what = `${item.knew ? 'knew' : 'missed'} ${label} (${side}${item.primed ? ', primed' : ''}${item.quiz ? ', choices' : ''}${item.dated === false ? ', older result: date not kept' : ''})`
+    const what = `${item.knew ? 'knew' : 'missed'} ${label} (${side}${item.primed ? ', primed' : ''}${item.quiz ? `, choices${item.tests ? `: ${item.tests}` : ''}` : ''}${item.dated === false ? ', older result: date not kept' : ''})`
     const own = word(entry.lemma, entry)
     const undated = item.dated === false ? { dated: false as const } : {}
-    own.evidence.push({ at: item.at, channel: item.channel, knew: item.knew, weight: base * (isWordCard(card.stage) && card.kind !== 'checkpoint' ? 1 : WEIGHTS.formCard), what, ...undated })
+    if (item.tests !== 'form') own.evidence.push({ at: item.at, channel: item.channel, knew: item.knew, weight: base * (isWordCard(card.stage) && card.kind !== 'checkpoint' ? 1 : WEIGHTS.formCard), what, ...undated })
     own.answers++
     if (item.dated !== false) own.dated++
     const evidence = { at: item.at, channel: item.channel, knew: item.knew, weight: base, what: `${own.lemma}: ${what}`, ...undated }
@@ -273,7 +278,9 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
       if (!entry) continue
       const front = (event.front as string | undefined) ?? shownFront.get(`${event.session}:${event.position}`)
       recordedAt.set(event.key, [...(recordedAt.get(event.key) ?? []), event.at])
-      answered(entry, card, { at: event.at, knew: !!event.knew, primed: !!event.primed, quiz: !!event.quiz, channel: front === 'en' ? 'production' : front === 'he' ? 'recognition' : 'either' })
+      const tests = event.exercise === 'choice' && (event.tests === 'word' || event.tests === 'form') ? event.tests : undefined
+      const channel = tests ? 'recognition' : front === 'en' ? 'production' : front === 'he' ? 'recognition' : 'either'
+      answered(entry, card, { at: event.at, knew: !!event.knew, primed: !!event.primed, quiz: !!event.quiz, channel, tests })
     }
     if (event.type === 'lookup') {
       // The same word tapped again in the same place within seconds (while its meaning loads) is

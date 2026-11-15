@@ -78,9 +78,10 @@ Background and findings: [learner-model.md](learner-model.md). Investigation and
 ### LM-1 Learning events
 **Done** (06083f0, 7633423). Study and reading events with links between them (`of`), stored in
 `studyEvents`.
-- Remaining, small: events are sent only when moving between screens, not when the app goes to the
-  background. They wait safely on the phone. **Exploratory**: send on background (needs a phone
-  update).
+- Since 2026-11-15, waiting events are also sent whenever Mila goes to the background.
+  Before, a session could wait on the phone until Study or the reader was next opened.
+- Fill-in-the-blank answers log `exercise`, `tests` (word or form), `options`, `chosen` and
+  `answer`; shows log `variant`, `writer` and `mode`.
 
 ### LM-2 Learner model, dashboard and calibration
 **Done** (fc882a8, 576fadc, fbe8cd6, c534a90). Research phase closed 2026-11-14.
@@ -132,8 +133,20 @@ by the app.
     sentence and its results stay.
   - Ordinary rounds then show the card's sentences in turn, one per answer.
   - Every show and answer logs `variant` and `writer`.
+- **Iteration 2:**
+  - A new sentences round takes up to 6 words, at most 2 cards each, a word at a time in turn.
+    Its cards use the same presentation, exercise and sequencing rules as ordinary rounds.
+  - Cards carry `mode: 'fresh'` in events, because answers there come from a different context
+    than scheduled review.
+  - The writer's difficulty rule is softer: a less familiar word is fine where the sentence makes
+    it guessable, and not every sentence needs to be easy.
+  - Wrong forms chosen are passed to the writer.
+  - The profile grows by adding facts to `lib/profile.ts` and lines to `profileBlock`; the writer
+    and its prompt don't change when the learner model gains a capability.
 - **Remaining:**
   - **P2:** after a few weeks of `outcomes`, decide all, revise, or off.
+  - **Exploratory:** Mila deciding on its own when a word needs another example, another context
+    or a harder sentence, instead of the New sentences button (LM-8).
   - **Exploratory:**
     - Grammar-aware sentences, once slot evidence exists.
     - Retention-based judgement (LM-7).
@@ -151,6 +164,17 @@ card-history baseline. No scheduling change. Feeds STUDY-2.
 **Exploratory.** For example "recognized 4/5 · produced 1/3" on a word's page, or grammar slots.
 Proposed 2026-11-14 as motivating and correctable; not agreed. Show counts, not model
 probabilities.
+
+### LM-8 A teaching policy
+**Exploratory, the longer-term direction** (Mike, 2026-11-15). Learner knowledge should decide:
+- what to teach next (STUDY-3)
+- when to review (STUDY-2)
+- which exercise type to use (EX-*)
+- how much difficulty to bring, including when to write new sentences (LM-4)
+
+Not a rebuild: each of these is a separate decision with its own code today (`intakeOrder`,
+`deckOf`, `asChoice`, `profileBlock`). Each can take evidence from the profile and learner model
+as it earns it, by beating its baseline.
 
 ### LM-7 Learning outcomes
 **Exploratory.** Measure retention days later and understanding of words met again in new reading,
@@ -173,6 +197,19 @@ approach investigated with the event data, not a fixed interval sequence.
   reviews take a capped share of a round; no overdue pressure.
 - Decisions needed: FSRS or a simpler streak rule (after LM-5); target recall; whether cards ever
   become "due".
+
+### STUDY-4 Repetition within a round
+**Done** (2026-11-15). Three purposes, three rules:
+- **Introduction:** a word's learning sequence (word card, then its meaning, then its present)
+  stays together on purpose.
+- **Reinforcement:** a word's other cards in a round are spread at least 4 cards apart where
+  there's room (`spread`).
+- **Review:** familiar cards come only for words the round doesn't otherwise show, so they test
+  retention unprimed.
+- An answer just after the word was shown is still marked primed and counts a quarter in the
+  model.
+- **Exploratory:** whether a round should hold fewer words more often, or more words once; choose
+  by retention data once STUDY-2 exists.
 
 ### STUDY-3 Choosing which new words come in
 **Partial.** Three separate decisions, kept apart: which new words come in (this item), when words
@@ -277,9 +314,27 @@ flashcard or fill in the blank. A new format is another branch there plus its lo
   - Logged as `exercise: 'choice'` with what it tested, the options, the choice and the answer,
     and no side first, so it isn't counted as recall or production.
   - Its result still counts toward the card in Study, as before.
+  - **Iteration 2** (after Mike's phone test):
+    - A choice records itself and moves on after a pause: 0.9 s when right, 2.2 s when wrong.
+      Looking up a word on it, swiping or the arrows stop that.
+    - Going back shows how it was answered (the answer, the choice) and can't be answered again,
+      including in a resumed round.
+    - A meaning question no longer shows the word in its header, and its English has the word's
+      own words blanked too. A form question keeps the infinitive and the full English, since
+      the choice there is the form.
+    - The blank is drawn visibly (＿＿＿).
+    - New meaning cards come with three distractors from the writer: related, common and wrong
+      in this sentence, never one that also fits. Older cards still choose among saved words.
+    - Never offered just after another card of its word, or in a learning sequence, so it's an
+      unprimed check.
+    - The learner model counts a meaning choice toward reading the word, at 0.6 weight; a form
+      choice counts toward that grammar slot only (learner-v1.2). Wrong forms are passed to the
+      card writer.
   - Remaining, **exploratory**:
-    - distractors written by the card writer (plausible but wrong in context);
-    - whether a right choice should count less than a recalled answer;
+    - whether a right choice should count less than a recalled answer toward Study's own card
+      progress (it still counts the same there);
+    - choosing the exercise type by what the learner needs (see LM-8);
+    - choices for word cards in ordinary rounds;
     - a typed answer (EX-1).
 - **EX-1 Typed production.** Exploratory. Self-grading is noisy; checked answers are more
   reliable but add friction. Mike hasn't decided.

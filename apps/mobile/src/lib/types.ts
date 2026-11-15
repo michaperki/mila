@@ -126,11 +126,14 @@ export type FormCard = {
   // Which writer wrote it ('base', or 'personal-v1' told what the learner knows) and what its other
   // words were to the learner then; missing on cards written before (word-forms.ts).
   writer?: string; support?: Record<string, number>
+  // On a meaning card: three words of the same kind and form as the card's word that don't fit its
+  // sentence, for filling in the blank (lib/forms.ts quizOf). Missing on cards written before.
+  distractors?: string[]
   // New sentences for the card written later, newest last: the same form and meaning in another
   // sentence. The card's results are the card's, whichever sentence is shown (lib/forms.ts shownForm).
   variants?: FormVariant[]
 } & Results
-export type FormVariant = Pick<FormCard, 'he' | 'en' | 'sentence' | 'mark' | 'said' | 'translation' | 'enMark' | 'cue' | 'cueAfter' | 'cues' | 'usage' | 'glosses' | 'support'> & { writer: string; at: number }
+export type FormVariant = Pick<FormCard, 'he' | 'en' | 'sentence' | 'mark' | 'said' | 'translation' | 'enMark' | 'cue' | 'cueAfter' | 'cues' | 'usage' | 'glosses' | 'support' | 'distractors'> & { writer: string; at: number }
 // What studying has shown about a card, and nothing about when to see it again: its last few
 // results (true: knew it), which of them were primed (answered just after the word's Hebrew was
 // shown, lib/forms.ts isPrimed; by position, missing on answers given before this was kept) and

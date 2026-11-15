@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, apart, asChoice, assess, freshCards, freshPicks, personalVariant, shownForm, variantOf, writerOf, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
+import { ago, apart, asChoice, assess, freshCards, freshPicks, freshRound, justAfterItsWord, personalVariant, shownForm, variantOf, writerOf, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -123,10 +123,13 @@ test('a round: new words, the next cards of words met, what is being learned, an
   // yesterday, so they rest.
   assert.deepEqual(keys(smart), ['a:present:f.sg', 'b:word', 'a:present:m.sg'])
   assert.deepEqual(smart.map(card => card.why), ['still learning · last seen 3 days ago', `new word · saved ${ago(2, now)}`, 'still learning · last seen yesterday'])
-  // Familiar cards come back once they have rested a few days, one per word.
+  // Familiar cards come back once they have rested a few days, one per word, and only of a word
+  // the round doesn't otherwise show (a is being learned in it, so its familiar cards wait).
   const rested = { ...a, last: now - 5 * DAY, forms: a.forms!.map(item => (item.key === 'meanings:sense1' ? { ...item, last: now - 4 * DAY } : item)) }
-  const back = deckOf([b, rested], { include: 'both', order: 'smart' }, now).filter(card => card.why?.startsWith('familiar'))
-  assert.deepEqual(keys(back), ['a:word'])
+  const familiarOf = (entries: VocabEntry[]) => keys(deckOf(entries, { include: 'both', order: 'smart' }, now).filter(card => card.why?.startsWith('familiar')))
+  assert.deepEqual(familiarOf([b, rested]), [])
+  const settled = verb([form('meanings:sense1', { results: [true, true], last: now - 5 * DAY })], { id: 'r', createdAt: 3, results: [true, true], last: now - 5 * DAY })
+  assert.deepEqual(familiarOf([b, rested, settled]), ['r:word'])
   // Once b is met, its meanings come next.
   const metB = { ...b, results: [true], last: now - DAY }
   assert.ok(keys(deckOf([metB, a], { include: 'both', order: 'smart' }, now)).includes('b:meanings:sense1'))
@@ -419,4 +422,40 @@ test('fill in the blank comes now and then on sentence cards answered before, ne
   assert.equal(asChoice({ entry, form: null }, { results: [] }, 'all'), true)
   assert.equal(asChoice(cards[0], { results: [true] }, 'off'), false)
   assert.equal(asChoice({ entry, form: null, checkpoint: 'present' }, { results: [true] }, 'all'), false)
+})
+
+test('cards of the same word are a few cards apart where the round has room, as far as it can where not', () => {
+  const of = (id: string, n: number) => ({ entry: verb([], { id }), n })
+  const order = spread([of('a', 1), of('a', 2), of('b', 1), of('c', 1), of('d', 1), of('e', 1)]).map(card => card.entry.id)
+  assert.ok(order.indexOf('a', order.indexOf('a') + 1) - order.indexOf('a') >= 4, order.join())
+  // Two words only: they alternate.
+  assert.deepEqual(spread([of('a', 1), of('a', 2), of('b', 1), of('b', 2)]).map(card => card.entry.id), ['a', 'b', 'a', 'b'])
+})
+
+test('a round of new sentences takes each word in turn, so its two cards are a round of words apart', () => {
+  const card = (id: string, key: string) => ({ entry: verb([], { id }), form: form(key) })
+  const round = freshRound([[card('a', 'present:m.sg'), card('a', 'present:f.sg')], [card('b', 'meanings:sense1')], [card('c', 'past:1sg'), card('c', 'past:2sg.m')]])
+  assert.deepEqual(round.map(item => item.entry.id), ['a', 'b', 'c', 'a', 'c'])
+})
+
+test('fill in the blank is a check on what is known: never just after another card of its word, nor in a learning sequence', () => {
+  const entry = verb([])
+  const deck = [{ entry, form: null }, { entry: verb([], { id: 'x' }), form: null }, { entry, form: form('present:m.sg') }]
+  assert.equal(justAfterItsWord(deck, 2), true)
+  assert.equal(justAfterItsWord(deck, 1), false)
+  // Not counting cards from before this round.
+  assert.equal(justAfterItsWord(deck, 2, 1), false)
+  const card = deck[2]
+  const often = Array.from({ length: 30 }, (_, i) => ({ ...card, entry: { ...entry, id: `w${i}` } })).filter(item => asChoice(item, { results: [true] }, 'some')).length
+  assert.ok(often > 0)
+  assert.equal(Array.from({ length: 30 }, (_, i) => ({ ...card, entry: { ...entry, id: `w${i}` } })).filter(item => asChoice(item, { results: [true] }, 'some', true)).length, 0)
+  assert.equal(asChoice({ ...card, sequence: true }, { results: [true] }, 'some'), false)
+})
+
+test('a meaning card written with distractors of its own chooses among them', () => {
+  const card = form('meanings:sense1', { he: 'לִבְלֹעַ', distractors: ['לִלְעֹס', 'לִנְשֹׁם', 'לִירֹק'] })
+  const entry = verb([card], { lemma: 'לִבְלֹעַ' })
+  const quiz = quizOf([entry, verb([], { id: 'other', lemma: 'לָרוּץ' })], { entry, form: card }, false, 'seed')!
+  assert.deepEqual([...quiz.options].sort(), ['לִבְלֹעַ', 'לִלְעֹס', 'לִנְשֹׁם', 'לִירֹק'].sort())
+  assert.equal(quiz.answer, 'לִבְלֹעַ')
 })

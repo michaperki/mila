@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { LearnerEvent } from '../netlify/functions/lib/learner'
 import { isPersonal, learnerProfile, profileBlock, supportOf, supportOfCard, type ProfileEntry } from '../netlify/functions/lib/profile'
 import { relevanceOf } from '../netlify/functions/lib/relevance'
-import { promptFor, slotsOf } from '../netlify/functions/lib/forms-writer'
+import { cardsOf, promptFor, slotsOf } from '../netlify/functions/lib/forms-writer'
+import { learnerState } from '../netlify/functions/lib/learner'
 
 const DAY = 86_400_000
 const now = 1_800_000_000_000
@@ -126,5 +127,40 @@ describe('new sentences for cards already written', () => {
     expect(prompt).toContain('in a new sentence that shows it in another situation')
     expect(prompt).not.toContain('Forms to write')
     expect(prompt).toContain('הוא פותח את החלון')
+  })
+})
+
+describe('filling in a blank, as evidence', () => {
+  const entry = word('a', 'לכתוב', { forms: [{ key: 'past:1sg', stage: 'past', slot: '1sg' }, { key: 'meanings:sense1', stage: 'meanings', slot: 'sense1' }] })
+  const choice = (seq: number, key: string, tests: 'word' | 'form', knew: boolean) =>
+    event(seq, 'answer', { key, knew, primed: false, quiz: true, exercise: 'choice', tests, front: null, chosen: 'כתבנו', answer: 'כתבתי', lemma: 'לכתוב', position: seq })
+  it('a wrong form counts against the form\'s grammar, not against knowing the word', () => {
+    const state = learnerState([entry], [choice(1, 'native-a:past:1sg', 'form', false)], { words: 2000, low: 1000, high: 4000, basis: 'test' }, now)
+    const w = state.words.find(item => item.key === 'לכתוב')!
+    expect(w.evidence.filter(item => item.what.includes('past 1sg'))).toHaveLength(0)
+    expect(state.grammar.find(skill => skill.key === 'verb:past:1sg')?.answers).toBe(1)
+  })
+  it('a meaning chosen counts toward reading the word, less than a recalled answer, and never toward saying it', () => {
+    const state = learnerState([entry], [choice(1, 'native-a:meanings:sense1', 'word', true)], { words: 2000, low: 1000, high: 4000, basis: 'test' }, now)
+    const evidence = state.words.find(item => item.key === 'לכתוב')!.evidence.filter(item => item.what.includes('choices'))
+    expect(evidence).toHaveLength(1)
+    expect(evidence[0].channel).toBe('recognition')
+    expect(evidence[0].weight).toBeLessThan(1)
+  })
+  it('the profile keeps wrong forms chosen, and tells the writer about them', () => {
+    const profile = learnerProfile([entry, word('b', 'לרוץ')], [choice(1, 'native-a:past:1sg', 'form', false), { ...choice(2, 'native-b:past:1sg', 'form', false), lemma: 'לרוץ' }], now)
+    expect(profile.slips).toHaveLength(2)
+    expect(profileBlock(profile, entry, 'past')).toContain('כתבנו for כתבתי')
+    expect(profileBlock(profile, word('c', 'לשיר'), 'past')).toContain('past 1sg (2 words)')
+  })
+})
+
+describe('distractors', () => {
+  it('are kept on a meanings card when three are given, and not on other cards', () => {
+    const generated = (slot: string, distractors: string[]) => ({ slot, form: 'לִבְלֹעַ', english: 'to swallow', sentence: 'קשה לבלוע', inSentence: ['לבלוע'], said: 'לִבְלֹעַ', translation: 'Hard to swallow', inTranslation: ['swallow'], cues: [], distractors })
+    const meanings = cardsOf([generated('sense1', ['לִלְעֹס', 'לִנְשֹׁם', 'לִירֹק'])], 'meanings', [{ slot: 'sense1', means: '' }]).forms
+    expect(meanings[0].distractors).toEqual(['לִלְעֹס', 'לִנְשֹׁם', 'לִירֹק'])
+    expect(cardsOf([generated('sense1', ['לִלְעֹס'])], 'meanings', [{ slot: 'sense1', means: '' }]).forms[0].distractors).toBeUndefined()
+    expect(cardsOf([generated('m.sg', ['a', 'b', 'c'])], 'present', [{ slot: 'm.sg', means: '' }]).forms[0].distractors).toBeUndefined()
   })
 })

@@ -1,4 +1,4 @@
-import { Platform } from 'react-native'
+import { AppState, Platform } from 'react-native'
 import { File, Paths } from 'expo-file-system'
 import { request } from './api'
 
@@ -67,4 +67,10 @@ async function drain(owner: string, token: string) {
       keep()
     }
   } catch { /* offline or refused: sent next time */ }
+}
+
+// Sends what is waiting each time the app leaves the foreground; returns the way to stop.
+export function sendStudyLogInBackground(owner: string, token: string) {
+  const subscription = AppState.addEventListener('change', state => { if (state !== 'active') void sendStudyLog(owner, token) })
+  return () => subscription.remove()
 }

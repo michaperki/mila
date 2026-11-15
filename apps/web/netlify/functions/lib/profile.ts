@@ -24,7 +24,10 @@ export type ProfileWord = {
   key: string; lemma: string; gloss?: string; rank?: number; place: Place; lastAt: number
   recognized?: boolean; said?: boolean; met?: number; id?: string
 }
-export type Profile = { version: string; words: Map<string, ProfileWord> }
+// `slips`: forms chosen wrongly when filling in a blank, lately (what was chosen for what): evidence
+// about the grammar of a form, not about knowing the word.
+export type Slip = { lemma: string; stage: string; slot: string; chose: string; answer: string; at: number }
+export type Profile = { version: string; words: Map<string, ProfileWord>; slips?: Slip[] }
 export type ProfileEntry = LearnerEntry & { known?: string[] }
 
 const DAY = 86_400_000
@@ -92,7 +95,13 @@ export function learnerProfile(entries: ProfileEntry[], events: LearnerEvent[], 
     const seen = words.get(key)
     words.set(key, { key, lemma: plainWord(lemma || event.word), place: 'shaky', lastAt: Math.max(event.at, seen?.lastAt ?? 0), rank })
   }
-  return { version: PROFILE_VERSION, words }
+  const slips: Slip[] = []
+  for (const event of events) {
+    if (event.type !== 'answer' || event.exercise !== 'choice' || event.tests !== 'form' || event.knew || event.primed || now - event.at > SHAKY_DAYS * DAY) continue
+    const card = parseCardKey(String(event.key))
+    if (card.kind === 'form' && card.slot) slips.push({ lemma: String(event.lemma ?? ''), stage: card.stage, slot: card.slot, chose: String(event.chosen ?? ''), answer: String(event.answer ?? ''), at: event.at })
+  }
+  return { version: PROFILE_VERSION, words, slips }
 }
 
 // What a card's words are to the learner, for each word it glosses (every word but the card's
@@ -120,6 +129,16 @@ export function supportOfCard(glosses: { i?: number; lemma: string }[] | undefin
   return counts
 }
 
+// Wrong forms worth telling the writer: this word's, and a form (stage and person) chosen wrongly
+// for two or more words, the latest few.
+function slipsOf(profile: Profile, target: string) {
+  const slips = (profile.slips || []).sort((a, b) => b.at - a.at)
+  const mine = slips.filter(slip => lemmaKeyOf(slip.lemma) === target).map(slip => `${slip.chose} for ${slip.answer}`)
+  const bySlot = new Map<string, Set<string>>()
+  for (const slip of slips) bySlot.set(`${slip.stage} ${slip.slot}`, (bySlot.get(`${slip.stage} ${slip.slot}`) ?? new Set()).add(lemmaKeyOf(slip.lemma)))
+  const shared = [...bySlot].filter(([, words]) => words.size > 1).map(([form, words]) => `${form} (${words.size} words)`)
+  return [...new Set([...mine, ...shared])].slice(0, 5)
+}
 // The learner as the writer is told: the words of each kind it can rely on or bring in, most recent
 // first, and what is known about the word being written. `stretch`: whether a card may bring in one
 // word the learner hasn't studied. It goes in the request, after the word's own details, so the
@@ -152,9 +171,10 @@ export function profileBlock(profile: Profile, entry: Pick<LearnerEntry, 'lemma'
     ...(learning.length ? [`- Words they are learning now: ${list(learning)}`] : []),
     ...(shaky.length ? [`- Words they looked up recently and can't rely on yet: ${list(shaky)}`] : []),
     ...(stretch && ahead.length ? [`- Words they saved from their reading and haven't studied yet: ${list(ahead, true)}`] : []),
+    ...(slipsOf(profile, target).length ? [`- Forms they recently chose wrongly when filling in a blank: ${slipsOf(profile, target).join('; ')}. Where these forms come up, give them a sentence where who and when are clear, so the form is learned rather than guessed.`] : []),
     '',
     'Writing for this learner. The card is there to teach this word in this use; let that decide each sentence:',
-    '- Keep what surrounds the word within what they can follow: words they recall, and everyday Hebrew. Then the word and its use are what the card asks of them. Don\'t lean on a word they can\'t rely on yet to carry the meaning of a sentence.',
+    '- Keep each sentence one they can work out: mostly words they recall and everyday Hebrew, so the word and its use are what the card asks of them. A less familiar word is fine where the rest of the sentence makes it guessable, since working it out is part of learning; but don\'t lean on a word they can\'t rely on yet to carry the meaning of a sentence. Not every sentence needs to be easy.',
     '- Some cards are shown in English and they say the whole sentence in Hebrew, so a word around the target that they could not say makes the card about the wrong thing.',
     '- Where it fits naturally, a card can bring back a word they are learning now, so they meet it again in a new sentence.',
     ...(stretch && ahead.length ? ['- At most one of these cards may also bring in one of the words they saved from their reading and haven\'t studied, where it fits naturally, so they meet it in a new sentence before they study it. Only those words: no other new or rare words come in this way, and never more than one per card. It is glossed on the card, so it costs them a tap.'] : []),
