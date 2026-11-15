@@ -117,3 +117,14 @@ describe('relevance for intake', () => {
     expect(other.lookedUp).toBeUndefined()
   })
 })
+
+describe('new sentences for cards already written', () => {
+  it('asks for the same form and meaning per slot, only the slots asked for', () => {
+    const entry = { lemma: 'לפתוח', gloss: 'to open', partOfSpeech: 'verb', forms: [{ stage: 'present', slot: 'm.sg', en: 'opens', sentence: 'הוא פותח את החלון' }] }
+    const prompt = promptFor(entry, 'present', slotsOf(entry, 'present').filter(item => item.slot === 'm.sg'), [], '', [{ slot: 'm.sg', he: 'פּוֹתֵחַ', en: 'he opens' }])
+    expect(prompt).toContain('slot "m.sg": פּוֹתֵחַ "he opens"')
+    expect(prompt).toContain('in a new sentence that shows it in another situation')
+    expect(prompt).not.toContain('Forms to write')
+    expect(prompt).toContain('הוא פותח את החלון')
+  })
+})

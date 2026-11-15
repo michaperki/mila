@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
 import { getDb } from './lib/mongo'
 import { checkDailySpend, recordClaude } from './lib/ai-usage'
-import { type Ask, type Entry, slotsOf, Unwritable, writeForms, type WrittenForm } from './lib/forms-writer'
+import { type Ask, type Entry, slotsOf, Unwritable, type Variant, writeForms, type WrittenForm } from './lib/forms-writer'
 import { checkCues } from './lib/forms-review'
 import { isPersonal, learnerProfile, PERSONAL_WRITER, type Profile, type ProfileEntry, profileBlock, supportOfCard } from './lib/profile'
 import type { LearnerEvent } from './lib/learner'
@@ -25,6 +25,10 @@ let client: Anthropic | null = null
 // words were to the learner then. PERSONALIZED_CARDS=off writes every word as before, =all every
 // word for the learner. If the profile can't be read or the cards can't be written for the
 // learner, they are written as before.
+// `fresh: true` asks for new sentences for a stage already written: written for the learner, each
+// the same form and meaning as its card, and kept on the card as a variant beside its sentence
+// (WrittenForm.variants), so its results and its first sentence stay. Once per card: a card that
+// has one isn't written again.
 const STRETCH = true
 const DAY = 86_400_000
 async function profileOf(db: Awaited<ReturnType<typeof getDb>>, userId: string): Promise<Profile> {
@@ -43,18 +47,21 @@ export const handler: Handler = async (event) => {
   if (event.httpMethod !== 'POST') return reply(405, { message: 'Use POST.' })
   try {
     const auth = verifyAuth(event)
-    let payload: { id?: unknown; stage?: unknown }
+    let payload: { id?: unknown; stage?: unknown; fresh?: unknown }
     try { payload = JSON.parse(event.body || '{}') } catch { return reply(400, { message: 'Invalid request.' }) }
     if (typeof payload.id !== 'string' || typeof payload.stage !== 'string') return reply(400, { message: 'Missing word or stage.' })
     const { id, stage } = payload as { id: string; stage: string }
+    const fresh = payload.fresh === true
     const db = await getDb()
     const vocab = db.collection('vocab')
     const entry = await vocab.findOne<Entry>({ userId: auth.userId, id })
     if (!entry) return reply(404, { message: 'This word is no longer saved.' })
     const slots = slotsOf(entry, stage)
     if (!slots) return reply(400, { message: 'Unknown stage for this word.' })
-    const existing = (entry.forms || []).filter(form => form.stage === stage)
-    if (existing.length) return reply(200, { forms: existing })
+    const existing = (entry.forms || []).filter(form => form.stage === stage) as unknown as WrittenForm[]
+    // New sentences are asked for once a card has none from the writer told about the learner.
+    const wanting = existing.filter(form => !form.variants?.some(item => item.writer === PERSONAL_WRITER))
+    if (fresh ? !existing.length || !wanting.length : existing.length) return reply(200, { forms: existing })
     if (!process.env.ANTHROPIC_API_KEY) return reply(503, { message: 'Word practice is not configured yet.', requestId })
 
     await checkDailySpend(auth)
@@ -74,6 +81,24 @@ export const handler: Handler = async (event) => {
       return response
     }
     const profile = process.env.PERSONALIZED_CARDS === 'off' ? null : await profileOf(db, auth.userId).catch(() => null)
+    if (fresh) {
+      if (!profile) return reply(503, { message: 'New sentences are unavailable right now.', requestId })
+      const again = wanting.map(form => ({ slot: form.slot, he: form.he, en: form.en }))
+      const written = await writeForms(entry, stage, ask, profileBlock(profile, entry, stage, { stretch: STRETCH }), again)
+      const checked = await checkCues(entry, stage, written, ask).then(result => result.forms, () => written)
+      const at = Date.now()
+      for (const form of checked) {
+        const variant: Variant = {
+          he: form.he, en: form.en, sentence: form.sentence, mark: form.mark, said: form.said, translation: form.translation, enMark: form.enMark,
+          cue: form.cue, cueAfter: form.cueAfter, cues: form.cues, usage: form.usage, glosses: form.glosses,
+          writer: PERSONAL_WRITER, support: supportOfCard(form.glosses, profile, form.sentence), at,
+        }
+        await vocab.updateOne({ userId: auth.userId, id }, { $push: { 'forms.$[card].variants': variant }, $set: { updatedAt: at } } as never,
+          { arrayFilters: [{ 'card.key': form.key, 'card.variants.writer': { $ne: PERSONAL_WRITER } }] })
+      }
+      const saved = await vocab.findOne<Entry>({ userId: auth.userId, id })
+      return reply(200, { forms: (saved?.forms || existing).filter(form => form.stage === stage) })
+    }
     const personal = !!profile && isPersonal(id)
     const forLearner = personal
       ? await writeForms(entry, stage, ask, profileBlock(profile!, entry, stage, { stretch: STRETCH })).catch(error => {

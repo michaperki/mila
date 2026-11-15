@@ -257,7 +257,9 @@ export function newCards(entry: VocabEntry) {
 // of its form cards in a sentence, or a checkpoint on one of its stages (`checkpoint`). `why`
 // says why the round has it, for the learner who asks (practice.tsx); `sequence`, that it was
 // brought in behind the card before it (followUps).
-export type Card = { entry: VocabEntry; form: FormCard | null; checkpoint?: string; why?: string; sequence?: boolean }
+// `variant`: which of the card's sentences a round of new sentences shows (shownForm); otherwise
+// it is chosen as the card comes up (variantOf).
+export type Card = { entry: VocabEntry; form: FormCard | null; checkpoint?: string; why?: string; sequence?: boolean; variant?: number }
 export const cardKey = ({ entry, form, checkpoint }: Card) => `${entry.id}:${checkpoint ? `checkpoint:${checkpoint}` : form ? form.key : 'word'}`
 export const resultsOf = ({ entry, form, checkpoint }: Card): Results => (checkpoint ? checkpointRecord(entry, checkpoint) : form ?? entry)
 
@@ -456,6 +458,56 @@ function mix<T>(cards: T[], extra: T[], first = 1): T[] {
   }
   return out
 }
+// A card's sentence as shown: its own (0) or one of the new sentences written for it later
+// (n: FormCard.variants[n - 1]), with the card's key and results either way, so a sentence can
+// change without the card's progress starting over.
+export const shownForm = (form: FormCard, variant = 0): FormCard => {
+  const other = variant > 0 ? form.variants?.[variant - 1] : undefined
+  return other ? { ...form, ...other, key: form.key, stage: form.stage, slot: form.slot } : form
+}
+// Which sentence a card shows in an ordinary round: its sentences in turn, one each time it is
+// answered (by its results so far), so a new sentence is met beside the first, not instead of it.
+export const variantOf = (form: FormCard, record: Results) =>
+  (form.variants?.length ? (record.results?.length ?? 0) % (form.variants.length + 1) : 0)
+// The newest sentence written for the learner (word-forms.ts personal-v1), or 0 if none.
+export const personalVariant = (form: FormCard) => {
+  const at = (form.variants || []).map((item, i) => (item.writer.startsWith('personal') ? i + 1 : 0)).filter(Boolean)
+  return at.length ? at[at.length - 1] : 0
+}
+export const writerOf = (form: FormCard, variant = 0) => (variant > 0 ? form.variants?.[variant - 1]?.writer : form.writer)
+
+// A round of new sentences, to meet sentences written for what the learner knows now: the words
+// being learned that have sentence cards studied already, least recently studied first, each with
+// the stage it was studied in last (all of that stage's cards get a new sentence, word-forms.ts
+// fresh). Nothing about the words' progress changes; their cards' results go on as before.
+export function freshPicks(entries: VocabEntry[], words = 4): { entry: VocabEntry; stage: string }[] {
+  const out: { entry: VocabEntry; stage: string }[] = []
+  for (const entry of studyPool(entries, 'both').started) {
+    const studied = activeForms(entry).filter(form => form.results?.length).sort((a, b) => (b.last ?? 0) - (a.last ?? 0))
+    if (studied.length) out.push({ entry, stage: studied[0].stage })
+    if (out.length >= words) break
+  }
+  return out
+}
+// Its cards with their new sentences, once written: each card of the stage that has one.
+export const freshCards = (entry: VocabEntry, stage: string): Card[] => (entry.forms || [])
+  .filter(form => form.stage === stage && personalVariant(form))
+  .map(form => ({ entry, form, variant: personalVariant(form), why: 'new sentence · written for what you know' }))
+
+// Fill in the blank: a sentence card asked as its sentence with the word left out and four
+// Hebrew options (quizOf), which tests choosing the right word or form in context rather than
+// recalling it unaided, so its answers are logged as choices, not as swipes. 'some' (the default):
+// now and then, on about one in three sentence cards that have been answered before (never at a
+// first meeting, which is a flashcard), settled by the card and how often it was answered, so
+// going back shows the same; 'all': every card that can be (Quiz forms before); 'off': none.
+export type ChoiceMode = 'some' | 'all' | 'off'
+export function asChoice(card: Card, record: Results, mode: ChoiceMode) {
+  if (mode === 'off' || card.checkpoint) return false
+  if (mode === 'all') return true
+  if (!card.form || !record.results?.length) return false
+  return [...`${cardKey(card)}:${record.results.length}`].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7) % 3 === 0
+}
+
 // Reorders so two cards of the same word are not back to back, where another card can go between.
 export function spread<T extends { entry: VocabEntry }>(cards: T[]): T[] {
   const left = [...cards]
@@ -525,10 +577,16 @@ export function quizOf(entries: VocabEntry[], { entry, form }: Card, english: bo
   const key = (text: string) => stripNiqqud(text).trim().toLowerCase()
   const answer = form ? form.he : valueOf(entry)
   if (!answer) return null
-  // An expression chooses among other expressions, a word among other words.
+  // An expression chooses among other expressions, a word among other words: the same part of
+  // speech first, then words the learner has practised (so the choice is between words they know,
+  // and which fits is what it asks), then those about as common as this one; taken from the best
+  // few in a shuffled order, so the same three don't come back every time.
   const expression = (item: VocabEntry) => item.partOfSpeech === 'expression'
-  const others = shuffle(entries.filter(item => item.id !== entry.id && item.partOfSpeech !== 'phrase' && expression(item) === expression(entry)), seed)
-    .sort((a, b) => Number(b.partOfSpeech === entry.partOfSpeech) - Number(a.partOfSpeech === entry.partOfSpeech))
+  const distance = (item: VocabEntry) => (item.rank && entry.rank ? Math.abs(Math.log(item.rank) - Math.log(entry.rank)) : 3)
+  const score = (item: VocabEntry) => (item.partOfSpeech === entry.partOfSpeech ? 0 : 10) + (practised(item) ? 0 : 4) + distance(item)
+  const ranked = entries.filter(item => item.id !== entry.id && item.partOfSpeech !== 'phrase' && expression(item) === expression(entry))
+    .sort((a, b) => score(a) - score(b))
+  const others = shuffle(ranked.slice(0, 8), seed).concat(ranked.slice(8))
   const picked: string[] = []
   for (const other of others) {
     const value = valueOf(other)

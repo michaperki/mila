@@ -263,29 +263,34 @@ async function outcomes() {
   try {
     const db = client.db(env.MONGODB_DB_NAME || 'mila')
     const userId = arg('--user') ?? (await db.collection('vocab').aggregate([{ $group: { _id: '$userId', n: { $sum: 1 } } }, { $sort: { n: -1 } }, { $limit: 1 }]).toArray())[0]?._id
-    const entries = await db.collection('vocab').find({ userId, 'forms.writer': { $exists: true } }).project({ id: 1, lemma: 1, 'forms.key': 1, 'forms.writer': 1, 'forms.support': 1 }).toArray()
-    const writerOf = new Map(entries.flatMap(entry => (entry.forms || []).filter(form => form.writer).map(form => [`${entry.id}:${form.key}`, form])))
-    const events = writerOf.size ? await db.collection('studyEvents').find({ userId, type: { $in: ['show', 'answer', 'lookup'] }, key: { $in: [...writerOf.keys()] } }).sort({ at: 1 }).toArray() : []
+    const entries = await db.collection('vocab').find({ userId }).project({ id: 1, 'forms.key': 1, 'forms.writer': 1, 'forms.support': 1, 'forms.variants.writer': 1, 'forms.variants.support': 1 }).toArray()
+    const cardOf = new Map(entries.flatMap(entry => (entry.forms || []).map(form => [`${entry.id}:${form.key}`, form])))
+    // Since the writers were split: each showing and answer by the writer of the sentence shown
+    // (the event says, or the card's own), lookups on a card by the showing they follow.
+    const events = await db.collection('studyEvents').find({ userId, at: { $gt: Date.parse('2026-11-15T06:30:00Z') }, type: { $in: ['show', 'answer', 'lookup'] } }).sort({ at: 1 }).toArray()
+    const writerOf = event => event.writer ?? cardOf.get(event.key)?.writer
+    const shownBy = new Map()
+    for (const event of events) if (event.type === 'show') shownBy.set(event.key, writerOf(event))
     const pct = (part, all) => (all ? `${Math.round(100 * part / all)}% (${part}/${all})` : '—')
-    console.log(`Cards written since the split: ${writerOf.size}. Fewer than about 50 answers a writer says little; read this as a trend over weeks.\n`)
+    const right = list => list.filter(answer => answer.knew).length
+    console.log('Since the writers were split (2026-11-15). Fewer than about 50 answers a writer says little; read it as a trend over weeks.\n')
     for (const writer of ['base', PERSONAL_WRITER_LABEL]) {
-      const cards = [...writerOf.entries()].filter(([, form]) => form.writer === writer)
-      if (!cards.length) { console.log(`${writer}: no cards yet`); continue }
-      const keys = new Set(cards.map(([key]) => key))
-      const mine = events.filter(event => keys.has(event.key))
-      const shows = mine.filter(event => event.type === 'show').length
-      const lookups = mine.filter(event => event.type === 'lookup').length
-      const answers = mine.filter(event => event.type === 'answer' && !event.primed)
-      const first = new Map(); for (const answer of answers) if (!first.has(answer.key)) first.set(answer.key, answer)
-      const later = answers.filter(answer => answer.at - first.get(answer.key).at > 2 * 86_400_000)
-      const support = {}; for (const [, form] of cards) for (const [place, n] of Object.entries(form.support || {})) support[place] = (support[place] ?? 0) + n
-      const right = list => list.filter(answer => answer.knew).length
-      console.log(`${writer}: ${cards.length} cards, ${shows} shown`)
-      console.log(`  their other words when written: ${Object.entries(support).map(([place, n]) => `${place} ${n}`).join(', ')}`)
-      console.log(`  words looked up on them: ${shows ? (lookups / shows).toFixed(2) : '—'} a showing`)
-      console.log(`  unprimed answers right: ${pct(right(answers), answers.length)}; first answers ${pct(right([...first.values()]), first.size)}`)
-      console.log(`    from the Hebrew ${pct(right(answers.filter(a => a.front === 'he')), answers.filter(a => a.front === 'he').length)}, from the English ${pct(right(answers.filter(a => a.front === 'en')), answers.filter(a => a.front === 'en').length)}`)
+      const mine = events.filter(event => (event.type === 'lookup' ? event.key && shownBy.get(event.key) === writer : writerOf(event) === writer))
+      const shows = mine.filter(event => event.type === 'show')
+      const cards = mine.filter(event => event.type === 'answer' && event.exercise !== 'choice' && !event.primed)
+      const first = new Map(); for (const answer of cards) if (!first.has(answer.key)) first.set(answer.key, answer)
+      const later = cards.filter(answer => answer.at - first.get(answer.key).at > 2 * 86_400_000)
+      const support = {}
+      for (const [, form] of cardOf) for (const item of [form, ...(form.variants || [])]) if (item.writer === writer) for (const [place, n] of Object.entries(item.support || {})) support[place] = (support[place] ?? 0) + n
+      console.log(`${writer}: ${shows.length} shown (${new Set(shows.map(show => show.key)).size} cards), ${shows.filter(show => show.variant).length} of them new sentences on older cards`)
+      console.log(`  other words of its sentences when written: ${Object.entries(support).map(([place, n]) => `${place} ${n}`).join(', ') || '—'}`)
+      console.log(`  words looked up on them: ${shows.length ? (mine.filter(event => event.type === 'lookup').length / shows.length).toFixed(2) : '—'} a showing`)
+      console.log(`  flashcards, unprimed: ${pct(right(cards), cards.length)}; first answers ${pct(right([...first.values()]), first.size)}`)
+      console.log(`    from the Hebrew ${pct(right(cards.filter(a => a.front === 'he')), cards.filter(a => a.front === 'he').length)}, from the English ${pct(right(cards.filter(a => a.front === 'en')), cards.filter(a => a.front === 'en').length)}`)
       console.log(`  answered again 2+ days after their first answer: ${pct(right(later), later.length)}`)
     }
+    const choices = events.filter(event => event.type === 'answer' && event.exercise === 'choice')
+    console.log(`\nFill in the blank: ${pct(right(choices), choices.length)} right; the word ${pct(right(choices.filter(c => c.tests === 'word')), choices.filter(c => c.tests === 'word').length)}, its form ${pct(right(choices.filter(c => c.tests === 'form')), choices.filter(c => c.tests === 'form').length)}`)
+    for (const choice of choices.filter(c => !c.knew).slice(-8)) console.log(`  chose ${choice.chosen} for ${choice.answer} (${choice.lemma}, ${choice.tests})`)
   } finally { await client.close() }
 }

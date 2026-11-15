@@ -8,7 +8,7 @@ import type { Results, VocabEntry } from './types'
 // are kept by reference and rebuilt from the saved words, so a card follows its word's latest
 // copy, and a card whose word or form has since gone is left out.
 
-export type CardRef = { id: string; form?: string; checkpoint?: string; why?: string; sequence?: boolean }
+export type CardRef = { id: string; form?: string; checkpoint?: string; why?: string; sequence?: boolean; variant?: number }
 // `answers` and `before` by position in `cards` (as in practice.tsx).
 export type SavedRound = {
   owner: string; savedAt: number; cards: CardRef[]; position: number; flipped: boolean
@@ -16,8 +16,8 @@ export type SavedRound = {
 }
 export type Resumed = { deck: Card[]; position: number; flipped: boolean; answers: Record<number, boolean>; before: Record<number, Results> }
 
-const refOf = ({ entry, form, checkpoint, why, sequence }: Card): CardRef => ({
-  id: entry.id, ...(checkpoint ? { checkpoint } : form ? { form: form.key } : {}), ...(why ? { why } : {}), ...(sequence ? { sequence } : {}),
+const refOf = ({ entry, form, checkpoint, why, sequence, variant }: Card): CardRef => ({
+  id: entry.id, ...(checkpoint ? { checkpoint } : form ? { form: form.key } : {}), ...(why ? { why } : {}), ...(sequence ? { sequence } : {}), ...(variant ? { variant } : {}),
 })
 
 // What to keep of the deck from `roundStart` (earlier rounds can't be gone back to).
@@ -42,7 +42,7 @@ export function resumeRound(saved: SavedRound | null, entries: VocabEntry[]): Re
     const form = ref.form ? entry.forms?.find(item => item.key === ref.form) : null
     if (ref.form && !form) return
     moved.set(at, deck.length)
-    deck.push({ entry, form: form ?? null, ...(ref.checkpoint ? { checkpoint: ref.checkpoint } : {}), ...(ref.why ? { why: ref.why } : {}), ...(ref.sequence ? { sequence: true } : {}) })
+    deck.push({ entry, form: form ?? null, ...(ref.checkpoint ? { checkpoint: ref.checkpoint } : {}), ...(ref.why ? { why: ref.why } : {}), ...(ref.sequence ? { sequence: true } : {}), ...(ref.variant ? { variant: ref.variant } : {}) })
   })
   const from = [...moved.keys()].find(at => at >= saved.position)
   if (from === undefined) return null

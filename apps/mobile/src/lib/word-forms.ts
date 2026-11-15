@@ -14,3 +14,12 @@ export async function ensureForms(entry: VocabEntry, token: string): Promise<Voc
   const added = results.flatMap(result => (result.status === 'fulfilled' ? result.value.forms : [])).filter(form => !known.has(form.key))
   return added.length ? { ...entry, forms: [...(entry.forms || []), ...added] } : entry
 }
+
+// New sentences for a stage already written (a round of new sentences, lib/forms.ts freshPicks):
+// the server writes them for what the learner knows and keeps them on the cards beside their own
+// sentences (FormCard.variants). Returns the entry with that stage's cards as they now are.
+export async function freshSentences(entry: VocabEntry, stage: string, token: string): Promise<VocabEntry> {
+  const { forms } = await request<{ forms: FormCard[] }>('word-forms', { token, body: { id: entry.id, stage, fresh: true }, timeoutMs: 50000 })
+  const byKey = new Map(forms.map(form => [form.key, form]))
+  return { ...entry, forms: (entry.forms || []).map(form => (byKey.has(form.key) ? { ...form, variants: byKey.get(form.key)!.variants } : form)) }
+}

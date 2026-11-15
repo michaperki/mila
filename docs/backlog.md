@@ -37,9 +37,21 @@ priority until they're agreed.
 No dates; order only. Move items between bands as decisions are made.
 
 **Now**
-1. Use the new cards and intake order on the phone; check `personalize.mjs outcomes` after a
-   couple of weeks ([LM-4](#lm-4-personalized-card-writing),
-   [STUDY-3](#study-3-choosing-which-new-words-come-in)).
+1. Use them on the phone, and check `personalize.mjs outcomes` after a couple of weeks:
+   - new sentences rounds and the new cards ([LM-4](#lm-4-personalized-card-writing));
+   - fill in the blank ([EX-0](#exercises));
+   - the intake order ([STUDY-3](#study-3-choosing-which-new-words-come-in)).
+
+   Then iterate on what Mike reports.
+
+**The adaptive curriculum, still open** (kept here so it isn't lost between iterations):
+- which new words come in: relevance and obscurity, Mike's reading exposure, related words, and
+  register ([STUDY-3](#study-3-choosing-which-new-words-come-in), VOCAB-2/3);
+- when words come back ([STUDY-2](#study-2-review-intervals-that-grow), LM-5);
+- how they're taught: card writing ([LM-4](#lm-4-personalized-card-writing)) and exercise
+  formats ([Exercises](#exercises)).
+
+Learner evidence feeds all three, but they stay separate decisions.
 
 **Next**
 2. [DATA-1](#data-1-export-and-import) Export and import foundation, then the
@@ -108,6 +120,18 @@ by the app.
   - answers given 2+ days later
 
   Read it as a trend over weeks, not from a handful of cards.
+- **Verified live** (2026-11-15):
+  - the first cards written on the phone carry `writer: personal-v1`;
+  - the words API returns `rank` and `lookedUp`.
+- **New sentences for words already being learned** (2026-11-15):
+  - Study → Settings → Try → New sentences, or "New sentences round" at the end of a round.
+  - Takes up to 4 words being learned, each in the stage last studied, and writes their cards
+    again for the learner: same form and meaning, a new situation. About $0.03 per stage, once per
+    card.
+  - Each new sentence is kept on the card as a variant (`FormCard.variants`). The card's own
+    sentence and its results stay.
+  - Ordinary rounds then show the card's sentences in turn, one per answer.
+  - Every show and answer logs `variant` and `writer`.
 - **Remaining:**
   - **P2:** after a few weeks of `outcomes`, decide all, revise, or off.
   - **Exploratory:**
@@ -238,11 +262,29 @@ avoid interference. Words found this way come into Study more slowly than words 
 
 ## Exercises
 
-Add a format only when a skill can't be measured or practised otherwise.
+Add a format only when a skill can't be measured or practised otherwise. Study decides how a
+card is put to the learner in one place (`practice.tsx presentation`): which sentence, and
+flashcard or fill in the blank. A new format is another branch there plus its logging.
 
-- **EX-1 Typed or multiple-choice production.** Exploratory. Self-grading is noisy; checked
-  answers are more reliable but add friction. Mike hasn't decided.
-- **EX-2 Cloze from saved sentences.** Exploratory (old P3 item, `MOBILE_FEEDBACK_PLAN.md` #16).
+- **EX-0 Fill in the blank (multiple choice).** **Done** (2026-11-15).
+  - It existed before as "Quiz forms", off by default and never used (0 answers).
+  - Now it's part of ordinary rounds ("Fill in the blank: Sometimes", the default): about one in
+    three sentence cards answered before, never at a first meeting.
+  - The card shows the sentence with the word left out, its English, and four Hebrew options:
+    - for a form card, the word's other forms (agreement and tense in context);
+    - for a meaning card, other saved words of the same part of speech, practised ones and those
+      about as common first.
+  - Logged as `exercise: 'choice'` with what it tested, the options, the choice and the answer,
+    and no side first, so it isn't counted as recall or production.
+  - Its result still counts toward the card in Study, as before.
+  - Remaining, **exploratory**:
+    - distractors written by the card writer (plausible but wrong in context);
+    - whether a right choice should count less than a recalled answer;
+    - a typed answer (EX-1).
+- **EX-1 Typed production.** Exploratory. Self-grading is noisy; checked answers are more
+  reliable but add friction. Mike hasn't decided.
+- **EX-2 Cloze from the sentences Mike saved while reading.** Exploratory (old P3 item,
+  `MOBILE_FEEDBACK_PLAN.md` #16). EX-0 uses the cards' own sentences.
 - **EX-3 Listening.** Exploratory. Hear a card's sentence before seeing it; TTS exists (`speech`).
 - **EX-4 Grammar checkpoints aimed at a weak slot.** Exploratory. Needs grammar evidence that
   isn't there yet.

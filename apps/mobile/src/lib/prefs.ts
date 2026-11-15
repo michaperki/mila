@@ -19,13 +19,13 @@ export type Front = 'he' | 'en' | 'mixed'
 export const TEXT_SIZES = [0.85, 1, 1.15, 1.3, 1.5]
 type Prefs = {
   livePreview: boolean; english: EnglishMode; showNiqqud: boolean; sounds: boolean; haptics: boolean; voice: 'sarah' | 'charon'; speechRate: string; textSize: string; readerHint: boolean
-  studyFront: Front; studyOrder: Order; studyCards: Include; studyQuiz: boolean; studyWhy: boolean
+  studyFront: Front; studyOrder: Order; studyCards: Include; studyQuiz: boolean; studyChoices: 'some' | 'all' | 'off'; studyWhy: boolean
   studyDays: string; lastRead: string; tableEnglish: boolean
   tree: string; treePending: string; treeMotion: boolean; readerCursive: boolean; answerCursive: boolean
 }
 const defaults: Prefs = {
   livePreview: false, english: 'tap', showNiqqud: true, sounds: true, haptics: true, voice: 'sarah', speechRate: '1', textSize: '1', readerHint: true,
-  studyFront: 'he', studyOrder: 'smart', studyCards: 'both', studyQuiz: false, studyWhy: false,
+  studyFront: 'he', studyOrder: 'smart', studyCards: 'both', studyQuiz: false, studyChoices: 'some', studyWhy: false,
   studyDays: '', lastRead: '', tableEnglish: true,
   tree: '', treePending: '', treeMotion: true, readerCursive: false, answerCursive: true,
 }

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, apart, assess, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
+import { ago, apart, asChoice, assess, freshCards, freshPicks, personalVariant, shownForm, variantOf, writerOf, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -382,4 +382,41 @@ test('a cue is shown right after the English word it is about', () => {
   assert.equal(cuedTranslation({ ...card, cue: '' }), card.translation)
   // Written before cues: "you" in the past is after "you".
   assert.equal(cuedTranslation({ stage: 'past', slot: '2sg.f', translation: 'Yesterday you were tired.' }), 'Yesterday you 👩 were tired.')
+})
+
+test('a card shows its own sentence or a new one written later, with its own key and results either way', () => {
+  const card = form('present:m.sg', { sentence: 'הוא פותח', results: [true], writer: 'base', variants: [{ he: 'פותח', en: 'opens', sentence: 'הוא פותח את הדלת', mark: 'פותח', translation: 'He opens the door', writer: 'personal-v1', at: 1 }] })
+  assert.equal(shownForm(card, 0).sentence, 'הוא פותח')
+  const shown = shownForm(card, 1)
+  assert.equal(shown.sentence, 'הוא פותח את הדלת')
+  assert.equal(shown.key, 'present:m.sg')
+  assert.deepEqual(shown.results, [true])
+  assert.equal(writerOf(card, 0), 'base')
+  assert.equal(writerOf(card, 1), 'personal-v1')
+  assert.equal(personalVariant(card), 1)
+  // In an ordinary round, its sentences take turns as it is answered.
+  assert.equal(variantOf(card, { results: [true] }), 1)
+  assert.equal(variantOf(card, { results: [true, true] }), 0)
+  assert.equal(variantOf(form('present:f.sg'), { results: [true] }), 0)
+})
+
+test('a round of new sentences takes words being learned that have sentence cards studied, a stage each', () => {
+  const studied = verb([form('meanings:sense1', learning), form('present:m.sg', { results: [false], last: now - 2 * DAY })], { id: 'a', results: [true], last: now - DAY })
+  const wordOnly = verb([form('meanings:sense1')], { id: 'b', results: [true], last: now - DAY })
+  const picks = freshPicks([studied, wordOnly])
+  assert.deepEqual(picks.map(pick => [pick.entry.id, pick.stage]), [['a', 'meanings']])
+  const written = { ...studied, forms: studied.forms!.map(item => (item.stage === 'meanings' ? { ...item, variants: [{ he: 'x', en: 'x', sentence: 'x', mark: 'x', translation: 'x', writer: 'personal-v1', at: 1 }] } : item)) }
+  assert.deepEqual(freshCards(written, 'meanings').map(card => [card.form!.key, card.variant]), [['meanings:sense1', 1]])
+})
+
+test('fill in the blank comes now and then on sentence cards answered before, never at a first meeting', () => {
+  const entry = verb([])
+  const cards = Array.from({ length: 60 }, (_, i) => ({ entry: { ...entry, id: `w${i}` }, form: form('present:m.sg') }))
+  const some = cards.filter(card => asChoice(card, { results: [true] }, 'some')).length
+  assert.ok(some > 8 && some < 32, `${some} of 60`)
+  assert.equal(cards.filter(card => asChoice(card, { results: [] }, 'some')).length, 0)
+  assert.equal(asChoice({ entry, form: null }, { results: [true] }, 'some'), false)
+  assert.equal(asChoice({ entry, form: null }, { results: [] }, 'all'), true)
+  assert.equal(asChoice(cards[0], { results: [true] }, 'off'), false)
+  assert.equal(asChoice({ entry, form: null, checkpoint: 'present' }, { results: [true] }, 'all'), false)
 })

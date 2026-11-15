@@ -68,7 +68,12 @@ export type WrittenForm = {
   // what its other words were to the learner then (supportOfCard), to compare how the two go.
   // Cards written before the split have neither.
   writer?: string; support?: Record<string, number>
+  // New sentences for the card written later (word-forms.ts with `fresh`), newest last: the same
+  // form and meaning in another sentence, with who wrote it and when. The card's own sentence and
+  // its results stay as they are; Study shows one or another (apps/mobile/src/lib/forms.ts).
+  variants?: Variant[]
 }
+export type Variant = Pick<WrittenForm, 'he' | 'en' | 'sentence' | 'mark' | 'said' | 'translation' | 'enMark' | 'cue' | 'cueAfter' | 'cues' | 'usage' | 'glosses' | 'writer' | 'support'> & { at: number }
 // What a word of a card's sentence means there, for looking it up on the card without asking the
 // model: `i` is the word's place among the sentence's words (split at spaces, as the card draws
 // them), so a word that comes twice has a meaning for each place; `lemma` its dictionary form
@@ -191,7 +196,9 @@ export function disagreement(stage: string, slot: string, agrees: Agreement | un
 }
 
 // `learner`: what the writer is told about the learner (lib/profile.ts profileBlock), at the end.
-export function promptFor(entry: Entry, stage: string, slots: Slot[], retry: { slot: string; why: string }[] = [], learner = '') {
+// `again`: cards already written to write a new sentence for, each the same form and meaning.
+export type Again = { slot: string; he: string; en: string }
+export function promptFor(entry: Entry, stage: string, slots: Slot[], retry: { slot: string; why: string }[] = [], learner = '', again: Again[] = []) {
   const used = (entry.forms || []).map(form => (form.usage ? `${form.sentence} (${form.usage})` : form.sentence)).slice(-30)
   const meanings = (entry.forms || []).filter(form => form.stage === 'meanings' && form.en).map(form => form.en)
   const met = (entry.encounters || []).slice(-5).map(item => `${item.surface} in: ${item.context}`)
@@ -207,7 +214,9 @@ export function promptFor(entry: Entry, stage: string, slots: Slot[], retry: { s
     ...(entry.feminine ? [`It is a noun for a person, masculine ${entry.lemma} and feminine ${entry.feminine}, both learned: use one or the other in each sentence, as fits who it is about, mixing them across the cards, and give each card's form as the one in its sentence.`] : []),
     ...(entry.pattern ? [`Learned as the pattern ${entry.pattern} — ${entry.gloss}.`] : []),
     ...(constructions.length ? ['Constructions it is used in:', ...constructions.map(item => `- ${item.pattern} "${item.meaning}"`)] : []),
-    ...(stage === 'meanings'
+    ...(again.length
+      ? ['Write a new card for each of these, already written for this word: the same slot, the same form and the same meaning ("english"), in a new sentence that shows it in another situation or use than the cards already written (listed below).', ...again.map(item => `- slot "${item.slot}": ${item.he} "${item.en}"`)]
+      : stage === 'meanings'
       ? ['Write its meanings, one card each, using slots "sense1", "sense2", "sense3" in order (only as many as it has).']
       : [`Main meaning: ${mainMeaning(entry)}`, ...(meanings.length > 1 ? [`Its meanings: ${meanings.join('; ')}`] : []), `Forms to write (${stage}):`, ...slots.map(item => `- slot "${item.slot}": ${item.means}`)]),
     ...(retry.length ? ['These were written before with a subject that does not agree with the form; write them again with one that does:', ...retry.map(item => `- slot "${item.slot}": ${item.why}`)] : []),
@@ -287,10 +296,10 @@ export class Unwritable extends Error {}
 const textOf = (reply: Reply) => reply.content.flatMap(block => (block.type === 'text' && block.text ? [block.text] : [])).join('')
 
 // Writes a stage: the requested slots, then once more any whose subject didn't agree.
-export async function writeForms(entry: Entry, stage: string, ask: Ask, learner = ''): Promise<WrittenForm[]> {
-  const slots = slotsOf(entry, stage)
+export async function writeForms(entry: Entry, stage: string, ask: Ask, learner = '', again: Again[] = []): Promise<WrittenForm[]> {
+  const slots = slotsOf(entry, stage).filter(item => !again.length || again.some(card => card.slot === item.slot))
   const once = async (wanted: Slot[], retry?: { slot: string; why: string }[]) => {
-    const reply = await ask({ system: SYSTEM, prompt: promptFor(entry, stage, wanted, retry, learner), schema })
+    const reply = await ask({ system: SYSTEM, prompt: promptFor(entry, stage, wanted, retry, learner, again.filter(card => wanted.some(item => item.slot === card.slot))), schema })
     if (reply.stop_reason === 'refusal' || reply.stop_reason === 'max_tokens') throw new Unwritable('These forms could not be written.')
     return cardsOf((JSON.parse(textOf(reply)) as { forms: Generated[] }).forms, stage, wanted)
   }
