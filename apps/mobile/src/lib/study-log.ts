@@ -50,6 +50,9 @@ export function studySession(owner: string) {
   }
 }
 
+// This account's events not yet on the server (for a backup, lib/data-export.ts).
+export const waitingEvents = (owner: string) => pending().filter(event => event.owner === owner)
+
 // Sends what is waiting for this account, a batch at a time; whatever fails waits for next time.
 let sending: Promise<void> | null = null
 export function sendStudyLog(owner: string, token: string): Promise<void> {

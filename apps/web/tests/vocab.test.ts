@@ -1,19 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 const updateOne = vi.fn()
 const deleteMany = vi.fn()
-vi.mock('../netlify/functions/lib/mongo', () => ({ getDb: async () => ({ collection: () => ({ updateOne, deleteMany }) }) }))
+const findOne = vi.fn()
+const countDocuments = vi.fn()
+vi.mock('../netlify/functions/lib/mongo', () => ({ getDb: async () => ({ collection: () => ({ updateOne, deleteMany, findOne, countDocuments }) }) }))
 vi.mock('../netlify/functions/lib/auth', () => ({ verifyAuth: () => ({ userId: 'user' }) }))
 import { handler } from '../netlify/functions/vocab'
 
 const patch = async (body: unknown) => (await handler({ httpMethod: 'PATCH', body: JSON.stringify(body) } as any, {} as any, () => {}) as any)
-beforeEach(() => { vi.clearAllMocks(); updateOne.mockResolvedValue({ matchedCount: 1 }) })
+beforeEach(() => { vi.clearAllMocks(); updateOne.mockResolvedValue({ matchedCount: 1 }); findOne.mockResolvedValue(null); countDocuments.mockResolvedValue(0) })
+const noOlder = (field: string, last: number) => ({ $or: [{ [field]: { $exists: false } }, { [field]: { $lte: last } }] })
 
 describe('word card results', () => {
   it('sets only the results on the user\'s own entry', async () => {
     const response = await patch({ id: 'native-x', results: [false, true], last: 5, gloss: 'ignored' })
     expect(response.statusCode).toBe(204)
     const [filter, update] = updateOne.mock.calls[0]
-    expect(filter).toEqual({ userId: 'user', id: 'native-x' })
+    expect(filter).toEqual({ userId: 'user', id: 'native-x', ...noOlder('last', 5) })
     expect(update.$set).toEqual({ results: [false, true], last: 5, updatedAt: expect.any(Number) })
     expect(updateOne.mock.calls[0][2]).toBeUndefined() // never upserts
   })
@@ -40,6 +43,19 @@ describe('primed answers', () => {
   it('rejects primed marks that don\'t match the results', async () => {
     expect((await patch({ id: 'native-x', results: [true, false], primed: [true], last: 1 })).statusCode).toBe(400)
     expect((await patch({ id: 'native-x', form: { key: 'k', results: [true], primed: ['no'], last: 1 } })).statusCode).toBe(400)
+  })
+})
+
+describe('results sent again', () => {
+  it('keeps a result only over one no newer, so a repeat changes nothing and a late older one is ignored', async () => {
+    await patch({ id: 'native-x', checkpoint: { stage: 'present', results: [true], last: 3 } })
+    expect(updateOne.mock.calls[0][0]).toEqual({ userId: 'user', id: 'native-x', ...noOlder('checkpoints.present.last', 3) })
+    // The stored record is newer: nothing changes, and it isn't reported as a missing word.
+    updateOne.mockResolvedValueOnce({ matchedCount: 0 }); countDocuments.mockResolvedValueOnce(1)
+    expect((await patch({ id: 'native-x', results: [true], last: 1 })).statusCode).toBe(204)
+    // The word is gone: 404, so the phone stops sending it.
+    updateOne.mockResolvedValueOnce({ matchedCount: 0 }); countDocuments.mockResolvedValueOnce(0)
+    expect((await patch({ id: 'gone', results: [true], last: 1 })).statusCode).toBe(404)
   })
 })
 
@@ -83,7 +99,7 @@ describe('form results', () => {
     expect(filter).toEqual({ userId: 'user', id: 'native-x', 'forms.key': 'past:3pl' })
     expect(update.$set['forms.$[card].results']).toEqual([true, true])
     expect(update.$set['forms.$[card].last']).toBe(9)
-    expect(options).toEqual({ arrayFilters: [{ 'card.key': 'past:3pl' }] })
+    expect(options).toEqual({ arrayFilters: [{ 'card.key': 'past:3pl', ...noOlder('card.last', 9) }] })
     expect((await patch({ id: 'native-x', checkpoint: { stage: 'present', results: [true], last: 3 } })).statusCode).toBe(204)
     expect(updateOne.mock.calls[1][1].$set['checkpoints.present']).toEqual({ results: [true], last: 3 })
     expect((await patch({ id: 'native-x', known: ['present'] })).statusCode).toBe(204)

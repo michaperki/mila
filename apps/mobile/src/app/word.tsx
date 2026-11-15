@@ -116,6 +116,8 @@ export default function Word() {
       {constructions.length > 0 && <View style={{ marginBottom: 4 }}><Constructions items={constructions} v={v} size={17} align="end" /></View>}
       <Text style={word.gloss}>{isolateHebrew(v(entry.gloss))}</Text>
       {!!grammar && <Text style={word.meta}>{isolateHebrew(grammar)}</Text>}
+      {/* Its themes and register, once an import has organised it (VOCAB-2). */}
+      {!!(entry.categories?.length || entry.register) && <Text style={word.meta}>{[...(entry.categories || []), entry.register].filter(Boolean).join(' · ')}</Text>}
     </View>
     <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
       <Text style={[word.pill, wordKnown && word.pillDone]}>

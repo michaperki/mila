@@ -3,6 +3,7 @@ import { getDb } from './lib/mongo'
 import { verifyAuth } from './lib/auth'
 import type { LearnerEvent } from './lib/learner'
 import { relevanceOf } from './lib/relevance'
+import { lemmaKeyOf } from './lib/lemma'
 
 const handler: Handler = async (event) => {
   try {
@@ -12,7 +13,8 @@ const handler: Handler = async (event) => {
 
     if (event.httpMethod === 'GET') {
       const [docs, lookups] = await Promise.all([
-        vocab.find({ userId: auth.userId }).sort({ createdAt: -1 }).toArray(),
+        // Archived words (an import set them aside, DATA-1) stay saved but leave Study and the list.
+        vocab.find({ userId: auth.userId, archived: { $ne: true } }).sort({ createdAt: -1 }).toArray(),
         db.collection('studyEvents').find({ userId: auth.userId, type: 'lookup' }).project<LearnerEvent>({ _id: 0, userId: 0 }).toArray().catch(() => []),
       ])
       const sanitized = relevanceOf(docs.map(({ _id, ...rest }) => normalizeItem(rest)), lookups)
@@ -65,6 +67,8 @@ const handler: Handler = async (event) => {
           // Saving again keeps the word's place in the practice order.
           $setOnInsert: { createdAt },
           ...(encounter ? { $push: { encounters: { $each: [encounter], $slice: -20 } } } : {}),
+          // Saved again from reading: back from the archive.
+          ...(encounter ? { $unset: { archived: '' } } : {}),
         } as never,
         { upsert: true },
       )
@@ -80,6 +84,9 @@ const handler: Handler = async (event) => {
     // before Mila brought them in. Results are what was answered, never a date to come back; with
     // them, `primed` says which were answered just after the word was shown. Sent without it (by
     // an app from before), it is cleared so it can't be read against the wrong answers.
+    // A result is the card's whole record, sent again until it arrives (mobile lib/results.ts):
+    // kept only if it is no older than the one stored (`last`), so the same one twice changes
+    // nothing and an older one arriving late is ignored (204 either way).
     if (event.httpMethod === 'PATCH') {
       const payload = JSON.parse(event.body || '{}')
       const id = payload.id
@@ -110,17 +117,20 @@ const handler: Handler = async (event) => {
         filter = { ...filter, 'forms.key': key }
         set = { 'forms.$[card].results': results, 'forms.$[card].last': last, ...(primed ? { 'forms.$[card].primed': primed } : {}), ...(on ? { 'forms.$[card].on': on, 'forms.$[card].seen': seen ?? [] } : {}) }
         if (!primed) unset = { 'forms.$[card].primed': '' }
-        options = { arrayFilters: [{ 'card.key': key }] }
+        options = { arrayFilters: [{ 'card.key': key, ...noOlder('card.last', last) }] }
       } else if (payload.checkpoint) {
         const { stage, results, last, primed } = payload.checkpoint
         if (typeof stage !== 'string' || !/^[a-z]+$/.test(stage) || !isResults(results, last) || !isPrimed(primed, results)) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
         set = { [`checkpoints.${stage}`]: { results, last, ...(primed ? { primed } : {}) } }
+        filter = { ...filter, ...noOlder(`checkpoints.${stage}.last`, last) }
       } else if (isResults(payload.results, payload.last) && isPrimed(payload.primed, payload.results)) {
         set = { results: payload.results, last: payload.last, ...(payload.primed ? { primed: payload.primed } : {}) }
+        filter = { ...filter, ...noOlder('last', payload.last) }
         if (!payload.primed) unset = { primed: '' }
       } else return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
       const result = await vocab.updateOne(filter, { $set: { ...set, updatedAt: Date.now() }, ...(unset ? { $unset: unset } : {}) }, options)
-      if (!result.matchedCount) return { statusCode: 404, body: JSON.stringify({ message: 'This word is no longer saved.' }) }
+      // Not matched: the word is gone, or what is stored is newer than this.
+      if (!result.matchedCount && !(await vocab.countDocuments({ userId: auth.userId, id }, { limit: 1 }))) return { statusCode: 404, body: JSON.stringify({ message: 'This word is no longer saved.' }) }
       return { statusCode: 204, body: '' }
     }
 
@@ -152,11 +162,6 @@ const handler: Handler = async (event) => {
 
 export { handler }
 
-// A word's identity: its dictionary form as plainly written (no niqqud, a maqaf read as a space),
-// so the same word saved with other vowels is one entry. Mirrors apps/mobile/src/lib/words.ts.
-const lemmaKeyOf = (text: string) => text.normalize('NFC').replace(/[\u05BE\-–]/g, ' ').replace(/[\u0591-\u05C7]/g, '')
-  .replace(/'/g, '׳').replace(/"/g, '״').replace(/[,،，.!?]/g, '').replace(/\s+/g, ' ').trim()
-
 // A card's last few results (true: knew it) and when it was answered.
 const isResults = (results: unknown, last: unknown) => Array.isArray(results) && results.length <= 10
   && results.every(value => typeof value === 'boolean') && typeof last === 'number' && Number.isFinite(last)
@@ -164,6 +169,8 @@ const isResults = (results: unknown, last: unknown) => Array.isArray(results) &&
 const isPrimed = (primed: unknown, results: unknown) => primed === undefined
   || (Array.isArray(primed) && Array.isArray(results) && primed.length === results.length && primed.every(value => typeof value === 'boolean'))
 
+// A record is kept only over one no newer than it (or none).
+const noOlder = (field: string, last: number) => ({ $or: [{ [field]: { $exists: false } }, { [field]: { $lte: last } }] })
 // Which sentence each of those results was given on (-1 not known), and the sentences answered on.
 const isOn = (on: unknown, results: unknown) => on === undefined
   || (Array.isArray(on) && Array.isArray(results) && on.length === results.length && on.every(value => Number.isInteger(value) && value >= -1 && value < 10))

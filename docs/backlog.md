@@ -5,7 +5,7 @@ each thing forward. Detailed research lives in the linked docs and commits; this
 to it. Read it before starting product work; update it in the same commit as the work (see
 [Keeping this up to date](#keeping-this-up-to-date)).
 
-Last reviewed: 2026-11-15 (architecture review: [architecture.md](architecture.md), ARCH-*).
+Last reviewed: 2026-11-15 (results sync ARCH-3, export/import DATA-1, draft taxonomy VOCAB-2).
 
 **Status words**
 - **Done**: shipped and on the phone.
@@ -59,14 +59,22 @@ Learner evidence feeds all three, but they stay separate decisions.
    `another-example`, and their cards' answers on later days). It stays only as a way to check
    the automatic behaviour, not as a feature (Mike, 2026-11-15).
 
-**Next** (agreed order after the architecture review, 2026-11-15)
-3. [DATA-1](#data-1-export-and-import) Export and import foundation, then the
-   [12 malformed entries](#vocab-1-the-12-malformed-phrase-entries) as its first use. It also
-   settles the word list's shape, so [ARCH-2](#arch-2-a-lighter-word-list) is done with it.
-4. [VOCAB-2](#vocab-2-categories-level-and-register) Taxonomy and per-word categories, level and
-   register (needs DATA-1 for existing words).
-5. [STUDY-2](#study-2-review-intervals-that-grow) Review intervals that grow, starting with FSRS in
-   shadow mode ([LM-5](#lm-5-fsrs-in-shadow-mode)).
+**Next** (Mike's order, 2026-11-15)
+3. **Mike reviews** the [12 malformed entries](#vocab-1-the-12-malformed-phrase-entries)
+   proposals and the [draft taxonomy](#vocab-2-categories-level-and-register). Both are ready on
+   the phone (Import changes, Account → Saved words). Nothing is applied without him.
+4. [VOCAB-2](#vocab-2-categories-level-and-register):
+   - revise the taxonomy from the review;
+   - classify the existing words with one export/import in a chat AI (no Claude Code bulk run,
+     no new spend);
+   - then new saves get themes from the explanation they already wait for.
+5. [STUDY-3](#study-3-choosing-which-new-words-come-in) Smarter intake: frequency, reading
+   exposure, learner knowledge and themes (spacing similar words, related clusters).
+6. [LM-5](#lm-5-fsrs-in-shadow-mode) FSRS in shadow mode (approved), then
+   [STUDY-2](#study-2-review-intervals-that-grow) review intervals that grow.
+
+Three decisions stay separate: which words come in (STUDY-3, VOCAB-2/3), when they come back
+(LM-5, STUDY-2), and how they're taught (LM-4, LM-8, EX-*).
 
 **Later**
 - [STUDY-3](#study-3-choosing-which-new-words-come-in) Smarter intake (frequency, interest,
@@ -311,7 +319,16 @@ it's proposed.
 ## Vocabulary
 
 ### VOCAB-1 The 12 malformed phrase entries
-**Blocked** on DATA-1 (the `normalize-v1` import task). Proposed fixes per entry are in the
+**Ready for Mike's review** (2026-11-15).
+- Proposals, each with its reason, are in [vocab-1-proposals.md](vocab-1-proposals.md):
+  - 7 archived: clauses, and words that only stand together;
+  - 5 corrected to dictionary forms or relabelled.
+
+  Paste them into Import changes (Fix entries) to preview. Nothing is applied until Mike does.
+- Studied entries keep their progress, and their stages don't change (phrase and expression
+  without a head word study the same).
+
+Earlier: blocked on DATA-1 (the `normalize-v1` import task). Proposed fixes per entry are in the
 2026-11-13 plan. Mike's decisions: archive rather than delete; review each correction before it's
 applied. The dashboard flags them.
 
@@ -331,7 +348,26 @@ classified.
   - Level is computed from `rank` on read, where rank is reliable.
   - Teaching decisions read these as entry fields (`intakeOrder` spacing categories, VOCAB-3
     clusters); the writer can be told them through `profileBlock`.
-- Next action: draft the taxonomy for Mike's review.
+- **Draft taxonomy, for Mike's review** (2026-11-15, `lib/taxonomy.ts`, version `draft-1`):
+  - drawn from the 477 saved words (mostly from a novel);
+  - 14 broad themes: people, body, appearance, feelings, character, mind (thinking and
+    perceiving), speech (and sounds), movement, home, town (work and getting around), nature
+    (and weather), time, magic (and storytelling), structure (connectives and function words);
+  - 1–3 per word, or none rather than a forced one;
+  - registers: everyday, formal, literary, informal, technical;
+  - level computed from frequency (core ≤1,000, common ≤3,000, uncommon ≤10,000, rare), and set
+    by enrichment only where frequency can't place a word.
+
+  Stored on the entry with the taxonomy version, so a revision reclassifies without a migration.
+  The word page shows themes and register once set.
+- **Next after review:**
+  - revise the draft;
+  - export "Words to organise by theme", run it through a chat AI, and preview and import (a
+    sample first);
+  - then add the fields to the word explanation's schema, so new saves get them with no extra
+    call (a small output increase and a cache-version bump);
+  - then STUDY-3 can space and cluster by theme.
+- Earlier next action: draft the taxonomy for Mike's review.
 
 ### VOCAB-3 Explore related words
 **Exploratory → planned after VOCAB-2, P3.** Extend the root explorer (`root.tsx`,
@@ -346,7 +382,24 @@ avoid interference. Words found this way come into Study more slowly than words 
 ## Data
 
 ### DATA-1 Export and import
-**Planned, P2.** Agreed 2026-11-13.
+**Done, first version** (2026-11-15). On the phone, Account → Saved words:
+- **Back up my data:** everything account deletion would clear, as stored, plus the phone's unsent
+  answers and events and the round in progress, as one JSON file through the share sheet.
+- **Words to organise by theme** (`classify-v1`) and **Words saved in the wrong form**
+  (`normalize-v1`): a file with instructions and the words, to give ChatGPT or Claude.
+- **Import changes:**
+  - paste the AI's answer, preview every change from what to what, and see each refused row with
+    why;
+  - apply it, and undo a recent import.
+
+  Preview and apply share one check (`lib/data-tasks.ts planImport`). Learning fields can never
+  be written.
+- **Archived words** stay saved but leave the list and Study.
+- **Remaining:** merging two entries (a dictionary form saved twice); more tasks as needs come
+  (each is a definition in `TASKS`); restoring from a backup (the file has everything, but there's
+  no restore yet). How it all flows: [architecture.md](architecture.md#data-in-and-out).
+
+Original plan (2026-11-13):
 - Full backup: JSON of every collection account deletion clears, plus the phone's study log and
   round, through the share sheet.
 - Tasks in code (fields out, instructions, schema, fields allowed in); `classify-v1` and
@@ -453,7 +506,23 @@ separated and no redesign is needed. The issues below are ranked by impact.
   much of what was generated was ever used.
 
 ### ARCH-1 Reader word explanations are half the AI spend
-**Exploratory, the most consequential cost.** 797 calls and $11.06 of $21.65 in 30 days
+**Decided: keep as is** (Mike, 2026-11-15: lookups are central, about $0.35 a reading day is
+acceptable).
+- **Measured since:** 511 saves against 790 paid explanations in 30 days. A save needs the
+  explanation anyway (its dictionary form), and the tap and the save share one call (phone memo,
+  in-flight sharing, `aiCache`). So explaining only on More or Save would save at most ~35% of
+  explanation cost, about $4 a month.
+- **Quality:** the quick meaning (`sentence-glosses`) gives a word's meaning in its sentence but
+  no dictionary form, root, binyan, constructions or expression detection. That last one is what
+  turns a tap into the right save, such as נטייה ל.
+- **Recommendation:** don't change it. Revisit only if reading volume grows several-fold. The
+  cheapest change then would be to show the quick meaning first (it already shows) and ask for the
+  explanation after a short pause, or on More or Save, rather than a cheaper model, which would
+  need an eval budget.
+- **No duplicate calls found:** glosses and explanations are each asked for once per word and
+  sentence, and shared.
+
+Original finding: 797 calls and $11.06 of $21.65 in 30 days
 (Opus 5.5, ≈$0.014 and 4.4 s each). It's asked for on every Reader tap, though the quick meaning
 is already there. Study cards ask only on More or Save. Repeats are rare (5 cache hits), so
 caching can't help. Options, each a product decision for Mike:
@@ -463,7 +532,11 @@ caching can't help. Options, each a product decision for Mike:
 - leave it: about $0.35 a reading day.
 
 ### ARCH-2 A lighter word list
-**Planned with DATA-1.** 1.5 MB, of which the explanation kept on each encounter is about
+**Deferred** (2026-11-15). Leaving the stored explanations out of the list would need the
+Reader's drawer to fetch them for a saved word tapped again, and with refreshes throttled
+(ARCH-0) it's ~267 KB a few times a day. The backup now carries the full data, so the list can be
+slimmed later without losing anything. Revisit if the list grows well past 1,000 words.
+Original note: 1.5 MB, of which the explanation kept on each encounter is about
 0.4 MB. The phone needs it only when a saved word is tapped again in the same sentence.
 - Leave `encounters[].analysis` out of the list, and fetch it with the word when needed.
 - Or fetch only what changed since `updatedAt` (deletions need a marker).
@@ -471,7 +544,16 @@ caching can't help. Options, each a product decision for Mike:
 Not urgent now that refreshes are throttled.
 
 ### ARCH-3 Results that fail to save aren't retried
-**Planned, P2.** A failed `vocab` PATCH shows an error, but the card's record on the server misses
+**Done** (2026-11-15).
+- Each answer's update (the card's whole record) waits in a file on the phone until the server
+  has it (`lib/results.ts`), newest per card only.
+- It is sent at once and again on Study open, word fetches, and foreground or background.
+- The server keeps it only if it's no older than what's stored, so repeats and late arrivals are
+  harmless.
+- Fetched words show unsent answers laid over them.
+- Tests cover offline, restart, a refused update, a card answered again mid-send, and overlay.
+
+Original finding: A failed `vocab` PATCH shows an error, but the card's record on the server misses
 the answer, though the study log has it. Queue results on the phone like study events, send them
 in order, and keep the latest result per card.
 

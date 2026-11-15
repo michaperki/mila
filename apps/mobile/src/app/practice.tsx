@@ -10,7 +10,6 @@ import { Button, colors, ErrorNotice, Loading, Page, Pressy, styles } from '../c
 import { DraggableSheet, FlipCard, Shake, type Side, SwipeCard } from '../components/Motion'
 import { APPEAR, CARD_BACK_IN, CARD_IN, DISAPPEAR } from '../lib/motion'
 import { feel } from '../lib/feedback'
-import { request } from '../lib/api'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
 import { ago, assess, type Card, cardKey, type ChoiceMode, checkpointGroup, exerciseOf, freshCards, freshPicks, freshRound, justAfterItsWord, onSentence, type Sentence, sentenceFor, shownForm, wantsSentence, writerOf, checkpointRecord, cuedTranslation, deckOf, exposureOf, firstSense, followUps, type Include, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
@@ -27,6 +26,8 @@ import { ensureForms, freshSentences } from '../lib/word-forms'
 import { askBeforeResuming, resumeRound, roundToSave } from '../lib/rounds'
 import { clearRound, loadRound, saveRound } from '../lib/saved-round'
 import { sendStudyLog, studySession } from '../lib/study-log'
+import { saveResult, sendResults } from '../lib/results'
+import type { ResultBody } from '../lib/result-queue'
 import { appInfo } from '../lib/app-info'
 import { useSession } from '../state/session'
 import { cachedVocab, putEntry, vocabFor } from '../state/vocab'
@@ -216,7 +217,7 @@ export default function Practice() {
         setSettings(chosen)
         setWords(Object.fromEntries(entries.map(entry => [entry.id, entry])))
         study.current = studySession(session.user.id)
-        void sendStudyLog(session.user.id, session.token)
+        void sendStudyLog(session.user.id, session.token); void sendResults(session.user.id, session.token)
         // The round left unfinished, if anything of it is left, or a new one. One left hours ago
         // waits for the learner to say whether to go on with it.
         const saved = loadRound(session.user.id)
@@ -483,7 +484,8 @@ export default function Practice() {
       : form
         ? [{ id: entry.id, form: { key: form.key, ...recorded } }, { ...entry, forms: (entry.forms || []).map(item => (item.key === form.key ? { ...item, ...recorded } : item)) }]
         : [{ id: entry.id, ...result }, { ...entry, ...result }]
-    void request('vocab', { token: session.token, method: 'PATCH', body }).catch((failure: Error) => setError(`A result wasn't saved. ${failure.message}`))
+    // Kept on the phone until the server has it (lib/results.ts); the round doesn't wait.
+    saveResult(session.user.id, session.token, body as ResultBody)
     const opened = recommendedStages(entry).map(item => item.key)
     setWords(current => ({ ...current, [entry.id]: updated })); putEntry(session, updated)
     // A stage Mila now brings in: have its cards written for next time, and note it for the

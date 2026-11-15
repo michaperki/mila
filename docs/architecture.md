@@ -34,7 +34,8 @@ update it in the same commit. Numbers were measured on 2026-11-15 with `apps/web
 | **Tap a word (Study card)** | the card's own gloss at once | nothing, unless More or Save asks for the explanation | No |
 | **Save a word** | "Saved ✓" at once | waits for the explanation (shared with the tap), then `vocab` POST adds the encounter, with its explanation, to the entry | No (it finishes even if the drawer closes) |
 | **Open Study** | the cached words, the saved round, or a new deck (`deckOf`) | `vocab` GET only if nothing is cached. Then, in the background, `word-forms` for the round's words and those coming up next that lack cards (`upcoming`: about 18 started and 6 new), and new sentences (`varyAhead`). | Only when no card is ready at all |
-| **Answer a card** | result recorded locally, next card | `vocab` PATCH (not retried if it fails: an error shows). A stage it opens has its cards written. Study events are queued on the phone and sent on end, leave or background. | No |
+| **Answer a card** | result recorded locally, next card | the card's whole record goes into the result outbox (`lib/results.ts`, a file on the phone) and is sent at once: `vocab` PATCH, kept by the server only if no older than what it has. A stage it opens has its cards written. Study events are queued on the phone and sent on end, leave or background. | No |
+| **Back up, export for an AI, import** (Account → Saved words) | share sheet; Import changes screen | `data`: a backup of everything kept for the account, or a task's words with instructions (no AI call); an import is checked row by row, previewed, applied, and can be undone (`imports`) | Only for the file or preview |
 | **Listen** | clip from disk if kept | `speech`: Gemini or ElevenLabs, with Claude adding vowels first (≈1–2 s, <$0.001). Clips are kept on the device. The next sentence's clip is prefetched only while listening. | Yes, the first time |
 | **Word page, tables, roots** | cached words | `word-forms` for missing stages; `word-table`, `root-family` (cached in `aiCache`) | Tables and roots, yes |
 
@@ -62,6 +63,7 @@ update it in the same commit. Numbers were measured on 2026-11-15 with `apps/web
 | Glosses, tables, roots | `aiCache` | yes | as above |
 | Speech clips | the phone's cache directory | no | the clip is missing |
 | Page reads | `texts` | no | never |
+| Organisation (themes, register, level) | on the learner's word (`categories`, `register`, `level`, `taxonomy`), set by an import | no | a new import; `taxonomy` says which version classified it |
 
 ## Background work: failures, leaving, overlap
 
@@ -72,7 +74,13 @@ update it in the same commit. Numbers were measured on 2026-11-15 with `apps/web
   - A failed stage is asked for again the next time it's needed. Nothing retries in a loop.
 - **Unverified:** card writing is 2–3 model calls in one function request. Netlify's function time limit isn't set in `netlify.toml`, so check the site's setting before adding more steps to one request.
 - **The word list** is fetched when there is nothing cached, and on a screen visit only if it's more than 2 minutes old. Every change made in the app is applied to the cached copy as it's sent.
-- **Results:** a failed `vocab` PATCH is shown but not retried. The answer is still in the study log, but the card's record on the server misses it.
+- **Results** (`lib/results.ts`, `lib/result-queue.ts`):
+  - Each answer's update is the card's whole record, kept in a file on the phone until the server has it.
+  - Only the newest update per card waits; changing an answer replaces the older one.
+  - It is sent at once, and again when Study opens, when the words are fetched and when Mila comes back or leaves. Offline, it waits; a refused update (400) is let go; a deleted word counts as done.
+  - The server keeps a record only if it's no older than the one stored (`last`), so a repeat changes nothing and a late older one is ignored.
+  - Words fetched while updates wait are shown with them laid over, so a refresh never undoes an answer.
+  - The study log stays the record of what happened. The outbox only carries the card's state to the server.
 - **Study events** queue on the phone and are sent on end, leave and background.
 
 ## Principles
@@ -93,6 +101,14 @@ update it in the same commit. Numbers were measured on 2026-11-15 with `apps/web
 6. **Every paid call is counted and capped.** It goes through `recordClaude` (or the provider's recorder) and `checkDailySpend`. Each feature has its own name in `aiUsage`.
 7. **Learner understanding reaches generation as data** (`profileBlock`, `why`), never as new prompt branches or UI.
 8. **Measure before optimizing.** `scripts/ai-report.mjs` for cost, latency, caches and content use; `study-events.mjs` and `personalize.mjs outcomes` for learning.
+
+## Data in and out
+
+- **Backup:** `data?export=backup` returns everything account deletion would clear (`vocab`, `texts`, `studyEvents`). The phone adds its unsent answers, unsent events and the round in progress.
+- **Task exports:** `data?export=<task>` returns a task's words, with only the fields it reads plus instructions for an AI. Two tasks: `classify-v1` (themes, register, level; taxonomy in `lib/taxonomy.ts`, a draft) and `normalize-v1` (dictionary form, meaning, part of speech, archive). The phone shares it as a file; nothing calls an AI.
+- **Import:** `lib/data-tasks.ts planImport` checks every row once, for both preview and apply. It accepts only the task's fields, with valid values. It ignores read-only fields echoed back. It refuses a whole row that names anything else (results, cards, encounters, checkpoints can never be written), an unknown id, a repeat, or a new dictionary form saved already.
+- **Apply and undo:** applying keeps each field's old value in `imports`. Undo restores a field only where it still holds what the import put there.
+- **Archived words** stay in the database and the backup, but leave the word list and Study. Saving one again from reading brings it back.
 
 ## Developer tools
 

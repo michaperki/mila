@@ -15,6 +15,7 @@ import { setVoice, speak, useSpeech, VOICES, type Voice } from '../lib/speech'
 import { ListenButton } from '../components/Listen'
 import { getPref, setPref } from '../lib/prefs'
 import { lastTree, plantedOn, type Tree } from '../lib/tree'
+import { shareBackup, shareTask, type TaskName } from '../lib/data-export'
 // Account → AI spend, for the developers only (ADMIN_EMAILS on the server; everyone else gets a
 // 403 and sees nothing): this month's paid calls across all learners, by feature and by learner,
 // and how many answers came from the cache instead (free).
@@ -65,6 +66,15 @@ export default function Account() {
         .then(data => { clearVocab(session!); setVocabStatus(`Deleted ${data.deleted ?? 0} ${data.deleted === 1 ? 'word' : 'words'}.`) }, (failure: Error) => setError(failure.message))
     } },
   ])
+  // Your data out (lib/data-export.ts): a backup, or the words a task works on for an AI.
+  const [exporting, setExporting] = useState<string | null>(null)
+  const exportData = async (what: 'backup' | TaskName) => {
+    if (!session || exporting) return
+    setExporting(what); setError(null)
+    try { if (what === 'backup') await shareBackup(session); else await shareTask(session, what) }
+    catch (failure) { setError((failure as Error).message) }
+    finally { setExporting(null) }
+  }
   const [deleting, setDeleting] = useState(false)
   // Everything kept for the account goes (the `account` function); then this phone signs out.
   const deleteAccount = () => Alert.alert('Delete your account?', 'Your account, saved words, passages, practice history and tree are deleted for good. This can\'t be undone.', [
@@ -164,6 +174,12 @@ export default function Account() {
     {session && <ChangePassword session={session} />}
     {session && <View style={styles.card}>
       <Text style={styles.heading}>Saved words</Text>
+      <Text style={styles.copy}>A backup is everything Mila keeps for you: your words with their cards and practice history, your passages and your study log.</Text>
+      <Button secondary title="Back up my data" busy={exporting === 'backup'} onPress={() => void exportData('backup')} />
+      <Text style={styles.copy}>To organise or fix your words with ChatGPT or Claude, share a file with them, then paste their answer into Import changes. You see every change before it is made, and nothing you have learned is touched.</Text>
+      <Button secondary title="Words to organise by theme" detail="Draft themes, for trying out" busy={exporting === 'classify-v1'} onPress={() => void exportData('classify-v1')} />
+      <Button secondary title="Words saved in the wrong form" busy={exporting === 'normalize-v1'} onPress={() => void exportData('normalize-v1')} />
+      <Button secondary title="Import changes" onPress={() => router.push('/import')} />
       {!!vocabStatus && <Text style={styles.copy}>{vocabStatus}</Text>}
       <TextButton title="Delete all saved words" color={colors.red} onPress={clearVocabulary} />
     </View>}

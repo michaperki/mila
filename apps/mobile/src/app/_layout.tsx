@@ -14,6 +14,7 @@ import { Button, colors, styles } from '../components/ui'
 import { identify, reportCrash, startCrashReporting, wrapRoot } from '../lib/crashes'
 import { watchScans } from '../lib/scans'
 import { sendStudyLogInBackground } from '../lib/study-log'
+import { sendResultsOnChange } from '../lib/results'
 
 startCrashReporting()
 function Navigator() {
@@ -24,6 +25,8 @@ function Navigator() {
   // Study and reading events waiting on the phone are sent whenever Mila goes to the background,
   // as well as when Study or the reader opens and closes.
   useEffect(() => (session ? sendStudyLogInBackground(session.user.id, session.token) : undefined), [session])
+  // Study answers not yet on the server go as soon as they can (lib/results.ts).
+  useEffect(() => (session ? sendResultsOnChange(session.user.id, session.token) : undefined), [session])
   if (!ready) return <View style={{ flex: 1, justifyContent: 'center', backgroundColor: colors.paper }}><ActivityIndicator color={colors.green} /></View>
   return <><StatusBar style="dark" /><Stack screenOptions={{ headerTintColor: colors.ink, headerStyle: { backgroundColor: colors.paper }, headerShadowVisible: false, headerBackButtonDisplayMode: 'minimal', contentStyle: { backgroundColor: colors.paper }, orientation: 'portrait_up' }}>
     {/* Home is the tree with Read and Study; everything else opens from it. */}
@@ -42,6 +45,7 @@ function Navigator() {
     <Stack.Screen name="word" options={{ title: 'Word' }} />
     <Stack.Screen name="table" options={{ title: 'All forms' }} />
     <Stack.Screen name="root" options={{ title: 'Root' }} />
+    <Stack.Screen name="import" options={{ title: 'Import changes' }} />
   </Stack></>
 }
 // A screen that throws while drawing shows this instead of closing the app, and the error is

@@ -86,6 +86,9 @@ export type VocabEntry = StarredItem & Built & {
   // common the word is in Hebrew (1 = the most common; none for a word or expression not ranked),
   // and how often it was looked up again after it was saved, and when last.
   rank?: number; lookedUp?: { count: number; last: number }
+  // How it is organised (VOCAB-2), set by an import (functions/lib/data-tasks.ts): up to three
+  // themes, its register, a level where frequency can't place it, and the taxonomy version used.
+  categories?: string[]; register?: string; level?: string; taxonomy?: string
   vocalized?: string; context?: string; contextTranslation?: string; surface?: string
   senses?: string; form?: string; excerpt?: string; excerptTranslation?: string
 }

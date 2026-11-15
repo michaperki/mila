@@ -2,6 +2,7 @@ import { useCallback, useState, useSyncExternalStore } from 'react'
 import { useFocusEffect } from 'expo-router'
 import { request } from '../lib/api'
 import type { Session, VocabEntry } from '../lib/types'
+import { sendResults, withUnsent } from '../lib/results'
 
 // The saved words, loaded once and shared by every screen, so opening Vocabulary, a word or
 // practice shows what is already known at once and refreshes it in the background. Changes made
@@ -24,7 +25,8 @@ export function loadVocab(session: Session): Promise<VocabEntry[]> {
   const owner = session.user.id
   if (loading?.owner === owner) return loading.promise
   const promise = request<{ vocab?: VocabEntry[] }>('vocab', { token: session.token })
-    .then(data => { const entries = data.vocab || []; set({ owner, entries, at: Date.now() }); return entries })
+    // Study answers still on their way are laid over what the server sent, then sent again.
+    .then(data => { const entries = withUnsent(data.vocab || [], owner); set({ owner, entries, at: Date.now() }); void sendResults(owner, session.token); return entries })
     .finally(() => { if (loading?.promise === promise) loading = null })
   loading = { owner, promise }
   return promise
