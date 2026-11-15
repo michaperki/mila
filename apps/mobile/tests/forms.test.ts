@@ -188,6 +188,18 @@ test('new words come from what was met again, saved lately, and anywhere else in
   assert.notEqual(ofDay(now), earlier.map(entry => entry.id).join())
 })
 
+test('of the other words, the more common come in first, and a word looked up again comes in as met again', () => {
+  const at = (days: number) => now - days * DAY
+  const ranked = (id: string, rank?: number) => verb([], { id, createdAt: at(30), ...(rank ? { rank } : {}) })
+  const words = [ranked('rare', 25000), ranked('unranked'), ranked('common', 800), ranked('uncommon', 6000), ranked('common2', 2900)]
+  const order = intakeOrder(words, now).map(item => item.entry.id)
+  assert.deepEqual(order.slice(0, 2).sort(), ['common', 'common2'])
+  assert.deepEqual(order.slice(2, 4).sort(), ['uncommon', 'unranked'])
+  assert.equal(order[4], 'rare')
+  const lookedUp = { ...ranked('rare', 25000), lookedUp: { count: 1, last: at(1) } }
+  assert.deepEqual(intakeOrder([...words.slice(1), lookedUp], now).filter(item => item.source === 'again').map(item => item.entry.id), ['rare'])
+})
+
 test('a round takes the words being studied in turn, least recently studied first, each a few cards further', () => {
   // Met verbs, each with meanings and present cards not yet studied, studied a day apart.
   const met = Array.from({ length: 6 }, (_, i) => verb([form('meanings:sense1'), ...present([])], { id: `m${i}`, createdAt: 1, results: [true], last: now - i * DAY }))

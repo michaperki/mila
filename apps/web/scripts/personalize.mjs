@@ -12,12 +12,30 @@
 //   node --experimental-strip-types scripts/personalize.mjs level score
 //     Reads the marked check and keeps the level it shows (level.json), which profile then uses.
 //
-// --user <id> picks the account (by default the one with the most saved words). Free: no AI calls.
-// Reads MONGODB_URI (and MONGODB_DB_NAME) from apps/web/.env or the repository's .env.
+//   node --experimental-strip-types scripts/personalize.mjs compare --words <lemma,lemma> [--stages meanings,form]
+//       [--variants base,personal,stretch,beginner] [--go] [--budget 1]
+//     Writes cards for the same words with the writer as it is (base) and told about the learner
+//     (lib/profile.ts: personal without bringing in new words, stretch with, beginner as a learner
+//     who knows only the 150 most common words), and reports each card's sentence with what its
+//     other words are to the learner, and the cost. `form` is the word's first stage of forms.
+//     Without --go it only shows the calls and their estimated cost; --budget (dollars) stops it
+//     before a call that could pass it. The cards are written to eval-out, never to the database.
+//
+//   node --experimental-strip-types scripts/personalize.mjs outcomes
+//     How cards written for the learner are going beside those written as before, in Study: cards
+//     written and shown, what their other words were to the learner when written, words looked up
+//     on them per showing, answers right (first answers, unprimed, by side), and the same cards
+//     answered again days later. Few answers say little: read it as a trend over weeks.
+//
+// --user <id> picks the account (by default the one with the most saved words). Free except
+// compare --go. Reads MONGODB_URI (and MONGODB_DB_NAME, ANTHROPIC_API_KEY) from apps/web/.env or
+// the repository's .env.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { MongoClient } from 'mongodb'
-import { LISTED, rankOfForm, wordsRanked } from '../netlify/functions/lib/frequency.ts'
-import { commonUpTo, learnerState, levelFromCheck, levelFromSaves } from '../netlify/functions/lib/learner.ts'
+import { LISTED, plainWord, rankOfForm, wordsRanked } from '../netlify/functions/lib/frequency.ts'
+import { commonUpTo, lemmaKeyOf, learnerState, levelFromCheck, levelFromSaves } from '../netlify/functions/lib/learner.ts'
+import { cardsOf, promptFor, schema, STAGES, SYSTEM, kindOfEntry, slotsOf } from '../netlify/functions/lib/forms-writer.ts'
+import { learnerProfile, PERSONAL_WRITER as PERSONAL_WRITER_LABEL, PROFILE_VERSION, profileBlock, supportOf, supportOfCard } from '../netlify/functions/lib/profile.ts'
 
 const envFile = [new URL('../.env', import.meta.url), new URL('../../../.env', import.meta.url)].find(url => existsSync(url) && /MONGODB_URI=/.test(readFileSync(url, 'utf8')))
 const env = Object.fromEntries(readFileSync(envFile, 'utf8').split('\n')
@@ -32,11 +50,20 @@ const [command, sub] = process.argv.slice(2).filter(item => !item.startsWith('--
 const MADE_UP = ['להתגזק', 'מטסף', 'תצטובת', 'קזפון', 'נגזוק', 'מתפסלג', 'שטפזה', 'להצטבק', 'מרגלוף', 'גזקני']
 // Names and foreign words the list has (from subtitles), left out of the check when drawn.
 const NOT_WORDS = new Set(['מרלון', 'בראד', 'ויליאם', 'טורנדו'])
+// Opus 5.5 per million tokens, as lib/ai-usage.ts prices it (not imported: it needs the database).
+const PRICE = { input: 4, cacheWrite: 5, cacheRead: 0.2, output: 20 }
+const costOf = usage => (usage.input_tokens * PRICE.input + (usage.cache_creation_input_tokens ?? 0) * PRICE.cacheWrite
+  + (usage.cache_read_input_tokens ?? 0) * PRICE.cacheRead + usage.output_tokens * PRICE.output) / 1_000_000
+// What a card's other words are, against the learner's real profile: on familiar ground (recalled,
+// being learned, or among the 3,000 most common words) or not.
+const FAMILIAR = new Set(['steady', 'learning', 'common'])
 
 if (command === 'level' && sub === 'sample') sampleCheck()
 else if (command === 'level' && sub === 'score') scoreCheck()
 else if (command === 'profile') await profile()
-else console.log('Use: profile [--word <lemma>] [--all] | level sample | level score  (see the top of scripts/personalize.mjs)')
+else if (command === 'compare') await compare()
+else if (command === 'outcomes') await outcomes()
+else console.log('Use: profile [--word <lemma>] [--all] | level sample | level score | compare --words …  (see the top of scripts/personalize.mjs)')
 
 // Eight words from each of seven stretches of the list, from the most common to the 30,000th,
 // taken a fixed way so the same check comes out each time, with the made-up words mixed in.
@@ -126,5 +153,139 @@ async function profile() {
     for (const skill of state.grammar) console.log(`  ${skill.label.padEnd(28)} ${pct(skill.estimate).padEnd(13)} ${skill.answers} answers over ${skill.words.length} words`)
     if (!state.grammar.length) console.log('  none yet')
     console.log(`\nFull state: ${new URL('profile-real.json', out).pathname}`)
+  } finally { await client.close() }
+}
+
+async function compare() {
+  const wanted = (arg('--words') ?? '').split(',').map(word => word.trim()).filter(Boolean)
+  const stages = (arg('--stages') ?? 'meanings,form').split(',')
+  const variants = (arg('--variants') ?? 'base,personal,stretch').split(',')
+  const budget = Number(arg('--budget') ?? 1)
+  if (!wanted.length) { console.log('Give --words <lemma,lemma>: saved words, in any spelling.'); return }
+  const client = new MongoClient(env.MONGODB_URI, { serverSelectionTimeoutMS: 15000 })
+  try {
+    const db = client.db(env.MONGODB_DB_NAME || 'mila')
+    const userId = arg('--user') ?? (await db.collection('vocab').aggregate([{ $group: { _id: '$userId', n: { $sum: 1 } } }, { $sort: { n: -1 } }, { $limit: 1 }]).toArray())[0]?._id
+    const entries = await db.collection('vocab').find({ userId }).project({ _id: 0, userId: 0, 'encounters.analysis': 0 }).toArray()
+    const events = await db.collection('studyEvents').find({ userId, type: { $in: ['answer', 'lookup', 'explained'] } }).project({ _id: 0, userId: 0 }).toArray()
+    const profile = learnerProfile(entries, events)
+    // A learner who knows only the most common words, and has studied nothing.
+    const beginner = { version: `${PROFILE_VERSION}-beginner`, words: new Map(wordsRanked(1, 150).map(word => [lemmaKeyOf(word), { key: lemmaKeyOf(word), lemma: word, place: 'steady', lastAt: 0 }])) }
+    // Card writing since glosses; the cue checks, logged as forms too, are the small ones.
+    const recent = await db.collection('aiUsage').find({ userId, feature: 'forms', outputTokens: { $gt: 800 }, at: { $gt: new Date('2026-11-14T07:00:00Z') } }).toArray()
+    const average = recent.length ? recent.reduce((sum, item) => sum + item.outputTokens, 0) / recent.length : 2000
+
+    const calls = []
+    for (const lemma of wanted) {
+      const entry = entries.find(item => lemmaKeyOf(item.lemmaPlain || item.lemma) === lemmaKeyOf(lemma))
+      if (!entry) { console.log(`Not saved: ${lemma}`); continue }
+      for (const asked of stages) {
+        const stage = asked === 'form' ? Object.keys(STAGES[kindOfEntry(entry)]).find(key => key !== 'meanings') : asked
+        if (!stage) continue
+        // Written as if for the first time: without this stage's cards.
+        const fresh = { ...entry, forms: (entry.forms || []).filter(form => form.stage !== stage) }
+        const slots = slotsOf(fresh, stage)
+        for (const variant of variants) {
+          const learner = variant === 'base' ? '' : profileBlock(variant === 'beginner' ? beginner : profile, fresh, stage, { stretch: variant !== 'personal' })
+          calls.push({ lemma: plainWord(entry.lemma), stage, variant, slots, prompt: promptFor(fresh, stage, slots, [], learner) })
+        }
+      }
+    }
+    // Hebrew runs about 2.5 characters a token; the system prompt is read from the cache after the first call.
+    const estimate = call => (call.prompt.length / 2.5 * PRICE.input + average * 1.15 * PRICE.output) / 1_000_000
+    const total = calls.reduce((sum, call) => sum + estimate(call), 0) + SYSTEM.length / 2.5 * PRICE.cacheWrite / 1_000_000
+    console.log(`${calls.length} calls (${[...new Set(calls.map(call => call.lemma))].join(', ')} × ${stages.join(', ')} × ${variants.join(', ')}), estimated $${total.toFixed(2)} (budget $${budget.toFixed(2)}); recent card writing averages ${Math.round(average)} output tokens.`)
+    const sample = calls.find(call => call.variant !== 'base')
+    if (!has('--go')) { if (sample) console.log(`\nThe learner block as sent for ${sample.lemma} (${sample.variant}):\n${sample.prompt.slice(sample.prompt.indexOf('About this learner'))}`); console.log('\nAdd --go to run.'); return }
+    if (!env.ANTHROPIC_API_KEY) { console.log('No ANTHROPIC_API_KEY in .env.'); return }
+
+    let spent = 0
+    const results = []
+    for (const call of calls) {
+      if (spent + estimate(call) * 1.5 > budget) { console.log(`Stopping before ${call.lemma} ${call.stage} ${call.variant}: $${spent.toFixed(3)} spent, budget $${budget}.`); break }
+      const started = Date.now()
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-opus-5-5', max_tokens: 8000, output_config: { effort: 'low', format: { type: 'json_schema', schema } },
+          system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }], messages: [{ role: 'user', content: call.prompt }],
+        }),
+      })
+      const reply = await response.json()
+      if (!response.ok) { console.log(`${call.lemma} ${call.stage} ${call.variant}: ${response.status} ${reply.error?.message ?? ''}`); break }
+      const cost = costOf(reply.usage)
+      spent += cost
+      const text = reply.content.filter(block => block.type === 'text').map(block => block.text).join('')
+      const { forms, rejected } = cardsOf(JSON.parse(text).forms, call.stage, call.slots)
+      results.push({ ...call, prompt: undefined, ms: Date.now() - started, cost, usage: reply.usage, rejected, forms })
+      console.log(`${call.lemma} ${call.stage} ${call.variant}: ${forms.length} cards, $${cost.toFixed(3)}, ${((Date.now() - started) / 1000).toFixed(1)}s`)
+    }
+    const run = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    writeFileSync(new URL(`compare-${run}.json`, out), JSON.stringify(results, null, 1))
+    writeFileSync(new URL(`compare-${run}.md`, out), compareReport(results, profile, spent))
+    console.log(`\nSpent $${spent.toFixed(3)}. Report: ${new URL(`compare-${run}.md`, out).pathname}`)
+  } finally { await client.close() }
+}
+
+function compareReport(results, profile, spent) {
+  const lines = [`# Card writing compared (${new Date().toISOString().slice(0, 16)}, $${spent.toFixed(3)})`, '',
+    'Each card\'s other words against the real profile: steady (recalled), learning, shaky (looked up lately), ahead (saved, not studied), common (top 3,000), uncommon (to 10,000), rare.', '']
+  const variants = [...new Set(results.map(item => item.variant))]
+  const summary = variants.map(variant => {
+    const cards = results.filter(item => item.variant === variant).flatMap(item => item.forms)
+    const placeOf = (card, gloss) => supportOf(gloss.lemma, profile, card.sentence.split(/\s+/)[gloss.i])
+    const places = cards.flatMap(card => (card.glosses || []).filter(gloss => gloss.lemma).map(gloss => placeOf(card, gloss)))
+    const off = cards.map(card => (card.glosses || []).filter(gloss => gloss.lemma && !FAMILIAR.has(placeOf(card, gloss))).length)
+    const lemmas = cards.flatMap(card => (card.glosses || []).map(gloss => lemmaKeyOf(gloss.lemma)))
+    const listed = lemmas.filter(lemma => ['steady', 'learning'].includes(profile.words.get(lemma)?.place))
+    const of = place => places.filter(item => item === place).length
+    return `| ${variant} | ${cards.length} | ${(places.length / (cards.length || 1)).toFixed(1)} | ${Math.round(100 * places.filter(item => FAMILIAR.has(item)).length / (places.length || 1))}% | ${(off.reduce((a, b) => a + b, 0) / (cards.length || 1)).toFixed(2)} | ${off.filter(n => n === 0).length}/${off.filter(n => n === 1).length}/${off.filter(n => n >= 2).length} | ${of('steady')}/${of('learning')} (${new Set(listed).size} distinct) | ${of('ahead')} | ${of('shaky')} | ${of('rare')} | $${results.filter(item => item.variant === variant).reduce((sum, item) => sum + item.cost, 0).toFixed(3)} | ${(results.filter(item => item.variant === variant).reduce((sum, item) => sum + item.ms, 0) / 1000 / (results.filter(item => item.variant === variant).length || 1)).toFixed(1)}s |`
+  })
+  lines.push('| variant | cards | other words / card | on familiar ground | off it / card | cards with 0/1/2+ off | steady/learning used | ahead | shaky | rare | cost | time / call |', '|---|---|---|---|---|---|---|---|---|---|---|---|', ...summary, '')
+  for (const lemma of [...new Set(results.map(item => item.lemma))]) {
+    for (const stage of [...new Set(results.filter(item => item.lemma === lemma).map(item => item.stage))]) {
+      lines.push(`## ${lemma} · ${stage}`, '')
+      for (const item of results.filter(result => result.lemma === lemma && result.stage === stage)) {
+        lines.push(`**${item.variant}**${item.rejected.length ? ` (${item.rejected.length} rejected for agreement)` : ''}`, '')
+        for (const card of item.forms) {
+          const words = (card.glosses || []).filter(gloss => gloss.lemma).map(gloss => { const place = supportOf(gloss.lemma, profile, card.sentence.split(/\s+/)[gloss.i]); return FAMILIAR.has(place) ? gloss.lemma : `**${gloss.lemma}** (${place})` })
+          lines.push(`- ${card.slot}: ${card.sentence} — ${card.translation}  \n  _${card.usage ?? ''}_ · ${words.join(', ')} · ${JSON.stringify(supportOfCard(card.glosses, profile, card.sentence))}`)
+        }
+        lines.push('')
+      }
+    }
+  }
+  return lines.join('\n')
+}
+
+async function outcomes() {
+  const client = new MongoClient(env.MONGODB_URI, { serverSelectionTimeoutMS: 15000 })
+  try {
+    const db = client.db(env.MONGODB_DB_NAME || 'mila')
+    const userId = arg('--user') ?? (await db.collection('vocab').aggregate([{ $group: { _id: '$userId', n: { $sum: 1 } } }, { $sort: { n: -1 } }, { $limit: 1 }]).toArray())[0]?._id
+    const entries = await db.collection('vocab').find({ userId, 'forms.writer': { $exists: true } }).project({ id: 1, lemma: 1, 'forms.key': 1, 'forms.writer': 1, 'forms.support': 1 }).toArray()
+    const writerOf = new Map(entries.flatMap(entry => (entry.forms || []).filter(form => form.writer).map(form => [`${entry.id}:${form.key}`, form])))
+    const events = writerOf.size ? await db.collection('studyEvents').find({ userId, type: { $in: ['show', 'answer', 'lookup'] }, key: { $in: [...writerOf.keys()] } }).sort({ at: 1 }).toArray() : []
+    const pct = (part, all) => (all ? `${Math.round(100 * part / all)}% (${part}/${all})` : '—')
+    console.log(`Cards written since the split: ${writerOf.size}. Fewer than about 50 answers a writer says little; read this as a trend over weeks.\n`)
+    for (const writer of ['base', PERSONAL_WRITER_LABEL]) {
+      const cards = [...writerOf.entries()].filter(([, form]) => form.writer === writer)
+      if (!cards.length) { console.log(`${writer}: no cards yet`); continue }
+      const keys = new Set(cards.map(([key]) => key))
+      const mine = events.filter(event => keys.has(event.key))
+      const shows = mine.filter(event => event.type === 'show').length
+      const lookups = mine.filter(event => event.type === 'lookup').length
+      const answers = mine.filter(event => event.type === 'answer' && !event.primed)
+      const first = new Map(); for (const answer of answers) if (!first.has(answer.key)) first.set(answer.key, answer)
+      const later = answers.filter(answer => answer.at - first.get(answer.key).at > 2 * 86_400_000)
+      const support = {}; for (const [, form] of cards) for (const [place, n] of Object.entries(form.support || {})) support[place] = (support[place] ?? 0) + n
+      const right = list => list.filter(answer => answer.knew).length
+      console.log(`${writer}: ${cards.length} cards, ${shows} shown`)
+      console.log(`  their other words when written: ${Object.entries(support).map(([place, n]) => `${place} ${n}`).join(', ')}`)
+      console.log(`  words looked up on them: ${shows ? (lookups / shows).toFixed(2) : '—'} a showing`)
+      console.log(`  unprimed answers right: ${pct(right(answers), answers.length)}; first answers ${pct(right([...first.values()]), first.size)}`)
+      console.log(`    from the Hebrew ${pct(right(answers.filter(a => a.front === 'he')), answers.filter(a => a.front === 'he').length)}, from the English ${pct(right(answers.filter(a => a.front === 'en')), answers.filter(a => a.front === 'en').length)}`)
+      console.log(`  answered again 2+ days after their first answer: ${pct(right(later), later.length)}`)
+    }
   } finally { await client.close() }
 }

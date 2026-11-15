@@ -82,6 +82,10 @@ export type VocabEntry = StarredItem & Built & {
   // A word or expression learned as a pattern with an open place (נָטוּל + [שֵׁם עֶצֶם]); `gloss`
   // is then the pattern's meaning ("free of [noun]") and each encounter one example of it.
   pattern?: string
+  // Worked out by the server when the words are fetched, not stored (vocab.ts relevanceOf): how
+  // common the word is in Hebrew (1 = the most common; none for a word or expression not ranked),
+  // and how often it was looked up again after it was saved, and when last.
+  rank?: number; lookedUp?: { count: number; last: number }
   vocalized?: string; context?: string; contextTranslation?: string; surface?: string
   senses?: string; form?: string; excerpt?: string; excerptTranslation?: string
 }

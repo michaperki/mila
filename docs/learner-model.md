@@ -12,6 +12,8 @@ reference for using the learner model in product work. It is not a plan for more
 | Frequency ranks (OpenSubtitles, CC BY-SA 4.0) | `lib/frequency.ts`, `lib/frequency-he.ts` | No |
 | Reading exposure: how often each saved word appears in the saved passages | `lib/exposure.ts` | No |
 | Calibration: every answer predicted again from what was known just before it, against baselines | `lib/calibration.ts` | No |
+| Learner profile for the card writer: words by what practice and reading show, not by estimates ([backlog LM-4](backlog.md#lm-4-personalized-card-writing)) | `lib/profile.ts`, used by `word-forms.ts` | Yes, for half the words |
+| Frequency rank and lookups-since-saved for Study's intake order ([backlog STUDY-3](backlog.md#study-3-choosing-which-new-words-come-in)) | `lib/relevance.ts`, used by `vocab.ts` | Yes |
 | Dashboard: observations, derived features and estimates per word; data coverage; calibration | `apps/web/scripts/learner-dashboard.mjs` → `scripts/eval-out/personalize/dashboard.html` | Local file |
 | Harness: profile and vocabulary check | `apps/web/scripts/personalize.mjs` | Local |
 

@@ -288,17 +288,23 @@ export function studyPool(entries: VocabEntry[], include: Include = 'both', now 
   return { started, unstarted, through: entries.filter(through).length }
 }
 // The order words not yet started come in, from three places in turn so that no part of what was
-// saved waits forever: a word met again in reading since it was saved ('again', the one met most
-// recently first), a recent save ('recent', newest first), and any other ('earlier'), in an order
-// shuffled afresh each day and kept all day, so one round after another goes on through it. Which
-// place goes first changes from day to day, so short sessions, which meet only a word or two,
-// don't always take theirs from the same one.
+// saved waits forever: a word met again since it was saved, in reading or looked up again ('again',
+// the one met most recently first), a recent save ('recent', newest first), and any other
+// ('earlier'), the more common words first (by `rank`, how common the word is in Hebrew: the 3,000
+// most common, then the rest of the 10,000 and words without a rank, then rarer ones), each group in
+// an order shuffled afresh each day and kept all day, so one round after another goes on through
+// it. A rare word met again still comes in as 'again'. Which place goes first changes from day to
+// day, so short sessions, which meet only a word or two, don't always take theirs from the same one.
+export const COMMON_RANK = 3000
+const UNCOMMON_RANK = 10000
+const commonness = (entry: VocabEntry) => (!entry.rank || entry.rank <= UNCOMMON_RANK ? (entry.rank && entry.rank <= COMMON_RANK ? 0 : 1) : 2)
 export function intakeOrder(entries: VocabEntry[], now = Date.now()): Intake[] {
-  const metLast = (entry: VocabEntry) => Math.max(0, ...(entry.encounters || []).map(item => item.at || 0))
-  const again = entries.filter(entry => (entry.encounters?.length ?? 0) > 1).sort((a, b) => metLast(b) - metLast(a))
+  const metLast = (entry: VocabEntry) => Math.max(0, entry.lookedUp?.last ?? 0, ...(entry.encounters || []).map(item => item.at || 0))
+  const again = entries.filter(entry => (entry.encounters?.length ?? 0) > 1 || !!entry.lookedUp?.count).sort((a, b) => metLast(b) - metLast(a))
   const recent = entries.filter(entry => !again.includes(entry) && now - entry.createdAt < ProgressRules.recentDays * DAY)
     .sort((a, b) => b.createdAt - a.createdAt)
-  const earlier = shuffle(entries.filter(entry => !again.includes(entry) && !recent.includes(entry)).sort((a, b) => a.createdAt - b.createdAt), dayOf(now))
+  const rest = entries.filter(entry => !again.includes(entry) && !recent.includes(entry)).sort((a, b) => a.createdAt - b.createdAt)
+  const earlier = [0, 1, 2].flatMap(group => shuffle(rest.filter(entry => commonness(entry) === group), `${dayOf(now)}:${group}`))
   const day = Math.floor(new Date(now).setHours(0, 0, 0, 0) / DAY)
   const sources: [Source, VocabEntry[]][] = [['again', again], ['recent', recent], ['earlier', earlier]]
   const queues = [...sources.slice(day % 3), ...sources.slice(0, day % 3)]
@@ -309,7 +315,8 @@ export function intakeOrder(entries: VocabEntry[], now = Date.now()): Intake[] {
   return out
 }
 const sourceWhy = ({ entry, source }: Intake, now: number) =>
-  (source === 'again' ? 'met again in reading' : `saved ${ago(entry.createdAt, now)}`)
+  (source === 'again' ? ((entry.encounters?.length ?? 0) > 1 ? 'met again in reading' : 'looked up again')
+    : `${source === 'earlier' && entry.rank && entry.rank <= COMMON_RANK ? 'common word · ' : ''}saved ${ago(entry.createdAt, now)}`)
 // What to study: word cards, sentence cards or both, in smart or shuffled order.
 export type Include = 'words' | 'sentences' | 'both'
 export type Order = 'smart' | 'shuffle'

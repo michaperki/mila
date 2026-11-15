@@ -1,6 +1,8 @@
 import type { Handler } from '@netlify/functions'
 import { getDb } from './lib/mongo'
 import { verifyAuth } from './lib/auth'
+import type { LearnerEvent } from './lib/learner'
+import { relevanceOf } from './lib/relevance'
 
 const handler: Handler = async (event) => {
   try {
@@ -9,8 +11,11 @@ const handler: Handler = async (event) => {
     const vocab = db.collection('vocab')
 
     if (event.httpMethod === 'GET') {
-      const docs = await vocab.find({ userId: auth.userId }).sort({ createdAt: -1 }).toArray()
-      const sanitized = docs.map(({ _id, ...rest }) => normalizeItem(rest))
+      const [docs, lookups] = await Promise.all([
+        vocab.find({ userId: auth.userId }).sort({ createdAt: -1 }).toArray(),
+        db.collection('studyEvents').find({ userId: auth.userId, type: 'lookup' }).project<LearnerEvent>({ _id: 0, userId: 0 }).toArray().catch(() => []),
+      ])
+      const sanitized = relevanceOf(docs.map(({ _id, ...rest }) => normalizeItem(rest)), lookups)
       return {
         statusCode: 200,
         body: JSON.stringify({ vocab: sanitized }),
@@ -34,7 +39,8 @@ const handler: Handler = async (event) => {
       // `encounter` (mobile): one place the word was met. It is added to the entry's
       // `encounters` (one per sentence, newest last) instead of replacing the entry's context,
       // so meeting a word again in another book keeps one entry and one practice history.
-      const { encounter, createdAt: _sent, ...fields } = payload
+      // `rank` and `lookedUp` are worked out on every fetch (relevanceOf), never kept.
+      const { encounter, createdAt: _sent, rank: _rank, lookedUp: _lookedUp, ...fields } = payload
       if (encounter !== undefined && !(encounter && typeof encounter === 'object' && typeof encounter.context === 'string')) {
         return { statusCode: 400, body: JSON.stringify({ message: 'Invalid encounter' }) }
       }

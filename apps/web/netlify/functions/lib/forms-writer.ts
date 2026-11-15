@@ -64,6 +64,10 @@ export type Cue = { cue: string; after: string }
 export type WrittenForm = {
   key: string; stage: string; slot: string; he: string; en: string; sentence: string; mark: string; said?: string
   translation: string; enMark: string; cue: string; cueAfter?: string; cues: Cue[]; usage?: string; glosses?: Gloss[]
+  // Which writer wrote it ('base', or 'personal-v1' when told about the learner, lib/profile.ts) and
+  // what its other words were to the learner then (supportOfCard), to compare how the two go.
+  // Cards written before the split have neither.
+  writer?: string; support?: Record<string, number>
 }
 // What a word of a card's sentence means there, for looking it up on the card without asking the
 // model: `i` is the word's place among the sentence's words (split at spaces, as the card draws
@@ -186,7 +190,8 @@ export function disagreement(stage: string, slot: string, agrees: Agreement | un
   return null
 }
 
-export function promptFor(entry: Entry, stage: string, slots: Slot[], retry: { slot: string; why: string }[] = []) {
+// `learner`: what the writer is told about the learner (lib/profile.ts profileBlock), at the end.
+export function promptFor(entry: Entry, stage: string, slots: Slot[], retry: { slot: string; why: string }[] = [], learner = '') {
   const used = (entry.forms || []).map(form => (form.usage ? `${form.sentence} (${form.usage})` : form.sentence)).slice(-30)
   const meanings = (entry.forms || []).filter(form => form.stage === 'meanings' && form.en).map(form => form.en)
   const met = (entry.encounters || []).slice(-5).map(item => `${item.surface} in: ${item.context}`)
@@ -208,6 +213,7 @@ export function promptFor(entry: Entry, stage: string, slots: Slot[], retry: { s
     ...(retry.length ? ['These were written before with a subject that does not agree with the form; write them again with one that does:', ...retry.map(item => `- slot "${item.slot}": ${item.why}`)] : []),
     ...(used.length ? ['Cards already written for this word, with the use each shows where it is known (show other uses; do not repeat or imitate these):', ...used.map(item => `- ${item}`)] : []),
     ...(met.length ? ['Where the learner met this word (for its meaning only; do not reuse these sentences):', ...met.map(item => `- ${item}`)] : []),
+    ...(learner ? [learner] : []),
   ].join('\n')
 }
 
@@ -281,10 +287,10 @@ export class Unwritable extends Error {}
 const textOf = (reply: Reply) => reply.content.flatMap(block => (block.type === 'text' && block.text ? [block.text] : [])).join('')
 
 // Writes a stage: the requested slots, then once more any whose subject didn't agree.
-export async function writeForms(entry: Entry, stage: string, ask: Ask): Promise<WrittenForm[]> {
+export async function writeForms(entry: Entry, stage: string, ask: Ask, learner = ''): Promise<WrittenForm[]> {
   const slots = slotsOf(entry, stage)
   const once = async (wanted: Slot[], retry?: { slot: string; why: string }[]) => {
-    const reply = await ask({ system: SYSTEM, prompt: promptFor(entry, stage, wanted, retry), schema })
+    const reply = await ask({ system: SYSTEM, prompt: promptFor(entry, stage, wanted, retry, learner), schema })
     if (reply.stop_reason === 'refusal' || reply.stop_reason === 'max_tokens') throw new Unwritable('These forms could not be written.')
     return cardsOf((JSON.parse(textOf(reply)) as { forms: Generated[] }).forms, stage, wanted)
   }

@@ -5,7 +5,7 @@ each thing forward. Detailed research lives in the linked docs and commits; this
 to it. Read it before starting product work; update it in the same commit as the work (see
 [Keeping this up to date](#keeping-this-up-to-date)).
 
-Last reviewed: 2026-11-15.
+Last reviewed: 2026-11-15 (personalized card writing and frequency-aware intake shipped).
 
 **Status words**
 - **Done**: shipped and on the phone.
@@ -37,8 +37,9 @@ priority until they're agreed.
 No dates; order only. Move items between bands as decisions are made.
 
 **Now**
-1. [LM-4](#lm-4-personalized-card-writing) Personalized card writing: profile from reliable
-   evidence, harness comparisons, then a flag.
+1. Use the new cards and intake order on the phone; check `personalize.mjs outcomes` after a
+   couple of weeks ([LM-4](#lm-4-personalized-card-writing),
+   [STUDY-3](#study-3-choosing-which-new-words-come-in)).
 
 **Next**
 2. [DATA-1](#data-1-export-and-import) Export and import foundation, then the
@@ -82,22 +83,40 @@ Background and findings: [learner-model.md](learner-model.md). Investigation and
 by the app.
 
 ### LM-4 Personalized card writing
-**Planned, P1.** Approved 2026-11-14 (budget up to $3 for comparisons, estimates shown first;
-behind a flag until comparisons are reviewed). Deferred while the model was evaluated.
-- Done: glosses on new cards (e9dc14b), which give every supporting word's dictionary form, so a
-  card's vocabulary can be checked in code.
-- Remaining:
-  - A profile built from **reliable evidence**, not model probabilities: Study's own card states,
-    words looked up and not yet learned, and frequency.
-  - Writer prompt changes: how to use the profile, and the card roles (isolate, reinforce, stretch).
-  - A check in code that reports what each card's supporting words are (studied, looked up,
-    common, rare), with no AI calls.
-  - Harness `compare` command: baseline vs personalized for the same words, report with the check,
-    cost and latency.
-  - The flag, then a per-word split in the app so outcomes can be compared (supporting-word
-    lookups per card, unprimed accuracy).
-- Not in this step: grammar-aware sentences (grammar evidence is too thin), model probabilities.
-- Next action: Mike approves the implementation plan (2026-11-15 proposal).
+**Done (first version, live 2026-11-15), measuring.**
+- **What shipped:**
+  - `lib/profile.ts` builds the profile from evidence, not model probabilities:
+    - words recalled as Study counts it
+    - words being learned
+    - words looked up lately and not reliable (including unsaved common words)
+    - words saved from reading and not studied
+    - which way round each was answered
+  - The writer gets it in the request, so the system prompt stays the same and cached.
+  - Isolate, reinforce and stretch are offered as strategies, not quotas. Stretch is limited to one
+    word per card from the reading list.
+  - Half the words (chosen by word id) are written this way and half as before
+    (`PERSONALIZED_CARDS=off|split|all`, default split). The current writer is the fallback.
+  - Every new card stores `writer` and `support` (what its other words were to the learner then).
+- **Comparison** (2026-11-15, $1.10 of $3): `scripts/eval-out/personalize/compare-*.md`.
+  - On the same four words: unfamiliar words per card fell from 0.76 to 0.55, rare words from 6
+    to 2, and sentences from 6.4 to 5.9 words.
+  - Naturalness held. The first stretch wording let rare words in; the revised one doesn't.
+  - Modest gains: the current writer already keeps to common words.
+- **How it's judged over time:** `scripts/personalize.mjs outcomes`, for each writer:
+  - lookups per showing
+  - unprimed and first-answer accuracy, by side
+  - answers given 2+ days later
+
+  Read it as a trend over weeks, not from a handful of cards.
+- **Remaining:**
+  - **P2:** after a few weeks of `outcomes`, decide all, revise, or off.
+  - **Exploratory:**
+    - Grammar-aware sentences, once slot evidence exists.
+    - Retention-based judgement (LM-7).
+    - Rewriting existing cards: not done, by the no-backfill rule.
+    - Showing which writer wrote a card in the app: left out so it doesn't bias answers.
+  - Only 4 words count as "recalled reliably" so far, so most of the support comes from everyday
+    Hebrew. The profile gets more useful as Study history grows.
 
 ### LM-5 FSRS in shadow mode
 **Planned, P2.** Approved as part of Phase 1 (2026-11-14), kept separate from personalization.
@@ -132,12 +151,26 @@ approach investigated with the event data, not a fixed interval sequence.
   become "due".
 
 ### STUDY-3 Choosing which new words come in
-**Exploratory → planned once VOCAB-2 exists, P3.** Today: met again in reading, recent saves, a
-daily shuffle; 3 new words a round.
-- Proposal: interest (met again, looked up again, recent) balanced with usefulness (frequency,
-  level and register against a goal) and variety (one new word per category per round); a per-word
-  Study soon / Normal / Later / Never control.
-- Mike: unstudied saved words aren't a problem to clear; interest matters as much as usefulness.
+**Partial.** Three separate decisions, kept apart: which new words come in (this item), when words
+being learned come back (STUDY-2), and how their cards are written (LM-4).
+- Done (2026-11-15): of the words not met again or saved lately, the more common come first (the
+  3,000 most common, then to 10,000 and unranked, then rarer; shuffled daily within each); a
+  saved word looked up again counts as met again, however rare. `rank` and `lookedUp` are worked
+  out by the server on each fetch (lib/relevance.ts), never stored. The three queues (met again,
+  recent, the rest) still take turns, and 3 new words a round is unchanged. Study's reason line
+  says "common word · saved …" or "looked up again".
+- Remaining, **exploratory**:
+  - usefulness beyond frequency: register and level (needs VOCAB-2), and spoken vs written
+    Hebrew (the frequency list is from subtitles);
+  - reading relevance: words common in Mike's own reading (lib/exposure.ts counts it) but rare in
+    general;
+  - variety: one new word per category per round (needs VOCAB-2);
+  - related words together (a root family once one is known);
+  - a per-word Study soon / Normal / Later / Never control;
+  - common words Mike keeps missing in reading, not saved (the profile's "shaky" list): offer
+    to save them, or bring them into Study.
+- Mike: unstudied saved words aren't a problem to clear; interest matters as much as usefulness;
+  no rigid formula imposed early.
 
 ---
 

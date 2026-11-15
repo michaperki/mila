@@ -4,8 +4,10 @@ import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
 import { getDb } from './lib/mongo'
 import { checkDailySpend, recordClaude } from './lib/ai-usage'
-import { type Ask, type Entry, slotsOf, Unwritable, writeForms } from './lib/forms-writer'
+import { type Ask, type Entry, slotsOf, Unwritable, writeForms, type WrittenForm } from './lib/forms-writer'
 import { checkCues } from './lib/forms-review'
+import { isPersonal, learnerProfile, PERSONAL_WRITER, type Profile, type ProfileEntry, profileBlock, supportOfCard } from './lib/profile'
+import type { LearnerEvent } from './lib/learner'
 
 // Writes one stage of a saved word's practice cards and adds them to the vocab entry
 // (lib/forms-writer.ts writes them), then has their cues checked on their own (lib/forms-review.ts
@@ -16,6 +18,26 @@ import { checkCues } from './lib/forms-review'
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 let client: Anthropic | null = null
 
+// Which writer writes a word's cards. Half the words (chosen by the word, so all of a word's
+// stages come from one writer) are written for the learner: told what their practice and reading
+// show (lib/profile.ts), with room for one new word a card; the rest as before, so the two can be
+// compared (scripts/personalize.mjs outcomes). Every card says which wrote it and what its other
+// words were to the learner then. PERSONALIZED_CARDS=off writes every word as before, =all every
+// word for the learner. If the profile can't be read or the cards can't be written for the
+// learner, they are written as before.
+const STRETCH = true
+const DAY = 86_400_000
+async function profileOf(db: Awaited<ReturnType<typeof getDb>>, userId: string): Promise<Profile> {
+  const [entries, events] = await Promise.all([
+    db.collection('vocab').find({ userId }).project<ProfileEntry>({
+      _id: 0, id: 1, lemma: 1, lemmaPlain: 1, gloss: 1, partOfSpeech: 1, createdAt: 1, known: 1, results: 1, primed: 1, last: 1, checkpoints: 1,
+      'encounters.surface': 1, 'encounters.at': 1, 'forms.key': 1, 'forms.stage': 1, 'forms.slot': 1, 'forms.he': 1, 'forms.results': 1, 'forms.primed': 1, 'forms.last': 1,
+    }).toArray(),
+    db.collection('studyEvents').find({ userId, at: { $gt: Date.now() - 90 * DAY }, type: { $in: ['answer', 'lookup', 'explained'] } }).project<LearnerEvent>({ _id: 0, userId: 0 }).toArray(),
+  ])
+  return learnerProfile(entries, events)
+}
+
 export const handler: Handler = async (event) => {
   const requestId = randomUUID()
   if (event.httpMethod !== 'POST') return reply(405, { message: 'Use POST.' })
@@ -25,7 +47,8 @@ export const handler: Handler = async (event) => {
     try { payload = JSON.parse(event.body || '{}') } catch { return reply(400, { message: 'Invalid request.' }) }
     if (typeof payload.id !== 'string' || typeof payload.stage !== 'string') return reply(400, { message: 'Missing word or stage.' })
     const { id, stage } = payload as { id: string; stage: string }
-    const vocab = (await getDb()).collection('vocab')
+    const db = await getDb()
+    const vocab = db.collection('vocab')
     const entry = await vocab.findOne<Entry>({ userId: auth.userId, id })
     if (!entry) return reply(404, { message: 'This word is no longer saved.' })
     const slots = slotsOf(entry, stage)
@@ -50,8 +73,18 @@ export const handler: Handler = async (event) => {
       await recordClaude(auth.userId, 'forms', response, Date.now() - started)
       return response
     }
-    const written = await writeForms(entry, stage, ask)
-    const forms = await checkCues(entry, stage, written, ask).then(checked => checked.forms, () => written)
+    const profile = process.env.PERSONALIZED_CARDS === 'off' ? null : await profileOf(db, auth.userId).catch(() => null)
+    const personal = !!profile && isPersonal(id)
+    const forLearner = personal
+      ? await writeForms(entry, stage, ask, profileBlock(profile!, entry, stage, { stretch: STRETCH })).catch(error => {
+        if (error instanceof Unwritable || error instanceof SyntaxError) return null
+        throw error
+      })
+      : null
+    const writer = forLearner ? PERSONAL_WRITER : 'base'
+    const written = forLearner ?? await writeForms(entry, stage, ask)
+    const tag = (form: WrittenForm): WrittenForm => ({ ...form, writer, ...(profile ? { support: supportOfCard(form.glosses, profile, form.sentence) } : {}) })
+    const forms = (await checkCues(entry, stage, written, ask).then(checked => checked.forms, () => written)).map(tag)
     // Two requests for the same stage (a double tap, two screens) must not add it twice.
     await vocab.updateOne({ userId: auth.userId, id, 'forms.stage': { $ne: stage } }, { $push: { forms: { $each: forms } }, $set: { updatedAt: Date.now() } } as never)
     const saved = await vocab.findOne<Entry>({ userId: auth.userId, id })
