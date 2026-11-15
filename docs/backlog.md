@@ -5,7 +5,7 @@ each thing forward. Detailed research lives in the linked docs and commits; this
 to it. Read it before starting product work; update it in the same commit as the work (see
 [Keeping this up to date](#keeping-this-up-to-date)).
 
-Last reviewed: 2026-11-15 (personalized card writing and frequency-aware intake shipped).
+Last reviewed: 2026-11-15 (architecture review: [architecture.md](architecture.md), ARCH-*).
 
 **Status words**
 - **Done**: shipped and on the phone.
@@ -59,9 +59,10 @@ Learner evidence feeds all three, but they stay separate decisions.
    `another-example`, and their cards' answers on later days). It stays only as a way to check
    the automatic behaviour, not as a feature (Mike, 2026-11-15).
 
-**Next**
+**Next** (agreed order after the architecture review, 2026-11-15)
 3. [DATA-1](#data-1-export-and-import) Export and import foundation, then the
-   [12 malformed entries](#vocab-1-the-12-malformed-phrase-entries) as its first use.
+   [12 malformed entries](#vocab-1-the-12-malformed-phrase-entries) as its first use. It also
+   settles the word list's shape, so [ARCH-2](#arch-2-a-lighter-word-list) is done with it.
 4. [VOCAB-2](#vocab-2-categories-level-and-register) Taxonomy and per-word categories, level and
    register (needs DATA-1 for existing words).
 5. [STUDY-2](#study-2-review-intervals-that-grow) Review intervals that grow, starting with FSRS in
@@ -323,6 +324,13 @@ classified.
 - New saves: extra fields in the word explanation (about $0.001 each). Existing words: via DATA-1
   in a browser AI, not Claude Code.
 - Frequency rank now exists (lib/frequency.ts) and can stand in for level where it's reliable.
+- How it fits (architecture review, 2026-11-15):
+  - Categories and register are stored fields, written for existing words by the DATA-1 import
+    (`classify-v1`) and for new saves by the explanation that saving already waits for, so no new
+    call is added.
+  - Level is computed from `rank` on read, where rank is reliable.
+  - Teaching decisions read these as entry fields (`intakeOrder` spacing categories, VOCAB-3
+    clusters); the writer can be told them through `profileBlock`.
 - Next action: draft the taxonomy for Mike's review.
 
 ### VOCAB-3 Explore related words
@@ -347,6 +355,21 @@ avoid interference. Words found this way come into Study more slowly than words 
   rows, fill-missing by default, protected fields never writable, undo.
 - Mike: keep the first version simple (compact export, pasteable instructions, validated JSON
   import, preview).
+
+### How DATA-1 fits the architecture
+- The export is the learner's words as the server stores them (`vocab` documents), plus the
+  phone's study log and round. No new store or format of its own.
+- The import is one server path, `vocab` PATCH `import`. It:
+  - validates each row against the fields a task may write (`classify-v1`: categories, level,
+    register; `normalize-v1`: lemma, gloss, part of speech);
+  - merges by `id`;
+  - never touches learning fields (`results`, `primed`, `on`, `seen`, `forms`, `checkpoints`,
+    `encounters`).
+
+  The dry run is the same code without the write.
+- New fields are ordinary entry fields read by teaching decisions (`intakeOrder`, later
+  `studyPool`), never by prompts directly. Like `rank`, anything derivable (level from frequency)
+  is computed on read, not stored.
 
 ---
 
@@ -410,6 +433,78 @@ flashcard or fill in the blank. A new format is another branch there plus its lo
   isn't there yet.
 
 ---
+
+## Architecture and efficiency
+
+Findings of the 2026-11-15 review, measured with `scripts/ai-report.mjs`. How it all works and the
+engineering principles agreed then: [architecture.md](architecture.md). Overall: the four
+responsibilities (learner state, teaching decisions, generation, delivery) are reasonably
+separated and no redesign is needed. The issues below are ranked by impact.
+
+### ARCH-0 Fixed in the review
+**Done** (2026-11-15).
+- Card and new-sentence requests for the same word and stage share one request while it's on its
+  way (`lib/shared.ts`), so Study starting, an answer opening a stage and a word's page can't pay
+  for the same cards twice.
+- The word list (1.5 MB, 267 KB gzipped, 0.7–1.6 s) was fetched again on every visit to Home,
+  Vocabulary, a word page or the Reader's drawer. Now it's only fetched when it's more than
+  2 minutes old (pull to refresh always fetches).
+- `scripts/ai-report.mjs`: cost, latency, prompt-cache and answer-cache use by feature, and how
+  much of what was generated was ever used.
+
+### ARCH-1 Reader word explanations are half the AI spend
+**Exploratory, the most consequential cost.** 797 calls and $11.06 of $21.65 in 30 days
+(Opus 5.5, ≈$0.014 and 4.4 s each). It's asked for on every Reader tap, though the quick meaning
+is already there. Study cards ask only on More or Save. Repeats are rare (5 cache hits), so
+caching can't help. Options, each a product decision for Mike:
+- ask only on More or Save in the Reader too (the drawer would show the quick meaning, lemma and
+  Save first);
+- a cheaper model for the tap, with Opus on More. Needs an eval with an approved budget;
+- leave it: about $0.35 a reading day.
+
+### ARCH-2 A lighter word list
+**Planned with DATA-1.** 1.5 MB, of which the explanation kept on each encounter is about
+0.4 MB. The phone needs it only when a saved word is tapped again in the same sentence.
+- Leave `encounters[].analysis` out of the list, and fetch it with the word when needed.
+- Or fetch only what changed since `updatedAt` (deletions need a marker).
+
+Not urgent now that refreshes are throttled.
+
+### ARCH-3 Results that fail to save aren't retried
+**Planned, P2.** A failed `vocab` PATCH shows an error, but the card's record on the server misses
+the answer, though the study log has it. Queue results on the phone like study events, send them
+in order, and keep the latest result per card.
+
+### ARCH-4 Cards written that were never studied
+**Partly historical.** 1,598 cards are written, but only 79 have been answered, and 434 of 477
+words have cards while only 59 were studied. Almost all of this is from before 2026-11-04, when
+cards were written for every saved word. Now they are written only for a round's words and the
+next to come in (`upcoming`: about 18 started and 6 new, $0.3–0.7 on a study day). One smaller
+risk remains: the new words are reshuffled daily, so cards may be written for words that then
+don't come in for a while. Revisit if `ai-report.mjs` shows written stages growing faster than
+studied ones. No backfill or deletion of old cards.
+
+### ARCH-5 Function time limit unverified
+**Planned, check only.** Card writing makes 2–3 model calls in one request (p90 6.7 s each).
+Check Netlify's function timeout for the site before adding steps. If it's tight, return the cards
+before the cue check, or split the check into its own request.
+
+### ARCH-6 Boundaries to tidy when next touched
+**Exploratory, no work on its own.**
+- Move writing ahead (`prepareAhead`, `varyAhead`, merging variants) from `practice.tsx` into
+  `lib/word-forms.ts`, so Study asks for content rather than managing it.
+- Split `lib/forms.ts` into progress rules, teaching decisions and card helpers.
+- Study's familiar rule is in `lib/forms.ts` and again in `lib/profile.ts`; change them together,
+  or have the phone send its card states.
+- Give the writer the teaching reason (`why`) so it can aim a sentence (LM-8 difficulty).
+
+### ARCH-7 Measured and not worth changing
+**Parked.**
+- **A one-hour prompt cache instead of five minutes:** about $0.16 a month saved on explanations.
+  30 of 72 cache writes came after gaps under an hour, but writes cost more at that rate.
+- **Old `aiCache` versions:** 680 unused rows, 0.9 MB.
+- **Failed AI calls aren't logged in `aiUsage`** (only in function logs). Add a `failed` row if
+  failures become a question.
 
 ## Smaller and older items
 

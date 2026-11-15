@@ -1,0 +1,108 @@
+# How Mila works
+
+What runs where, what calls an AI, what is kept and who decides what. For developers and future
+sessions: read it before adding an AI call, a background job or a new kind of stored content, and
+update it in the same commit. Numbers were measured on 2026-11-15 with `apps/web/scripts/ai-report.mjs`
+(last 30 days); rerun it rather than trusting them later. The roadmap is [backlog.md](backlog.md).
+
+## Shape
+
+- **Phone app** (`apps/mobile`, Expo): every screen, and every teaching decision. It keeps the
+  saved words in memory (`state/vocab.ts`), the round in progress and the study log on the device.
+- **Netlify functions** (`apps/web/netlify/functions`): sign-in, saved words, and every call to
+  an AI or other paid service. One MongoDB database (`mila`).
+- `apps/web/src` is the old web app, no longer used.
+
+## Four responsibilities and where they live
+
+| Responsibility | Where | How well separated |
+|---|---|---|
+| **Learner state**: what is known, how well, which way round | Phone: each card's `results`/`primed`/`on`/`seen` and the rules on them (`lib/forms.ts` `ProgressRules`, `cardState`). Server: the event model (`lib/learner.ts`, measured only) and the evidence profile for the writer (`lib/profile.ts`) | Good, with one duplication: Study's "familiar" rule is written twice, on the phone (`cardState`) and on the server (`profile.ts` steady). Change both together. |
+| **Teaching decisions**: which words, which cards, which sentence, which exercise, when to write more | Phone, pure functions in `lib/forms.ts`: `intakeOrder`, `studyPool`, `deckOf`, `followUps`, `spread`, `sentenceFor`, `wantsSentence`, `exerciseOf`. Each returns its reason, and the reason is logged. | Good: pure, tested, and they read learner state rather than prompts. `forms.ts` is long and mixes all three phone-side concerns. Split it when it's next worked on heavily, not before. |
+| **Content generation**: cards, new sentences, explanations, glosses, tables | Server: `lib/forms-writer.ts` + `word-forms.ts`, `word-analysis.ts`, `sentence-glosses.ts`, `word-table.ts`, `root-family.ts`, `lib/page-read.ts`, `speech.ts` | Good. What the writer knows about the learner arrives as one text block (`profileBlock`), so a better learner model changes that block, not the prompts or the UI. Teaching reasons (`why`) are stored with what they asked for, but not yet given to the writer. |
+| **Delivery and persistence**: fetch, reuse, merge, retry | Phone: `lib/word-forms.ts` (`ensureForms`, `freshSentences`, shared in-flight), `lib/recognition.ts` (explanations, glosses, translations), `lib/speech.ts` (clips on disk), `state/vocab.ts`. Server: `lib/ai-cache.ts`, `lib/ai-usage.ts` (costs, daily cap) | Mostly good. The weak spot is `practice.tsx`, which also orchestrates writing ahead (`prepareAhead`, `varyAhead`) and merging results into its own copy of the words. Move that into `lib/word-forms.ts` when Study is next reworked. |
+
+## Workflows
+
+"Waits" means the learner sees a spinner until it's done.
+
+| Workflow | On the phone | Network and AI | Waits? |
+|---|---|---|---|
+| **Photograph a page** | camera, crop | `mobile-ocr`: Google Vision (≈0.4 s, $0.0015), then `page-read`: Claude reads, corrects and translates the page (≈16 s, $0.057). `texts` saves it. | Yes, the page read. The single most expensive call, but rare (17 in 30 days). |
+| **Select a sentence** | highlight, English shown | `sentence-glosses`: quick meanings for its words (≈2.7 s, $0.006). Cached for every learner by sentence (`aiCache`): 30% of requests are hits. The next sentence's are fetched once this one's arrive. | No: meanings fill in. |
+| **Tap a word (Reader)** | drawer opens with the quick meaning | `word-analysis`: the full explanation (≈4.4 s, $0.014). Cached by word + sentence, on the phone and in `aiCache`, but almost never repeated (5 hits in 802). **Half of all AI spend.** | Details wait; the quick meaning doesn't. |
+| **Tap a word (Study card)** | the card's own gloss at once | nothing, unless More or Save asks for the explanation | No |
+| **Save a word** | "Saved ✓" at once | waits for the explanation (shared with the tap), then `vocab` POST adds the encounter, with its explanation, to the entry | No (it finishes even if the drawer closes) |
+| **Open Study** | the cached words, the saved round, or a new deck (`deckOf`) | `vocab` GET only if nothing is cached. Then, in the background, `word-forms` for the round's words and those coming up next that lack cards (`upcoming`: about 18 started and 6 new), and new sentences (`varyAhead`). | Only when no card is ready at all |
+| **Answer a card** | result recorded locally, next card | `vocab` PATCH (not retried if it fails: an error shows). A stage it opens has its cards written. Study events are queued on the phone and sent on end, leave or background. | No |
+| **Listen** | clip from disk if kept | `speech`: Gemini or ElevenLabs, with Claude adding vowels first (≈1–2 s, <$0.001). Clips are kept on the device. The next sentence's clip is prefetched only while listening. | Yes, the first time |
+| **Word page, tables, roots** | cached words | `word-forms` for missing stages; `word-table`, `root-family` (cached in `aiCache`) | Tables and roots, yes |
+
+## AI requests (30 days to 2026-11-15, $21.65 in all, one active learner)
+
+| Feature | Model | Trigger | Calls | Cost | p50 / p90 | Cached how |
+|---|---|---|---|---|---|---|
+| `word` explanation | Opus 5.5, low effort | Reader tap; More/Save on a card | 797 | $11.06 | 4.4 / 6.1 s | prompt cache (system); `aiCache` by word + sentence |
+| `forms` cards | Opus 5.5, low effort | Study writing ahead, a stage opened, word page | 769 | $7.48 | 3.9 / 6.7 s | prompt cache; stored on the word, written once per stage |
+| `glosses` | Opus 5.5 | sentence selected | 317 + 136 hits | $1.91 | 2.7 / 4.1 s | `aiCache` by sentence |
+| `page` | Opus 5.5 | photo | 17 | $0.98 | 16 / 19 s | none (each page is new) |
+| `variation` new sentences | Opus 5.5, low effort | `wantsSentence`, New sentences button | 0 so far | — | — | stored on the card; ≤16 calls a day |
+| translate, ocr, speech | Google, ElevenLabs, Sonnet | fallbacks, photo, Listen | 152 | $0.22 | 0.3–2 s | speech clips on the device |
+
+- **Every learner's day is capped** at $3 (`AI_DAILY_LIMIT_USD`, `checkDailySpend`).
+- **Every paid call is logged** in `aiUsage` with its cost, latency and tokens; answers served from `aiCache` are logged too, at no cost.
+
+## Generated content: where it lives and when it's made again
+
+| Content | Stored | Shared? | Made again when |
+|---|---|---|---|
+| Cards (`forms`) | on the learner's word (`vocab.forms`) | no | never; only a missing stage is written |
+| New sentences | on the card (`forms[].variants`, with `writer`, `support`, `why`, `at`) | no | `wantsSentence` asks; at most 4 sentences a card, one a day |
+| Explanations | `aiCache` (every learner), and a copy on each encounter saved | yes | the cache kind's version changes (old versions stay, unused) |
+| Glosses, tables, roots | `aiCache` | yes | as above |
+| Speech clips | the phone's cache directory | no | the clip is missing |
+| Page reads | `texts` | no | never |
+
+## Background work: failures, leaving, overlap
+
+- **Card writing** (`ensureForms`) and **new sentences** (`freshSentences`):
+  - Requests for the same word and stage while one is on its way share it (`lib/shared.ts`), so overlapping triggers pay once.
+  - The server won't store a stage twice, or more sentences than a card's limit.
+  - Leaving Study doesn't cancel a request. Its result goes into the shared saved words when it lands, or is simply fetched next time.
+  - A failed stage is asked for again the next time it's needed. Nothing retries in a loop.
+- **Unverified:** card writing is 2–3 model calls in one function request. Netlify's function time limit isn't set in `netlify.toml`, so check the site's setting before adding more steps to one request.
+- **The word list** is fetched when there is nothing cached, and on a screen visit only if it's more than 2 minutes old. Every change made in the app is applied to the cached copy as it's sent.
+- **Results:** a failed `vocab` PATCH is shown but not retried. The answer is still in the study log, but the card's record on the server misses it.
+- **Study events** queue on the phone and are sent on end, leave and background.
+
+## Principles
+
+1. **Decide on the phone, generate on the server, store with the learner.**
+   - Teaching decisions are pure functions over learner state, and return a reason that is logged.
+   - Generation is a server call that never decides what to teach.
+2. **Generate when a decision needs it, never in bulk.**
+   - Write ahead only for what the next round will show.
+   - Anything written for a reason keeps that reason.
+3. **Reuse before generating.** Look for an answer in this order:
+   1. the phone's own copy;
+   2. `aiCache` (shared, versioned);
+   3. content stored on the learner's word;
+   4. only then the model.
+4. **Nothing interactive waits on optional AI.** Show what is known at once, and fill in later. A tap waits only for what it asked for.
+5. **One request per thing at a time.** Share in-flight requests on the phone. Make the server's write idempotent: conditional updates, limits in the filter.
+6. **Every paid call is counted and capped.** It goes through `recordClaude` (or the provider's recorder) and `checkDailySpend`. Each feature has its own name in `aiUsage`.
+7. **Learner understanding reaches generation as data** (`profileBlock`, `why`), never as new prompt branches or UI.
+8. **Measure before optimizing.** `scripts/ai-report.mjs` for cost, latency, caches and content use; `study-events.mjs` and `personalize.mjs outcomes` for learning.
+
+## Developer tools
+
+- **`scripts/ai-report.mjs [days] [email]`**:
+  - requests by feature (calls, cost, latency, tokens, prompt cache);
+  - cache writes after idle gaps;
+  - Mila's answer cache by kind;
+  - cards and new sentences written against those answered;
+  - the size of the word list.
+
+  Read-only.
+- **`scripts/study-events.mjs`**, **`scripts/personalize.mjs outcomes`**, **`scripts/learner-dashboard.mjs`**: what was studied, and how.
+- **Account → AI usage** (for admins): this month's spend by feature.

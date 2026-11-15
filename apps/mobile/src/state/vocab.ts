@@ -43,9 +43,11 @@ export const putEntry = (session: Session, entry: VocabEntry) =>
 export const dropEntry = (session: Session, id: string) => edit(session, entries => entries.filter(item => item.id !== id))
 export const clearVocab = (session: Session) => edit(session, () => [])
 
-// The saved words for a screen: what is cached shows at once, and every visit refreshes it
-// quietly. `loaded` is false only until the first load for this account finishes (or fails).
-// `reload` settles once the words are in, for pull to refresh.
+// The saved words for a screen: what is cached shows at once, and a visit refreshes it quietly
+// unless it was loaded in the last REFRESH_AFTER (the whole list is over a megabyte, and every
+// change made in the app is applied to it here already). `loaded` is false only until the first
+// load for this account finishes (or fails). `reload` always asks, for pull to refresh.
+const REFRESH_AFTER = 2 * 60_000
 export function useVocab(session: Session | null) {
   const snapshot = useSyncExternalStore(subscribe, () => store)
   const entries = session && snapshot.owner === session.user.id ? snapshot.entries : null
@@ -55,6 +57,9 @@ export function useVocab(session: Session | null) {
     setError(null)
     try { await loadVocab(session) } catch (failure) { setError((failure as Error).message) }
   }, [session])
-  useFocusEffect(useCallback(() => { void reload() }, [reload]))
+  useFocusEffect(useCallback(() => {
+    if (session && store.owner === session.user.id && store.entries && Date.now() - store.at < REFRESH_AFTER) return
+    void reload()
+  }, [reload, session]))
   return { entries: entries ?? EMPTY, at: snapshot.at, loaded: !!entries || !!error, error, reload }
 }
