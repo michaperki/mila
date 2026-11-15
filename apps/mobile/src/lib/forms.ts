@@ -90,8 +90,11 @@ export const dayOf = (now: number) => { const date = new Date(now); return `${da
 // each card keeps its last few results, never a date to come back. An answer given just after the
 // word's Hebrew was shown (a card brought in by a learning sequence, or the same word a few cards
 // or minutes before: isPrimed) is kept marked as primed: it shows what was just seen, not what is
-// remembered. A card is familiar when its latest answers were right and at least one of them
-// wasn't primed, and a wrong answer only makes it learning again: nothing resets. A stage is
+// remembered. An answer chosen from options (fill in the blank) is kept marked the same way: it
+// shows the word was recognised, not recalled unaided. A card is familiar when its latest answers
+// were right and at least one of them was unaided, so choosing right can keep a card familiar or
+// confirm a recall but never make it familiar alone; a wrong answer only makes it learning again:
+// nothing resets. A stage is
 // familiar when about half its cards are (or a checkpoint went well), and then Mila brings in
 // the next stage; it is ready when nearly all are, or when most recent checkpoints were nailed.
 // A round takes the words already started in turn, a few cards each, and brings in a few new
@@ -126,6 +129,12 @@ export function cardState(results?: boolean[], primed?: boolean[]): CardState {
 }
 export const stateOf = (card: Results) => cardState(card.results, card.primed)
 export const isFamiliar = (card: Results) => stateOf(card) === 'familiar'
+// Right lately but never unaided: one recall away from familiar, so it is asked as a flashcard.
+export function awaitsRecall({ results, primed }: Results) {
+  if (!results || results.length < ProgressRules.familiarAfter) return false
+  const from = results.length - ProgressRules.familiarAfter
+  return results.slice(from).every(Boolean) && results.slice(from).every((_, i) => !!primed?.[from + i])
+}
 // A card's record after an answer: its latest results, which of them were primed, and when it
 // was answered.
 export function assess(card: Results, knew: boolean, now = Date.now(), primed = false): Required<Results> {
@@ -482,24 +491,28 @@ export const writerOf = (form: FormCard, variant = 0) => (variant > 0 ? form.var
 
 // A round of new sentences, to meet sentences written for what the learner knows now: the words
 // being learned that have sentence cards studied already, least recently studied first, each with
-// the stage it was studied in last (all of that stage's cards get a new sentence, word-forms.ts
-// fresh). Nothing about the words' progress changes; their cards' results go on as before.
+// the stage studied in most lately whose cards don't all have one yet (all of that stage's cards
+// get a new sentence, word-forms.ts fresh, once per card), so every round of them is new: a stage
+// that has them is left to ordinary rounds, which show a card's sentences in turn. Nothing about
+// the words' progress changes; their cards' results go on as before.
 export const FRESH_WORDS = 6
 export const FRESH_PER_WORD = 2
 export function freshPicks(entries: VocabEntry[], words = FRESH_WORDS): { entry: VocabEntry; stage: string }[] {
   const out: { entry: VocabEntry; stage: string }[] = []
   for (const entry of studyPool(entries, 'both').started) {
     const studied = activeForms(entry).filter(form => form.results?.length).sort((a, b) => (b.last ?? 0) - (a.last ?? 0))
-    if (studied.length) out.push({ entry, stage: studied[0].stage })
+    const wanting = studied.find(form => formsIn(entry, form.stage).some(item => !personalVariant(item)))
+    if (wanting) out.push({ entry, stage: wanting.stage })
     if (out.length >= words) break
   }
   return out
 }
-// Its cards with their new sentences, once written: those of the stage that have one, the ones
-// still being learned first, FRESH_PER_WORD of them (the rest come round in ordinary rounds, which
-// show a card's sentences in turn).
-export const freshCards = (entry: VocabEntry, stage: string): Card[] => (entry.forms || [])
+// Its cards with their new sentences, once written: those of the stage that got one just now
+// (none before, in `had`, the word as it was), the ones still being learned first, FRESH_PER_WORD
+// of them (the rest come round in ordinary rounds, which show a card's sentences in turn).
+export const freshCards = (entry: VocabEntry, stage: string, had?: VocabEntry): Card[] => (entry.forms || [])
   .filter(form => form.stage === stage && personalVariant(form))
+  .filter(form => { const before = had?.forms?.find(item => item.key === form.key); return !before || !personalVariant(before) })
   .sort((a, b) => Number(stateOf(a) === 'familiar') - Number(stateOf(b) === 'familiar') || (a.last ?? 0) - (b.last ?? 0))
   .slice(0, FRESH_PER_WORD)
   .map(form => ({ entry, form, variant: personalVariant(form), mode: 'fresh' as const, why: 'new sentence · written for what you know' }))
@@ -520,10 +533,12 @@ export const justAfterItsWord = (deck: Card[], at: number, from = 0) =>
 // first meeting, which is a flashcard), settled by the card and how often it was answered, so
 // going back shows the same; 'all': every card that can be (Quiz forms before); 'off': none.
 // It is a check on what is known, so in 'some' never just after another card of its word
-// (`primed`, as isPrimed says), where it would only show what that card just put in mind.
+// (`primed`, as isPrimed says), where it would only show what that card just put in mind. Either
+// way, a card right lately only by choosing or just after its word (awaitsRecall) is a flashcard,
+// since only recalling it can make it familiar.
 export type ChoiceMode = 'some' | 'all' | 'off'
 export function asChoice(card: Card, record: Results, mode: ChoiceMode, primed = false) {
-  if (mode === 'off' || card.checkpoint) return false
+  if (mode === 'off' || card.checkpoint || awaitsRecall(record)) return false
   if (mode === 'all') return true
   if (!card.form || !record.results?.length || primed || card.sequence) return false
   return [...`${cardKey(card)}:${record.results.length}`].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7) % 3 === 0
@@ -614,7 +629,11 @@ export function quizOf(entries: VocabEntry[], { entry, form }: Card, english: bo
   const expression = (item: VocabEntry) => item.partOfSpeech === 'expression'
   const distance = (item: VocabEntry) => (item.rank && entry.rank ? Math.abs(Math.log(item.rank) - Math.log(entry.rank)) : 3)
   const score = (item: VocabEntry) => (item.partOfSpeech === entry.partOfSpeech ? 0 : 10) + (practised(item) ? 0 : 4) + distance(item)
-  const ranked = entries.filter(item => item.id !== entry.id && item.partOfSpeech !== 'phrase' && expression(item) === expression(entry))
+  // Never a word that means much the same (לבחון beside לבדוק, both "examine"): the English given
+  // would fit both, and the question would have two answers.
+  const meaning = meaningWords(`${entry.gloss || ''} ${form?.en || ''}`)
+  const alike = (item: VocabEntry) => [...meaningWords(item.gloss || '')].some(word => meaning.has(word))
+  const ranked = entries.filter(item => item.id !== entry.id && item.partOfSpeech !== 'phrase' && expression(item) === expression(entry) && !alike(item))
     .sort((a, b) => score(a) - score(b))
   const others = shuffle(ranked.slice(0, 8), seed).concat(ranked.slice(8))
   const picked: string[] = []
@@ -625,6 +644,11 @@ export function quizOf(entries: VocabEntry[], { entry, form }: Card, english: bo
   if (picked.length < 2) return null
   return { options: shuffle([answer, ...picked], seed), answer }
 }
+
+// The words of an English meaning that say what it means (not "to", "a", "someone"...).
+const FILLER = new Set(['to', 'a', 'an', 'the', 'of', 'in', 'on', 'at', 'for', 'with', 'by', 'from', 'up', 'out', 'off', 'as', 'or', 'and', 'be', 'is', 'it', 'its',
+  'one', "one's", 'oneself', 'someone', "someone's", 'something', 'somebody', 'get', 'make', 'do', 'have', 'go', 'take', 'not', 'no', 'very', 'about', 'into', 'over'])
+const meaningWords = (text: string) => new Set(text.toLowerCase().replace(/\([^)]*\)/g, ' ').split(/[^a-z']+/).filter(word => word.length > 2 && !FILLER.has(word)))
 
 function shuffle<T>(items: T[], seed: string): T[] {
   let state = [...seed].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7)

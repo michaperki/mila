@@ -38,7 +38,7 @@ function Navigator() {
         screen stays upright. (app.json allows landscape for the app as a whole.) */}
     <Stack.Screen name="reader" options={{ title: 'Read & learn', orientation: 'default' }} />
     <Stack.Screen name="compose" options={{ title: 'Read Hebrew text' }} />
-    <Stack.Screen name="practice" options={{ title: 'Practice' }} />
+    <Stack.Screen name="practice" options={{ title: 'Study' }} />
     <Stack.Screen name="word" options={{ title: 'Word' }} />
     <Stack.Screen name="table" options={{ title: 'All forms' }} />
     <Stack.Screen name="root" options={{ title: 'Root' }} />

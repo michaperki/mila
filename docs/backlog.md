@@ -143,8 +143,28 @@ by the app.
   - Wrong forms chosen are passed to the writer.
   - The profile grows by adding facts to `lib/profile.ts` and lines to `profileBlock`; the writer
     and its prompt don't change when the learner model gains a capability.
+- **Iteration 3** (after Mike's phone test, 2026-11-15):
+  - A new sentences round says what it is: the screen is titled "New sentences" (ordinary rounds
+    "Study", no longer "Practice"), each of its cards says "New sentence · a word you're learning",
+    the line under the top bar names it, and its end says the sentences come back in ordinary
+    Study. The Settings entry is marked Experimental and says what it does.
+  - Every round of them is genuinely new. Before, a second round for the same words found their
+    cards written already (once per card), wrote nothing and showed the same "new" sentences.
+    Now `freshPicks` takes, per word, the most lately studied stage whose cards don't all have a
+    new sentence yet, and the round shows only sentences written just then; when no stage is
+    left, it says so instead of repeating.
+  - How it works, for reference: sentences are written when the round starts (one request per
+    word, about $0.03 a stage), always by the writer told about the learner (`personal-v1`,
+    whatever the split), and kept beside the card's own sentence. Revisiting a word in ordinary
+    Study shows its sentences in turn. No writer labels in the app (see below).
+  - Validation from events: the phone sessions with צד and שלם repeated, the "Meanings · שלם"
+    header and four להתבייש cards in a row ran on the build before iteration 2 (update of
+    07:29), kept going by a resumed round. No answers from iteration 2's build had arrived yet.
 - **Remaining:**
   - **P2:** after a few weeks of `outcomes`, decide all, revise, or off.
+  - **Planned:** once every studied stage of a word has a new sentence, New sentences can't
+    write it again (once per card). Lift that limit only with a reason, such as a card failed
+    in both its sentences.
   - **Exploratory:** Mila deciding on its own when a word needs another example, another context
     or a harder sentence, instead of the New sentences button (LM-8).
   - **Exploratory:**
@@ -313,7 +333,7 @@ flashcard or fill in the blank. A new format is another branch there plus its lo
       about as common first.
   - Logged as `exercise: 'choice'` with what it tested, the options, the choice and the answer,
     and no side first, so it isn't counted as recall or production.
-  - Its result still counts toward the card in Study, as before.
+  - Its result counted toward the card in Study like a recalled one (changed in iteration 3).
   - **Iteration 2** (after Mike's phone test):
     - A choice records itself and moves on after a pause: 0.9 s when right, 2.2 s when wrong.
       Looking up a word on it, swiping or the arrows stop that.
@@ -332,9 +352,19 @@ flashcard or fill in the blank. A new format is another branch there plus its lo
     - The learner model counts a meaning choice toward reading the word, at 0.6 weight; a form
       choice counts toward that grammar slot only (learner-v1.2). Wrong forms are passed to the
       card writer.
+  - **Iteration 3** (2026-11-15):
+    - A choice no longer counts as an unaided answer toward Study's card progress. It's kept
+      marked like a primed answer (`primed`, the card's record), and a card is familiar only when
+      its last two answers were right and one of them was unaided. So a right choice can keep a
+      card familiar, or confirm a recall, but two right choices don't make it familiar.
+      Existing progress is unchanged; events keep `primed` as it was, and the choice as a choice.
+    - A card right lately only by choosing or primed (`awaitsRecall`) is asked as a flashcard
+      next, in Sometimes and Always alike, so it can't get stuck as a choice.
+    - Older cards' options leave out saved words whose meaning shares a word with the target's
+      (לבדוק beside לבחון, both "examine"), which the English shown would fit too.
+    - A wrong choice waits 2.5–5 s by the length of the sentence, and a tap on the card holds
+      it there; a right one still 0.9 s. Opening settings or starting a round stops the wait.
   - Remaining, **exploratory**:
-    - whether a right choice should count less than a recalled answer toward Study's own card
-      progress (it still counts the same there);
     - choosing the exercise type by what the learner needs (see LM-8);
     - choices for word cards in ordinary rounds;
     - a typed answer (EX-1).

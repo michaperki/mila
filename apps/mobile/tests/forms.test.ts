@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, apart, asChoice, assess, freshCards, freshPicks, freshRound, justAfterItsWord, personalVariant, shownForm, variantOf, writerOf, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
+import { ago, apart, asChoice, assess, awaitsRecall, freshCards, freshPicks, freshRound, justAfterItsWord, personalVariant, shownForm, variantOf, writerOf, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -410,6 +410,41 @@ test('a round of new sentences takes words being learned that have sentence card
   assert.deepEqual(picks.map(pick => [pick.entry.id, pick.stage]), [['a', 'meanings']])
   const written = { ...studied, forms: studied.forms!.map(item => (item.stage === 'meanings' ? { ...item, variants: [{ he: 'x', en: 'x', sentence: 'x', mark: 'x', translation: 'x', writer: 'personal-v1', at: 1 }] } : item)) }
   assert.deepEqual(freshCards(written, 'meanings').map(card => [card.form!.key, card.variant]), [['meanings:sense1', 1]])
+  // Once a stage has its new sentences, the next round of them takes another stage, or another word.
+  assert.deepEqual(freshPicks([written]).map(pick => pick.stage), ['present'])
+  const both = { ...written, forms: written.forms!.map(item => ({ ...item, variants: written.forms![0].variants })) }
+  assert.deepEqual(freshPicks([both]), [])
+  // Only sentences written just now are new: a card that had one before isn't in the round.
+  assert.deepEqual(freshCards(written, 'meanings', written), [])
+  assert.equal(freshCards(written, 'meanings', studied).length, 1)
+})
+
+test('a choice can confirm a recall but never make a card familiar alone', () => {
+  // Choices are kept marked as not unaided (as primed answers are).
+  const chosen = assess(assess({}, true, 1, true), true, 2, true)
+  assert.equal(cardState(chosen.results, chosen.primed), 'learning')
+  assert.equal(awaitsRecall(chosen), true)
+  const recalled = assess(assess({}, true, 1, false), true, 2, true)
+  assert.equal(cardState(recalled.results, recalled.primed), 'familiar')
+  assert.equal(awaitsRecall(recalled), false)
+  // A card one recall away from familiar is asked as a flashcard, however choices are set.
+  const card = { entry: verb([]), form: form('present:m.sg') }
+  assert.equal(asChoice(card, chosen, 'all'), false)
+  assert.equal(asChoice(card, chosen, 'some'), false)
+  assert.equal(asChoice(card, { results: [false, true], primed: [true, true] }, 'all'), true)
+})
+
+test('fill in the blank never offers a word that means much the same', () => {
+  const examine = verb([], { id: 'examine', lemma: 'לִבְחֹן', gloss: 'to examine, to test' })
+  const others = [
+    verb([], { id: 'check', lemma: 'לִבְדֹּק', gloss: 'to check, examine' }),
+    verb([], { id: 'write', lemma: 'לִכְתֹּב', gloss: 'to write' }),
+    verb([], { id: 'close', lemma: 'לִסְגֹּר', gloss: 'to close' }),
+    verb([], { id: 'run', lemma: 'לָרוּץ', gloss: 'to run' }),
+  ]
+  const quiz = quizOf([examine, ...others], { entry: examine, form: null }, false, 'seed')!
+  assert.ok(!quiz.options.includes('לִבְדֹּק'))
+  assert.equal(quiz.options.length, 4)
 })
 
 test('fill in the blank comes now and then on sentence cards answered before, never at a first meeting', () => {

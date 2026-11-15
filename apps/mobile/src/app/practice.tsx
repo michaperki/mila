@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import Animated from 'react-native-reanimated'
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
-import { router } from 'expo-router'
+import { router, Stack } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { stop as stopSpeaking } from '../lib/speech'
@@ -41,7 +41,9 @@ const CHOICES: Record<ChoiceMode, string> = { some: 'Sometimes', all: 'Always', 
 // A blank in the Hebrew, drawn as a line long enough to see.
 const BLANK = '＿＿＿'
 const RIGHT_PAUSE = 900
-const WRONG_PAUSE = 2200
+// A wrong choice waits long enough to read the sentence as it should be: a little longer for a
+// longer sentence, and a tap on the card holds it there.
+const wrongPause = (form: FormCard | null) => Math.min(5000, 2500 + 25 * ((form?.translation || '').length + (form?.sentence || '').length))
 const FRONTS: Record<Front, string> = { he: 'Hebrew first', en: 'English first', mixed: 'Mixed' }
 const INCLUDES: Record<Include, string> = { both: 'Words & sentences', words: 'Words', sentences: 'Sentences' }
 const ORDERS: Record<Order, string> = { smart: 'Smart', shuffle: 'Shuffled' }
@@ -268,6 +270,7 @@ export default function Practice() {
 
   // Another round, from the latest copy of each word (its order reflects what was just studied).
   const newRound = () => {
+    stopAdvancing()
     const again = deckOf(Object.values(words), settings, Date.now(), `${Date.now()}`)
     // Don't show the card just studied twice in a row.
     const last = deck[deck.length - 1]
@@ -291,14 +294,17 @@ export default function Practice() {
   // word-forms.ts fresh), answered as ever. Stages that have them already aren't written again.
   const newSentences = async () => {
     const picks = freshPicks(Object.values(words))
-    setSettingsOpen(false); lookup.close()
+    setSettingsOpen(false); lookup.close(); stopAdvancing()
     if (!picks.length) {
-      Alert.alert('Nothing to write new sentences for yet', 'They are written for words you have studied in sentences. Study a few sentence cards first.')
+      Alert.alert('No words to write new sentences for', Object.values(words).some(entry => entry.forms?.some(form => form.variants?.length))
+        ? 'The words you’re learning have their new sentences already. They come round in ordinary Study, taking turns with the sentences you had. Study a few more words in sentences and try again.'
+        : 'They are written for words you have studied in sentences. Study a few sentence cards first.')
       return
     }
     feel('advance'); setWriting(picks.length); setError(null)
-    const written = await Promise.all(picks.map(({ entry, stage }) => freshSentences(words[entry.id] || entry, stage, session.token).catch(() => null)))
-    const cards = freshRound(written.map((entry, i) => (entry ? freshCards(entry, picks[i].stage) : [])))
+    const had = picks.map(({ entry }) => words[entry.id] || entry)
+    const written = await Promise.all(picks.map(({ stage }, i) => freshSentences(had[i], stage, session.token).catch(() => null)))
+    const cards = freshRound(written.map((entry, i) => (entry ? freshCards(entry, picks[i].stage, had[i]) : [])))
     setWriting(null)
     if (!cards.length) { setError('New sentences couldn\'t be written just now. Try again in a moment.'); return }
     const fresh = written.filter((entry): entry is VocabEntry => !!entry)
@@ -307,9 +313,14 @@ export default function Practice() {
     setRoundStart(deck.length); setDeck([...deck, ...cards]); setPosition(deck.length)
     setWay('next'); setFlipped(false); setDone(false)
   }
+  // A round of new sentences says so wherever it is: in the title, over each of its cards, in the
+  // line under the top bar and at its end.
+  const freshNow = writing !== null || deck.slice(roundStart).some(item => item.mode === 'fresh')
+  const title = <Stack.Screen options={{ title: freshNow ? 'New sentences' : 'Study' }} />
   if (writing !== null) return <Page>
+    {title}
     <Text style={styles.title}>New sentences</Text>
-    <Text style={styles.copy}>Writing them for {writing} {writing === 1 ? 'word' : 'words'} you’re learning, from what you know. This takes a few seconds.</Text>
+    <Text style={styles.copy}>Mila is writing sentences you haven’t seen for {writing} {writing === 1 ? 'word' : 'words'} you’re learning, using the words you know and those you’ve looked up lately. This takes a few seconds.</Text>
     <Loading />
   </Page>
   if (away) return <Page>
@@ -318,7 +329,7 @@ export default function Practice() {
     <Button title="Continue this round" onPress={() => { feel('advance'); setAway(null) }} />
     <Button secondary title="Start a new round" onPress={() => { feel('advance'); setAway(null); newRound() }} />
   </Page>
-  if (done) return <Summary answered={Object.keys(answers).length} words={new Set(Object.keys(answers).map(i => deck[Number(i)].entry.id)).size}
+  if (done) return <Summary title={title} fresh={freshNow} answered={Object.keys(answers).length} words={new Set(Object.keys(answers).map(i => deck[Number(i)].entry.id)).size}
     unlocked={unlocked} error={error} onMore={newRound} onFresh={() => void newSentences()} />
 
   // Moving through the round. Past its end, the round is over. Every card comes back to its
@@ -352,14 +363,15 @@ export default function Practice() {
     }
   }
 
-  const summary = [FRONTS[settings.front], settings.order === 'shuffle' ? 'Shuffled' : 'Smart order', INCLUDES[settings.include],
+  const summary = freshNow ? `New sentences · ${new Set(deck.slice(roundStart).map(item => item.entry.id)).size} words you’re learning` : [FRONTS[settings.front], settings.order === 'shuffle' ? 'Shuffled' : 'Smart order', INCLUDES[settings.include],
     settings.choices === 'all' && 'Fill in the blank', cursiveAnswers && 'Answers in כתב יד'].filter(Boolean).join(' · ')
   const sheet = settingsOpen && <SettingsSheet settings={settings} change={change} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)} onClose={() => setSettingsOpen(false)} onFresh={() => void newSentences()} />
 
   const card = deck[position]
   const progress = { at: position - roundStart + 1, of: deck.length - roundStart }
   if (!card) return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <TopBar summary={summary} progress={null} canGoBack={false} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onNewRound={confirmNewRound} onSettings={() => setSettingsOpen(true)} />
+    {title}
+    <TopBar summary={summary} progress={null} canGoBack={false} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onNewRound={confirmNewRound} onSettings={() => { stopAdvancing(); setSettingsOpen(true) }} />
     <View style={[styles.content, { gap: 12 }]}>
       <Text style={styles.copy}>{settings.include === 'sentences' ? 'No sentence cards yet. They are written for each word as you save it.' : 'Nothing to study with these settings.'}</Text>
       <Button title="Study words and sentences" onPress={() => change({ include: 'both' })} />
@@ -416,7 +428,9 @@ export default function Practice() {
       ...(shownAs?.variant ? { variant: shownAs.variant } : {}), ...(shownAs?.writer ? { writer: shownAs.writer } : {}),
       ms: shown ? now - shown.at : null, turnedOver: revealed.current.has(position),
     })
-    const result = assess(start, knew, now, primed)
+    // A choice is kept as not unaided, like a primed answer (lib/forms.ts ProgressRules): choosing
+    // right can't make a card familiar alone. The event keeps whether it was primed as such.
+    const result = assess(start, knew, now, primed || !!choices)
     const [body, updated]: [Record<string, unknown>, VocabEntry] = checkpoint
       ? [{ id: entry.id, checkpoint: { stage: checkpoint, ...result } }, { ...entry, checkpoints: { ...entry.checkpoints, [checkpoint]: result } }]
       : form
@@ -470,17 +484,20 @@ export default function Practice() {
   const hint = checkpoint
     ? (!answerable ? (loaded && 'error' in loaded ? 'The forms could not be loaded, so swipe to skip this one.' : '')
       : flipped ? 'Swipe right if you knew them all, left if not.' : 'Say them to yourself, then tap to check.')
-    : choices ? (picked !== null && (!pausing || !!lookup.tap) ? 'Answered. Swipe or → to go on.' : testsForm ? 'Choose the form that fits.' : 'Choose the word that fits.')
+    : choices ? (picked !== null ? (pausing && !lookup.tap ? (right ? '' : 'Tap the card to stay on it.') : 'Answered. Swipe or → to go on.') : testsForm ? 'Choose the form that fits.' : 'Choose the word that fits.')
       : answered !== undefined ? `${answered ? 'You knew it' : 'Still learning'}. Swipe again to change.`
         : Object.keys(answers).length < 3 ? 'Swipe right if you knew it, left if you\'re still learning.' : ''
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    <TopBar summary={summary} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onNewRound={confirmNewRound} onWhy={toggleWhy} onSettings={() => setSettingsOpen(true)} />
+    {title}
+    <TopBar summary={summary} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onNewRound={confirmNewRound} onWhy={toggleWhy} onSettings={() => { stopAdvancing(); setSettingsOpen(true) }} />
     <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: 'center', paddingBottom: 24 + insets.bottom }]}>
       <ErrorNotice message={error} />
       {why && !!card.why && <Text style={practice.why}>{card.why}</Text>}
       {/* A card in a learning sequence says so: the same word again, just after the card before. */}
       {card.sequence && !why && <Text style={[practice.eyebrow, { textAlign: 'center' }]}>{form ? 'Same word · in a sentence' : 'Same word · once more'}</Text>}
+      {/* A new sentence written for this round: the word is one being learned, the sentence new. */}
+      {card.mode === 'fresh' && !card.sequence && !why && <Text style={[practice.eyebrow, { textAlign: 'center' }]}>New sentence · a word you’re learning</Text>}
       {/* One swipe card for the whole deck; only what is on it changes (see SwipeCard). No exit
           animation: a swiped card has already left. */}
       <SwipeCard card={position} onSwipe={swiped} onDrag={onDrag} hints={choices || !answerable ? undefined : HINTS}>
@@ -491,7 +508,7 @@ export default function Practice() {
               front={<ScriptContext.Provider value="print"><CheckpointSide entry={entry} stage={checkpoint} rows={rows} loading={!loaded} answer={false} v={vQuestion} /></ScriptContext.Provider>}
               back={<ScriptContext.Provider value="answers"><CheckpointSide entry={entry} stage={checkpoint} rows={rows} loading={!loaded} answer v={vAnswer} /></ScriptContext.Provider>} />
             : choices
-              ? <View style={[styles.card, practice.card]}>
+              ? <Pressable accessible={false} onPress={() => { if (advancing.current) stopAdvancing() }} style={[styles.card, practice.card]}>
                 <ScriptContext.Provider value="print"><CardHead label={stage?.label} lemma={testsForm || picked !== null ? vQuestion(entry.lemma) : undefined} listen={picked !== null ? listen : undefined} /></ScriptContext.Provider>
                 {side(!form && englishFirst, picked !== null)}
                 <ScriptContext.Provider value="print"><Choices choices={choices} answer={quiz!.answer} picked={picked} v={vQuestion} onPick={option => {
@@ -501,10 +518,10 @@ export default function Practice() {
                   setPicks(current => ({ ...current, [position]: option })); feel(isRight ? 'right' : 'wrong')
                   const added = answer(isRight, true, option)
                   setPausing(true)
-                  advancing.current = setTimeout(() => { advancing.current = null; setPausing(false); go(1, true, added) }, isRight ? RIGHT_PAUSE : WRONG_PAUSE)
+                  advancing.current = setTimeout(() => { advancing.current = null; setPausing(false); go(1, true, added) }, isRight ? RIGHT_PAUSE : wrongPause(form))
                 }} /></ScriptContext.Provider>
                 {picked !== null && <Text style={[practice.verdict, { color: right ? colors.green : colors.red }]}>{right ? 'Right' : 'Not quite'}</Text>}
-              </View>
+              </Pressable>
               : <FlipCard flipped={flipped} onPress={() => { if (tapped()) { feel('reveal'); turnOver() } }} style={[styles.card, practice.card]}
                 accessibilityLabel={flipped ? 'Answer side' : 'Question side'}
                 front={<>
@@ -590,8 +607,8 @@ function SettingsSheet({ settings, change, cursive, onCursive, onClose, onFresh 
       <Pressy moment="press" accessibilityRole="button" onPress={onFresh} style={practice.tryRow}>
         <Ionicons name="sparkles-outline" size={20} color={colors.green} />
         <View style={{ flex: 1, gap: 1 }}>
-          <Text style={practice.settingLabel}>New sentences</Text>
-          <Text style={practice.settingDetail}>A round of words you’re learning, in new sentences written for what you know</Text>
+          <Text style={practice.settingLabel}>New sentences <Text style={practice.experimental}>· Experimental</Text></Text>
+          <Text style={practice.settingDetail}>Mila writes sentences you haven’t seen for up to six words you’re learning, using the words you know and those you’ve looked up lately. Your answers count as usual, and the new sentences come back in ordinary Study.</Text>
         </View>
       </Pressy>
       <Text style={practice.group}>Display</Text>
@@ -805,11 +822,15 @@ function withNewForms(current: VocabEntry | undefined, ready: VocabEntry): Vocab
 // The end of a round (or of studying): one calm line, any stage Mila brought in, another round
 // if you like, and back to the tree, which shows the rest (lib/tree.ts). A card answered in two
 // rounds counts twice, so cards can outnumber words.
-function Summary({ answered, words, unlocked, error, onMore, onFresh }: { answered: number; words: number; unlocked: string[]; error: string | null; onMore: () => void; onFresh: () => void }) {
+function Summary({ title, fresh, answered, words, unlocked, error, onMore, onFresh }: {
+  title: ReactNode; fresh: boolean; answered: number; words: number; unlocked: string[]; error: string | null; onMore: () => void; onFresh: () => void
+}) {
   useEffect(() => { feel('complete') }, [])
   return <Page>
+    {title}
     <Text style={styles.title}>{answered ? 'Done' : 'End of the round'}</Text>
     {answered > 0 && <Text style={styles.copy}>{answered} {answered === 1 ? 'card' : 'cards'} from {words} {words === 1 ? 'word' : 'words'}. The tree is tended.</Text>}
+    {fresh && <Text style={styles.copy}>The new sentences stay with their cards and come round in ordinary Study, taking turns with the sentences you had.</Text>}
     {unlocked.map(line => <View key={line} style={practice.unlocked}>
       <Ionicons name="sparkles-outline" size={18} color={colors.green} /><Text style={[styles.copy, { color: colors.ink, flexShrink: 1 }]}>New for you: {line}</Text>
     </View>)}
@@ -840,6 +861,7 @@ const practice = StyleSheet.create({
   why: { fontSize: 12, color: colors.muted, textAlign: 'center', fontVariant: ['tabular-nums'] },
   arrow: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   unlocked: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 14, backgroundColor: colors.lime },
+  experimental: { fontSize: 13, fontWeight: '600', color: colors.muted },
   tryRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white },
   card: { alignItems: 'center', gap: 14, paddingVertical: 18, minHeight: 240, justifyContent: 'center' },
   stage: { fontSize: 13, color: colors.muted, flexShrink: 1 },
