@@ -137,7 +137,8 @@ export function awaitsRecall({ results, primed }: Results) {
 }
 // A card's record after an answer: its latest results, which of them were primed, and when it
 // was answered.
-export function assess(card: Results, knew: boolean, now = Date.now(), primed = false): Required<Results> {
+export type Answered = Required<Pick<Results, 'results' | 'primed' | 'last'>>
+export function assess(card: Results, knew: boolean, now = Date.now(), primed = false): Answered {
   const results = [...(card.results || []), knew]
   const marks = [...(card.results || []).map((_, i) => !!card.primed?.[i]), primed]
   return { results: results.slice(-ProgressRules.kept), primed: marks.slice(-ProgressRules.kept), last: now }
@@ -478,10 +479,63 @@ export const shownForm = (form: FormCard, variant = 0): FormCard => {
   const other = variant > 0 ? form.variants?.[variant - 1] : undefined
   return other ? { ...form, ...other, key: form.key, stage: form.stage, slot: form.slot } : form
 }
-// Which sentence a card shows in an ordinary round: its sentences in turn, one each time it is
-// answered (by its results so far), so a new sentence is met beside the first, not instead of it.
-export const variantOf = (form: FormCard, record: Results) =>
-  (form.variants?.length ? (record.results?.length ?? 0) % (form.variants.length + 1) : 0)
+// Which sentence a card is shown in, and why (logged with it, as `sentence`), from how it has
+// gone (its results, and which sentence each was given on, `on`, `seen`):
+// - 'own': at a first meeting, its own sentence;
+// - 'repeat': while it is being learned, the sentence it was last answered on, since meeting
+//   the same example again is how it is learned;
+// - 'another-context': once familiar, a sentence it hasn't been answered on, if it has one, to
+//   check the word is understood beyond the sentence it was learned in;
+// - 'another-example': wrong twice running, a sentence it hasn't been answered on, if it has
+//   one, since the same example again hasn't helped;
+// - 'in-turn': familiar or struggling with every sentence seen, another than the last.
+// `fresh`: a sentence never answered before. A card can't say which sentence its older answers
+// were given on; those count as its own.
+// ('asked': a round of new sentences, asked for from Settings.)
+export type SentenceWhy = 'own' | 'repeat' | 'another-context' | 'another-example' | 'in-turn' | 'asked'
+export type Sentence = { variant: number; why: SentenceWhy; fresh: boolean }
+const lastSentence = (record: Results) => { const on = (record.on || []).filter(at => at >= 0); return on.length ? on[on.length - 1] : 0 }
+const seenSentences = (record: Results) => new Set([...(record.seen || []), ...(record.results?.length && !record.seen ? [0] : [])])
+const struggling = (record: Results) => { const results = record.results || []; return results.length >= 2 && !results[results.length - 1] && !results[results.length - 2] }
+export function sentenceFor(form: FormCard, record: Results): Sentence {
+  const count = (form.variants?.length ?? 0) + 1
+  if (!record.results?.length) return { variant: 0, why: 'own', fresh: true }
+  const seen = seenSentences(record)
+  const last = lastSentence(record) < count ? lastSentence(record) : 0
+  const unseen = Array.from({ length: count }, (_, i) => i).filter(i => !seen.has(i))
+  const familiar = isFamiliar(record)
+  if (familiar || struggling(record)) {
+    if (unseen.length) return { variant: unseen[unseen.length - 1], why: familiar ? 'another-context' : 'another-example', fresh: true }
+    if (count > 1) return { variant: (last + 1) % count, why: 'in-turn', fresh: false }
+  }
+  return { variant: last, why: 'repeat', fresh: false }
+}
+// Whether a card would be helped by a sentence it doesn't have yet, and why: familiar, its last
+// two answers right on the same sentence (known in that sentence, maybe only there), or wrong
+// twice running on the same one; never while it has a sentence not yet answered on, nor at a
+// first meeting. A card has at most MAX_SENTENCES, and one is written at most every
+// SENTENCE_REST_HOURS (word-forms.ts keeps to both too).
+export const MAX_SENTENCES = 4
+export const SENTENCE_REST_HOURS = 20
+export function wantsSentence(form: FormCard, now = Date.now()): 'another-context' | 'another-example' | null {
+  const variants = form.variants || []
+  if (variants.length + 1 >= MAX_SENTENCES || (form.results?.length ?? 0) < 2) return null
+  if (variants.some(item => now - item.at < SENTENCE_REST_HOURS * 3_600_000)) return null
+  const seen = seenSentences(form)
+  if (Array.from({ length: variants.length + 1 }, (_, i) => i).some(i => !seen.has(i))) return null
+  const on = form.on || []
+  const sameTwice = on.length >= 2 && on[on.length - 1] === on[on.length - 2]
+  if (!sameTwice) return null
+  return isFamiliar(form) ? 'another-context' : struggling(form) ? 'another-example' : null
+}
+// A sentence card's record after an answer on sentence `variant`: which sentence each kept result
+// was given on, and every sentence answered on.
+export function onSentence(before: Results, after: Answered, variant: number): Answered & Required<Pick<Results, 'on' | 'seen'>> {
+  const known = before.on || []
+  const on = [...(before.results || []).map((_, i) => known[i - ((before.results?.length ?? 0) - known.length)] ?? -1), variant]
+  const seen = [...seenSentences(before), variant].filter((at, i, all) => all.indexOf(at) === i).sort((a, b) => a - b)
+  return { ...after, on: on.slice(-ProgressRules.kept), seen }
+}
 // The newest sentence written for the learner (word-forms.ts personal-v1), or 0 if none.
 export const personalVariant = (form: FormCard) => {
   const at = (form.variants || []).map((item, i) => (item.writer.startsWith('personal') ? i + 1 : 0)).filter(Boolean)
@@ -495,13 +549,16 @@ export const writerOf = (form: FormCard, variant = 0) => (variant > 0 ? form.var
 // get a new sentence, word-forms.ts fresh, once per card), so every round of them is new: a stage
 // that has them is left to ordinary rounds, which show a card's sentences in turn. Nothing about
 // the words' progress changes; their cards' results go on as before.
+// A card can take another sentence: fewer than MAX_SENTENCES, none written lately.
+const roomForSentence = (form: FormCard, now = Date.now()) => (form.variants?.length ?? 0) + 1 < MAX_SENTENCES
+  && !(form.variants || []).some(item => now - item.at < SENTENCE_REST_HOURS * 3_600_000)
 export const FRESH_WORDS = 6
 export const FRESH_PER_WORD = 2
 export function freshPicks(entries: VocabEntry[], words = FRESH_WORDS): { entry: VocabEntry; stage: string }[] {
   const out: { entry: VocabEntry; stage: string }[] = []
   for (const entry of studyPool(entries, 'both').started) {
     const studied = activeForms(entry).filter(form => form.results?.length).sort((a, b) => (b.last ?? 0) - (a.last ?? 0))
-    const wanting = studied.find(form => formsIn(entry, form.stage).some(item => !personalVariant(item)))
+    const wanting = studied.find(form => formsIn(entry, form.stage).some(roomForSentence))
     if (wanting) out.push({ entry, stage: wanting.stage })
     if (out.length >= words) break
   }
@@ -512,7 +569,7 @@ export function freshPicks(entries: VocabEntry[], words = FRESH_WORDS): { entry:
 // of them (the rest come round in ordinary rounds, which show a card's sentences in turn).
 export const freshCards = (entry: VocabEntry, stage: string, had?: VocabEntry): Card[] => (entry.forms || [])
   .filter(form => form.stage === stage && personalVariant(form))
-  .filter(form => { const before = had?.forms?.find(item => item.key === form.key); return !before || !personalVariant(before) })
+  .filter(form => { const before = had?.forms?.find(item => item.key === form.key); return !before || (form.variants?.length ?? 0) > (before.variants?.length ?? 0) })
   .sort((a, b) => Number(stateOf(a) === 'familiar') - Number(stateOf(b) === 'familiar') || (a.last ?? 0) - (b.last ?? 0))
   .slice(0, FRESH_PER_WORD)
   .map(form => ({ entry, form, variant: personalVariant(form), mode: 'fresh' as const, why: 'new sentence · written for what you know' }))
@@ -537,12 +594,32 @@ export const justAfterItsWord = (deck: Card[], at: number, from = 0) =>
 // way, a card right lately only by choosing or just after its word (awaitsRecall) is a flashcard,
 // since only recalling it can make it familiar.
 export type ChoiceMode = 'some' | 'all' | 'off'
-export function asChoice(card: Card, record: Results, mode: ChoiceMode, primed = false) {
-  if (mode === 'off' || card.checkpoint || awaitsRecall(record)) return false
-  if (mode === 'all') return true
-  if (!card.form || !record.results?.length || primed || card.sequence) return false
-  return [...`${cardKey(card)}:${record.results.length}`].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7) % 3 === 0
+// How a card is asked, and why (logged as `exerciseWhy`), with fill in the blank at 'some':
+// - 'first-meeting', 'in-sequence', 'just-shown': a flashcard, as above;
+// - 'needs-recall': right lately only by choosing or primed (awaitsRecall), a flashcard;
+// - 'new-context': familiar, in a sentence it hasn't been answered on, a flashcard: recalling
+//   it there is the check that it is known beyond the sentence it was learned in;
+// - 'support': wrong last time, in the same sentence, fill in the blank: a step between being
+//   shown it and recalling it unaided (counted as a choice, so it can't make it familiar);
+// - 'check' or 'recall': otherwise about one in three of each, settled by the card and how
+//   often it was answered, so going back shows the same.
+export type ExerciseWhy = 'off' | 'checkpoint' | 'all' | 'word-card' | 'first-meeting' | 'in-sequence' | 'just-shown' | 'needs-recall' | 'new-context' | 'support' | 'check' | 'recall'
+export function exerciseOf(card: Card, record: Results, mode: ChoiceMode, primed = false, sentence?: Sentence): { choice: boolean; why: ExerciseWhy } {
+  const as = (choice: boolean, why: ExerciseWhy) => ({ choice, why })
+  if (mode === 'off') return as(false, 'off')
+  if (card.checkpoint) return as(false, 'checkpoint')
+  if (awaitsRecall(record)) return as(false, 'needs-recall')
+  if (mode === 'all') return as(true, 'all')
+  if (!card.form) return as(false, 'word-card')
+  if (!record.results?.length) return as(false, 'first-meeting')
+  if (card.sequence) return as(false, 'in-sequence')
+  if (primed) return as(false, 'just-shown')
+  if (sentence?.why === 'another-context') return as(false, 'new-context')
+  if (!record.results[record.results.length - 1] && !sentence?.fresh) return as(true, 'support')
+  const hash = [...`${cardKey(card)}:${record.results.length}`].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) >>> 0, 7)
+  return hash % 3 === 0 ? as(true, 'check') : as(false, 'recall')
 }
+export const asChoice = (card: Card, record: Results, mode: ChoiceMode, primed = false, sentence?: Sentence) => exerciseOf(card, record, mode, primed, sentence).choice
 
 // Reorders so cards of the same word are a few cards apart (SPREAD_GAP) where the round has room
 // for it, keeping the order otherwise: two uses of a word met one after the other are practised

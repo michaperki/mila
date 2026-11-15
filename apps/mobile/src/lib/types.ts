@@ -133,9 +133,11 @@ export type FormCard = {
   // sentence. The card's results are the card's, whichever sentence is shown (lib/forms.ts shownForm).
   variants?: FormVariant[]
 } & Results
-export type FormVariant = Pick<FormCard, 'he' | 'en' | 'sentence' | 'mark' | 'said' | 'translation' | 'enMark' | 'cue' | 'cueAfter' | 'cues' | 'usage' | 'glosses' | 'support' | 'distractors'> & { writer: string; at: number }
+export type FormVariant = Pick<FormCard, 'he' | 'en' | 'sentence' | 'mark' | 'said' | 'translation' | 'enMark' | 'cue' | 'cueAfter' | 'cues' | 'usage' | 'glosses' | 'support' | 'distractors'> & { writer: string; at: number; why?: string }
 // What studying has shown about a card, and nothing about when to see it again: its last few
 // results (true: knew it), which of them were primed (answered just after the word's Hebrew was
 // shown, lib/forms.ts isPrimed; by position, missing on answers given before this was kept) and
-// when it was last answered (lib/forms.ts).
-export type Results = { results?: boolean[]; primed?: boolean[]; last?: number }
+// when it was last answered (lib/forms.ts). On a sentence card, `on` says which of its sentences
+// each of those answers was given on (0 its own, n its variant n; -1 not known, before this was
+// kept) and `seen` every sentence it has been answered on (lib/forms.ts sentenceFor).
+export type Results = { results?: boolean[]; primed?: boolean[]; last?: number; on?: number[]; seen?: number[] }

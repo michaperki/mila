@@ -128,6 +128,11 @@ describe('new sentences for cards already written', () => {
     expect(prompt).not.toContain('Forms to write')
     expect(prompt).toContain('הוא פותח את החלון')
   })
+  it('tells the writer the sentences written for a card later too, so another is not one of them', () => {
+    const entry = { lemma: 'לפתוח', gloss: 'to open', partOfSpeech: 'verb', forms: [{ stage: 'present', slot: 'm.sg', en: 'opens', sentence: 'הוא פותח את החלון', variants: [{ sentence: 'הוא פותח את הדלת לאט' }] }] }
+    const prompt = promptFor(entry, 'present', slotsOf(entry, 'present').filter(item => item.slot === 'm.sg'), [], '', [{ slot: 'm.sg', he: 'פּוֹתֵחַ', en: 'he opens' }])
+    expect(prompt).toContain('הוא פותח את הדלת לאט')
+  })
 })
 
 describe('filling in a blank, as evidence', () => {

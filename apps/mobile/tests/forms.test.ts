@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, apart, asChoice, assess, awaitsRecall, freshCards, freshPicks, freshRound, justAfterItsWord, personalVariant, shownForm, variantOf, writerOf, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
+import { ago, apart, asChoice, assess, awaitsRecall, exerciseOf, MAX_SENTENCES, onSentence, sentenceFor, wantsSentence, freshCards, freshPicks, freshRound, justAfterItsWord, personalVariant, shownForm, writerOf, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -397,10 +397,59 @@ test('a card shows its own sentence or a new one written later, with its own key
   assert.equal(writerOf(card, 0), 'base')
   assert.equal(writerOf(card, 1), 'personal-v1')
   assert.equal(personalVariant(card), 1)
-  // In an ordinary round, its sentences take turns as it is answered.
-  assert.equal(variantOf(card, { results: [true] }), 1)
-  assert.equal(variantOf(card, { results: [true, true] }), 0)
-  assert.equal(variantOf(form('present:f.sg'), { results: [true] }), 0)
+})
+
+test('Study keeps a card in its sentence while it is learned, and gives it another once it is known there or keeps being missed', () => {
+  const variants = [{ he: 'פותח', en: 'opens', sentence: 'הוא פותח את הדלת', mark: 'פותח', translation: 'He opens the door', writer: 'personal-v1', at: 1 }]
+  const card = form('present:m.sg', { variants })
+  // A first meeting: its own sentence. Being learned: the one it was last answered on.
+  assert.deepEqual(sentenceFor(card, {}), { variant: 0, why: 'own', fresh: true })
+  assert.deepEqual(sentenceFor(card, { results: [true, false], on: [0, 0], seen: [0] }), { variant: 0, why: 'repeat', fresh: false })
+  // Familiar in its own sentence: the other one, new to the learner.
+  assert.deepEqual(sentenceFor(card, { results: [true, true], on: [0, 0], seen: [0] }), { variant: 1, why: 'another-context', fresh: true })
+  // Missed twice in it: another example.
+  assert.deepEqual(sentenceFor(card, { results: [false, false], on: [0, 0], seen: [0] }), { variant: 1, why: 'another-example', fresh: true })
+  // Every sentence seen: familiar takes them in turn.
+  assert.deepEqual(sentenceFor(card, { results: [true, true], on: [0, 1], seen: [0, 1] }), { variant: 0, why: 'in-turn', fresh: false })
+  // Older answers, from before Study said which sentence: its own.
+  assert.equal(sentenceFor(card, { results: [true, false] }).variant, 0)
+  // Each answer keeps which sentence it was on, alongside its results.
+  const after = onSentence({ results: [true, true], on: [0] }, assess({ results: [true, true] }, false, 5), 1)
+  assert.deepEqual(after.results, [true, true, false])
+  assert.deepEqual(after.on, [-1, 0, 1])
+  assert.deepEqual(after.seen, [0, 1])
+})
+
+test('a new sentence is written only where it would help, and not without limit', () => {
+  const now = 10 * DAY
+  const known = form('present:m.sg', { results: [true, true], on: [0, 0], seen: [0] })
+  assert.equal(wantsSentence(known, now), 'another-context')
+  assert.equal(wantsSentence(form('present:m.sg', { results: [false, false], on: [0, 0], seen: [0] }), now), 'another-example')
+  // Being learned, a first meeting, or answers from before Study said which sentence: none.
+  assert.equal(wantsSentence(form('present:m.sg', { results: [true, false], on: [0, 0], seen: [0] }), now), null)
+  assert.equal(wantsSentence(form('present:m.sg'), now), null)
+  assert.equal(wantsSentence(form('present:m.sg', { results: [true, true] }), now), null)
+  // Familiar across sentences already (not stuck in one): none.
+  const variant = { he: 'x', en: 'x', sentence: 'x', mark: 'x', translation: 'x', writer: 'personal-v1', at: now - 5 * DAY }
+  assert.equal(wantsSentence({ ...known, variants: [variant], on: [0, 1], seen: [0, 1] }, now), null)
+  // One it hasn't been answered on yet, one written lately, or as many as a card has room for: none.
+  assert.equal(wantsSentence({ ...known, variants: [variant] }, now), null)
+  assert.equal(wantsSentence({ ...known, variants: [{ ...variant, at: now - 3_600_000 }], seen: [0, 1] }, now), null)
+  const full = Array.from({ length: MAX_SENTENCES - 1 }, (_, i) => i + 1)
+  assert.equal(wantsSentence({ ...known, variants: full.map(() => variant), seen: [0, ...full] }, now), null)
+  assert.equal(wantsSentence({ ...known, variants: [variant], on: [1, 1], seen: [0, 1] }, now), 'another-context')
+})
+
+test('how a card is asked follows what it needs, and says why', () => {
+  const card = { entry: verb([]), form: form('present:m.sg') }
+  assert.deepEqual(exerciseOf(card, {}, 'some'), { choice: false, why: 'first-meeting' })
+  // Known in one sentence and now in another: recalled there, not chosen.
+  assert.deepEqual(exerciseOf(card, { results: [true, true] }, 'some', false, { variant: 1, why: 'another-context', fresh: true }), { choice: false, why: 'new-context' })
+  // Missed last time, same sentence: chosen from options, a step towards recalling it.
+  assert.deepEqual(exerciseOf(card, { results: [true, false] }, 'some', false, { variant: 0, why: 'repeat', fresh: false }), { choice: true, why: 'support' })
+  // ...but not just after its word was shown.
+  assert.deepEqual(exerciseOf(card, { results: [true, false] }, 'some', true), { choice: false, why: 'just-shown' })
+  assert.ok(['check', 'recall'].includes(exerciseOf(card, { results: [false, true] }, 'some').why))
 })
 
 test('a round of new sentences takes words being learned that have sentence cards studied, a stage each', () => {
@@ -408,9 +457,9 @@ test('a round of new sentences takes words being learned that have sentence card
   const wordOnly = verb([form('meanings:sense1')], { id: 'b', results: [true], last: now - DAY })
   const picks = freshPicks([studied, wordOnly])
   assert.deepEqual(picks.map(pick => [pick.entry.id, pick.stage]), [['a', 'meanings']])
-  const written = { ...studied, forms: studied.forms!.map(item => (item.stage === 'meanings' ? { ...item, variants: [{ he: 'x', en: 'x', sentence: 'x', mark: 'x', translation: 'x', writer: 'personal-v1', at: 1 }] } : item)) }
+  const written = { ...studied, forms: studied.forms!.map(item => (item.stage === 'meanings' ? { ...item, variants: [{ he: 'x', en: 'x', sentence: 'x', mark: 'x', translation: 'x', writer: 'personal-v1', at: Date.now() }] } : item)) }
   assert.deepEqual(freshCards(written, 'meanings').map(card => [card.form!.key, card.variant]), [['meanings:sense1', 1]])
-  // Once a stage has its new sentences, the next round of them takes another stage, or another word.
+  // Once a stage has a new sentence (one a day at most), the next round of them takes another stage, or another word.
   assert.deepEqual(freshPicks([written]).map(pick => pick.stage), ['present'])
   const both = { ...written, forms: written.forms!.map(item => ({ ...item, variants: written.forms![0].variants })) }
   assert.deepEqual(freshPicks([both]), [])

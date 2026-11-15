@@ -13,7 +13,7 @@ import { feel } from '../lib/feedback'
 import { request } from '../lib/api'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { ago, asChoice, assess, type Card, cardKey, type ChoiceMode, checkpointGroup, freshCards, freshPicks, freshRound, justAfterItsWord, shownForm, variantOf, writerOf, checkpointRecord, cuedTranslation, deckOf, exposureOf, firstSense, followUps, type Include, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
+import { ago, assess, type Card, cardKey, type ChoiceMode, checkpointGroup, exerciseOf, freshCards, freshPicks, freshRound, justAfterItsWord, onSentence, type Sentence, sentenceFor, shownForm, wantsSentence, writerOf, checkpointRecord, cuedTranslation, deckOf, exposureOf, firstSense, followUps, type Include, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
@@ -41,6 +41,8 @@ const CHOICES: Record<ChoiceMode, string> = { some: 'Sometimes', all: 'Always', 
 // A blank in the Hebrew, drawn as a line long enough to see.
 const BLANK = '＿＿＿'
 const RIGHT_PAUSE = 900
+// Words (a stage each) given new sentences in a visit to Study, at most (prepareAhead).
+const VARY_PER_VISIT = 3
 // A wrong choice waits long enough to read the sentence as it should be: a little longer for a
 // longer sentence, and a tap on the card holds it there.
 const wrongPause = (form: FormCard | null) => Math.min(5000, 2500 + 25 * ((form?.translation || '').length + (form?.sentence || '').length))
@@ -112,7 +114,36 @@ export default function Practice() {
     const missing = [...wanted.values()].filter(entry => missingStages(entry).length)
     const ready = Promise.all(missing.map(entry => ensureForms(entry, session.token)))
     void ready.then(written => written.forEach(item => { share(session, item); keep(item) }))
+    varyAhead(cards, all)
     return ready
+  }
+  // New sentences for the round's cards that would be helped by one (lib/forms.ts wantsSentence:
+  // known in one sentence only, or missed twice in the same one), written while the round goes on
+  // so the card shows it when it comes up, this round or the next. A few words a visit at most
+  // (word-forms.ts caps the day too); nothing is written for a card that doesn't need it.
+  const varied = useRef<Set<string>>(new Set())
+  const varyAhead = (cards: Card[], all: VocabEntry[]) => {
+    if (!session) return
+    const latest = new Map(all.map(entry => [entry.id, entry]))
+    const asks = new Map<string, { entry: VocabEntry; stage: string; keys: string[]; why: string }>()
+    for (const card of cards) {
+      const entry = latest.get(card.entry.id) ?? card.entry
+      const form = card.form && !card.mode ? entry.forms?.find(item => item.key === card.form!.key) : undefined
+      const why = form && wantsSentence(form)
+      if (!form || !why) continue
+      const id = `${entry.id}:${form.stage}`
+      if (varied.current.has(id)) continue
+      const ask = asks.get(id) ?? asks.set(id, { entry, stage: form.stage, keys: [], why }).get(id)!
+      if (!ask.keys.includes(form.key)) ask.keys.push(form.key)
+    }
+    for (const ask of [...asks.entries()].slice(0, Math.max(0, VARY_PER_VISIT - varied.current.size))) {
+      varied.current.add(ask[0])
+      const { entry, stage, keys, why } = ask[1]
+      void freshSentences(entry, stage, session.token, { keys, why }).then(ready => {
+        setWords(current => ({ ...current, [entry.id]: withVariants(current[entry.id], ready) }))
+        putEntry(session, withVariants(cachedVocab(session)?.find(item => item.id === entry.id), ready))
+      }, () => undefined)
+    }
   }
   // This visit's study log (lib/study-log.ts): the cards shown in order, and for each position
   // when it was first shown and what of its word had been shown before it; an answer's primed
@@ -136,17 +167,31 @@ export default function Practice() {
   // A word of a card's sentence looked up on its answer side, in the reader's drawer over the
   // card: saving it keeps it for later study and leaves this round as it is.
   const lookup = useWordLookup(session, { onLostError: setError, log: (type, fields) => study.current?.log(type, fields) ?? '' })
-  // How a card is put to the learner: which of its sentences (lib/forms.ts shownForm), settled
-  // from its record before this visit's answer so answering doesn't change it, and whether it is a
-  // fill in the blank (asChoice) with its options. Who wrote the sentence is logged with it.
-  const presentation = (card: Card, entry: VocabEntry, record: Results, english: boolean, primed: boolean) => {
+  // How a card is put to the learner: which of its sentences and why (lib/forms.ts sentenceFor),
+  // settled from its record before this visit's answer and kept for its place in the round, so
+  // neither answering nor a sentence arriving meanwhile changes it; and how it is asked and why
+  // (exerciseOf), fill in the blank with its options or a flashcard. Who wrote the sentence is
+  // logged with it.
+  const sentenceAt = useRef<Record<string, Sentence>>({})
+  const presentation = (card: Card, entry: VocabEntry, record: Results, english: boolean, primed: boolean, at: number) => {
     const stored = card.form ? entry.forms?.find(item => item.key === card.form!.key) || card.form : null
-    const variant = stored ? card.variant ?? variantOf(stored, record) : 0
+    const pin = `${at}:${cardKey(card)}`
+    const sentence = !stored ? null : card.variant !== undefined
+      ? { variant: card.variant, why: 'asked' as const, fresh: !(record.seen || []).includes(card.variant) }
+      : (sentenceAt.current[pin] ??= sentenceFor(stored, record))
+    const variant = sentence?.variant ?? 0
     const shown = stored ? shownForm(stored, variant) : null
-    const quiz = settings && asChoice(card, record, settings.choices, primed)
+    const exercise = settings ? exerciseOf(card, record, settings.choices, primed, sentence ?? undefined) : null
+    const quiz = exercise?.choice
       ? quizOf(Object.values(words), { entry, form: shown }, english, `${cardKey(card)}-${record.results?.length ?? 0}`) : null
-    return { shown, variant, quiz, writer: stored ? writerOf(stored, variant) : undefined }
+    return { shown, variant, sentence, exercise, quiz, writer: stored ? writerOf(stored, variant) : undefined }
   }
+  // What a showing or answer says about how its card was put (study-log.ts): the sentence, whether
+  // it was new to the learner and why it was chosen, and why it was asked as it was.
+  const presented = (shownAs: ReturnType<typeof presentation> | null) => ({
+    ...(shownAs?.sentence ? { variant: shownAs.variant, sentence: shownAs.sentence.why, sentenceNew: shownAs.sentence.fresh } : {}),
+    ...(shownAs?.exercise ? { exerciseWhy: shownAs.exercise.why } : {}), ...(shownAs?.writer ? { writer: shownAs.writer } : {}),
+  })
   const [writing, setWriting] = useState<number | null>(null)
   // A filled-in blank moves on by itself after a moment to take in the result, longer when it was
   // wrong; going anywhere else first, or looking up a word on it, stops that.
@@ -241,11 +286,11 @@ export default function Practice() {
     shownAt.current[position] = { at: now, key, wordCardsAgo: word?.cardsAgo ?? null, wordMsAgo: word?.msAgo ?? null }
     seen.current.push({ key, word: entry.id, at: now })
     const front = frontOf(card, position)
-    const shownAs = card.checkpoint ? null : presentation(card, entry, record, front !== 'en', justAfterItsWord(deck!, position, roundStart))
+    const shownAs = card.checkpoint ? null : presentation(card, entry, record, front !== 'en', justAfterItsWord(deck!, position, roundStart), position)
     study.current.log('show', {
       ...cardFields(card, entry, position, roundStart), front: shownAs?.quiz ? null : front, quiz: !!shownAs?.quiz, exercise: shownAs?.quiz ? 'choice' : 'card',
       ...(shownAs?.quiz ? { tests: !card.form || card.form.stage === 'meanings' ? 'word' : 'form' } : {}),
-      ...(shownAs?.variant ? { variant: shownAs.variant } : {}), ...(shownAs?.writer ? { writer: shownAs.writer } : {}),
+      ...presented(shownAs),
       wordShown: word, cardShown: self, results: record.results ?? [], primed: record.primed ?? [], lastAnswered: record.last ?? null, wordLastStudied: lastStudied(entry) || null,
     })
     // Only a new card or position needs logging; `words` changes with every answer.
@@ -297,13 +342,13 @@ export default function Practice() {
     setSettingsOpen(false); lookup.close(); stopAdvancing()
     if (!picks.length) {
       Alert.alert('No words to write new sentences for', Object.values(words).some(entry => entry.forms?.some(form => form.variants?.length))
-        ? 'The words you’re learning have their new sentences already. They come round in ordinary Study, taking turns with the sentences you had. Study a few more words in sentences and try again.'
+        ? 'The words you’re learning got new sentences lately, and Study now brings in more by itself when a word needs one. Try again tomorrow.'
         : 'They are written for words you have studied in sentences. Study a few sentence cards first.')
       return
     }
     feel('advance'); setWriting(picks.length); setError(null)
     const had = picks.map(({ entry }) => words[entry.id] || entry)
-    const written = await Promise.all(picks.map(({ stage }, i) => freshSentences(had[i], stage, session.token).catch(() => null)))
+    const written = await Promise.all(picks.map(({ stage }, i) => freshSentences(had[i], stage, session.token, { why: 'asked' }).catch(() => null)))
     const cards = freshRound(written.map((entry, i) => (entry ? freshCards(entry, picks[i].stage, had[i]) : [])))
     setWriting(null)
     if (!cards.length) { setError('New sentences couldn\'t be written just now. Try again in a moment.'); return }
@@ -387,7 +432,7 @@ export default function Practice() {
   // The card as shown: one of its sentences, and as a fill in the blank or turned over. Fill in
   // the blank: a word card shown in Hebrew asks for its meaning, shown in English for the word. A
   // checkpoint is always recalled and turned over.
-  const shownAs = checkpoint ? null : presentation(card, entry, before[position] ?? record, !englishFirst, justAfterItsWord(deck, position, roundStart))
+  const shownAs = checkpoint ? null : presentation(card, entry, before[position] ?? record, !englishFirst, justAfterItsWord(deck, position, roundStart), position)
   const form = shownAs?.shown ?? stored
   const stage = form ? stagesOf(entry).find(item => item.key === form.stage) : null
   const loaded = tables[entry.id]
@@ -425,16 +470,18 @@ export default function Practice() {
       ...cardFields(card, entry, position, roundStart), knew, primed, revised: answered !== undefined, quiz: !!choices,
       exercise: choices ? 'choice' : 'card', front: choices ? null : englishFirst ? 'en' : 'he',
       ...(choices ? { tests: !form || form.stage === 'meanings' ? 'word' : 'form', options: choices, chosen: chosen ?? null, answer: quiz!.answer } : {}),
-      ...(shownAs?.variant ? { variant: shownAs.variant } : {}), ...(shownAs?.writer ? { writer: shownAs.writer } : {}),
+      ...presented(shownAs),
       ms: shown ? now - shown.at : null, turnedOver: revealed.current.has(position),
     })
     // A choice is kept as not unaided, like a primed answer (lib/forms.ts ProgressRules): choosing
     // right can't make a card familiar alone. The event keeps whether it was primed as such.
     const result = assess(start, knew, now, primed || !!choices)
+    // A sentence card also keeps which of its sentences this was answered on.
+    const recorded = form ? onSentence(start, result, shownAs?.variant ?? 0) : result
     const [body, updated]: [Record<string, unknown>, VocabEntry] = checkpoint
       ? [{ id: entry.id, checkpoint: { stage: checkpoint, ...result } }, { ...entry, checkpoints: { ...entry.checkpoints, [checkpoint]: result } }]
       : form
-        ? [{ id: entry.id, form: { key: form.key, ...result } }, { ...entry, forms: (entry.forms || []).map(item => (item.key === form.key ? { ...item, ...result } : item)) }]
+        ? [{ id: entry.id, form: { key: form.key, ...recorded } }, { ...entry, forms: (entry.forms || []).map(item => (item.key === form.key ? { ...item, ...recorded } : item)) }]
         : [{ id: entry.id, ...result }, { ...entry, ...result }]
     void request('vocab', { token: session.token, method: 'PATCH', body }).catch((failure: Error) => setError(`A result wasn't saved. ${failure.message}`))
     const opened = recommendedStages(entry).map(item => item.key)
@@ -498,6 +545,8 @@ export default function Practice() {
       {card.sequence && !why && <Text style={[practice.eyebrow, { textAlign: 'center' }]}>{form ? 'Same word · in a sentence' : 'Same word · once more'}</Text>}
       {/* A new sentence written for this round: the word is one being learned, the sentence new. */}
       {card.mode === 'fresh' && !card.sequence && !why && <Text style={[practice.eyebrow, { textAlign: 'center' }]}>New sentence · a word you’re learning</Text>}
+      {/* A sentence the card hasn't been answered on, chosen in an ordinary round. */}
+      {!card.mode && !card.sequence && !why && !!shownAs?.sentence && shownAs.variant > 0 && shownAs.sentence.fresh && <Text style={[practice.eyebrow, { textAlign: 'center' }]}>New sentence</Text>}
       {/* One swipe card for the whole deck; only what is on it changes (see SwipeCard). No exit
           animation: a swiped card has already left. */}
       <SwipeCard card={position} onSwipe={swiped} onDrag={onDrag} hints={choices || !answerable ? undefined : HINTS}>
@@ -808,6 +857,15 @@ const cardFields = (card: Card, entry: VocabEntry, position: number, roundStart:
   kind: card.checkpoint ? 'checkpoint' : card.form ? 'form' : 'word', form: card.form?.key, stage: card.checkpoint ?? card.form?.stage,
   why: card.why, sequence: !!card.sequence, ...(card.mode ? { mode: card.mode } : {}),
 })
+// New sentences written for a word's cards join its latest copy, its results as they are.
+function withVariants(current: VocabEntry | undefined, ready: VocabEntry): VocabEntry {
+  if (!current) return ready
+  const byKey = new Map((ready.forms || []).map(form => [form.key, form]))
+  return { ...current, forms: (current.forms || []).map(form => {
+    const variants = byKey.get(form.key)?.variants
+    return variants && variants.length > (form.variants?.length ?? 0) ? { ...form, variants } : form
+  }) }
+}
 const share = (session: Session, ready: VocabEntry) => putEntry(session, withNewForms(cachedVocab(session)?.find(item => item.id === ready.id), ready))
 
 // Cards written in the background join the latest copy of a word without undoing results

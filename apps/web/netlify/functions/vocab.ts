@@ -103,10 +103,12 @@ const handler: Handler = async (event) => {
         if (!payload[field].every((stage: unknown) => typeof stage === 'string')) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid stages' }) }
         set = { [field]: payload[field] }
       } else if (payload.form) {
-        const { key, results, last, primed } = payload.form
-        if (typeof key !== 'string' || !isResults(results, last) || !isPrimed(primed, results)) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
+        // A sentence card's `on` (which of its sentences each result was given on) and `seen`
+        // (every sentence it was answered on) come with them from Study; kept as they were if not.
+        const { key, results, last, primed, on, seen } = payload.form
+        if (typeof key !== 'string' || !isResults(results, last) || !isPrimed(primed, results) || !isOn(on, results) || !isSeen(seen)) return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
         filter = { ...filter, 'forms.key': key }
-        set = { 'forms.$[card].results': results, 'forms.$[card].last': last, ...(primed ? { 'forms.$[card].primed': primed } : {}) }
+        set = { 'forms.$[card].results': results, 'forms.$[card].last': last, ...(primed ? { 'forms.$[card].primed': primed } : {}), ...(on ? { 'forms.$[card].on': on, 'forms.$[card].seen': seen ?? [] } : {}) }
         if (!primed) unset = { 'forms.$[card].primed': '' }
         options = { arrayFilters: [{ 'card.key': key }] }
       } else if (payload.checkpoint) {
@@ -161,6 +163,11 @@ const isResults = (results: unknown, last: unknown) => Array.isArray(results) &&
 // Which of those results were primed, by position: missing, or one boolean per result.
 const isPrimed = (primed: unknown, results: unknown) => primed === undefined
   || (Array.isArray(primed) && Array.isArray(results) && primed.length === results.length && primed.every(value => typeof value === 'boolean'))
+
+// Which sentence each of those results was given on (-1 not known), and the sentences answered on.
+const isOn = (on: unknown, results: unknown) => on === undefined
+  || (Array.isArray(on) && Array.isArray(results) && on.length === results.length && on.every(value => Number.isInteger(value) && value >= -1 && value < 10))
+const isSeen = (seen: unknown) => seen === undefined || (Array.isArray(seen) && seen.length <= 10 && seen.every(value => Number.isInteger(value) && value >= 0 && value < 10))
 
 const normalizeItem = (item: any) => ({
   ...item,

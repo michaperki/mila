@@ -27,9 +27,14 @@ let client: Anthropic | null = null
 // learner, they are written as before.
 // `fresh: true` asks for new sentences for a stage already written: written for the learner, each
 // the same form and meaning as its card, and kept on the card as a variant beside its sentence
-// (WrittenForm.variants), so its results and its first sentence stay. Once per card: a card that
-// has one isn't written again.
+// (WrittenForm.variants), so its results and its first sentence stay. For the cards `keys` (those
+// Study found would be helped by one, mobile lib/forms.ts wantsSentence), else all the stage's;
+// `why` is kept with each. A card has at most MAX_VARIANTS, one written at most every REST, and a
+// learner's day at most VARIATION_CALLS requests for them (about $0.25), whatever asks.
 const STRETCH = true
+const MAX_VARIANTS = 3
+const REST = 20 * 3_600_000
+const VARIATION_CALLS = 16
 const DAY = 86_400_000
 async function profileOf(db: Awaited<ReturnType<typeof getDb>>, userId: string): Promise<Profile> {
   const [entries, events] = await Promise.all([
@@ -47,7 +52,7 @@ export const handler: Handler = async (event) => {
   if (event.httpMethod !== 'POST') return reply(405, { message: 'Use POST.' })
   try {
     const auth = verifyAuth(event)
-    let payload: { id?: unknown; stage?: unknown; fresh?: unknown }
+    let payload: { id?: unknown; stage?: unknown; fresh?: unknown; keys?: unknown; why?: unknown }
     try { payload = JSON.parse(event.body || '{}') } catch { return reply(400, { message: 'Invalid request.' }) }
     if (typeof payload.id !== 'string' || typeof payload.stage !== 'string') return reply(400, { message: 'Missing word or stage.' })
     const { id, stage } = payload as { id: string; stage: string }
@@ -59,9 +64,17 @@ export const handler: Handler = async (event) => {
     const slots = slotsOf(entry, stage)
     if (!slots) return reply(400, { message: 'Unknown stage for this word.' })
     const existing = (entry.forms || []).filter(form => form.stage === stage) as unknown as WrittenForm[]
-    // New sentences are asked for once a card has none from the writer told about the learner.
-    const wanting = existing.filter(form => !form.variants?.some(item => item.writer === PERSONAL_WRITER))
+    const keys = Array.isArray(payload.keys) ? payload.keys.filter((key): key is string => typeof key === 'string') : null
+    const why = typeof payload.why === 'string' ? payload.why.slice(0, 40) : undefined
+    const now = Date.now()
+    const wanting = existing.filter(form => (!keys || keys.includes(form.key)) && (form.variants?.length ?? 0) < MAX_VARIANTS
+      && !(form.variants || []).some(item => now - item.at < REST))
     if (fresh ? !existing.length || !wanting.length : existing.length) return reply(200, { forms: existing })
+    if (fresh) {
+      const day = new Date(now); day.setUTCHours(0, 0, 0, 0)
+      const calls = await db.collection('aiUsage').countDocuments({ userId: auth.userId, feature: 'variation', at: { $gte: day } })
+      if (calls >= VARIATION_CALLS) return reply(200, { forms: existing, rested: true })
+    }
     if (!process.env.ANTHROPIC_API_KEY) return reply(503, { message: 'Word practice is not configured yet.', requestId })
 
     await checkDailySpend(auth)
@@ -77,7 +90,7 @@ export const handler: Handler = async (event) => {
         system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: prompt }],
       } as never, { timeout: 40000, maxRetries: 1 })
-      await recordClaude(auth.userId, 'forms', response, Date.now() - started)
+      await recordClaude(auth.userId, fresh ? 'variation' : 'forms', response, Date.now() - started)
       return response
     }
     const profile = process.env.PERSONALIZED_CARDS === 'off' ? null : await profileOf(db, auth.userId).catch(() => null)
@@ -91,10 +104,11 @@ export const handler: Handler = async (event) => {
         const variant: Variant = {
           he: form.he, en: form.en, sentence: form.sentence, mark: form.mark, said: form.said, translation: form.translation, enMark: form.enMark,
           cue: form.cue, cueAfter: form.cueAfter, cues: form.cues, usage: form.usage, glosses: form.glosses, ...(form.distractors ? { distractors: form.distractors } : {}),
-          writer: PERSONAL_WRITER, support: supportOfCard(form.glosses, profile, form.sentence), at,
+          writer: PERSONAL_WRITER, support: supportOfCard(form.glosses, profile, form.sentence), at, ...(why ? { why } : {}),
         }
+        // Never past the limit, even with two requests at once.
         await vocab.updateOne({ userId: auth.userId, id }, { $push: { 'forms.$[card].variants': variant }, $set: { updatedAt: at } } as never,
-          { arrayFilters: [{ 'card.key': form.key, 'card.variants.writer': { $ne: PERSONAL_WRITER } }] })
+          { arrayFilters: [{ 'card.key': form.key, [`card.variants.${MAX_VARIANTS - 1}`]: { $exists: false } }] })
       }
       const saved = await vocab.findOne<Entry>({ userId: auth.userId, id })
       return reply(200, { forms: (saved?.forms || existing).filter(form => form.stage === stage) })

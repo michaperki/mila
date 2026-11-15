@@ -263,7 +263,7 @@ async function outcomes() {
   try {
     const db = client.db(env.MONGODB_DB_NAME || 'mila')
     const userId = arg('--user') ?? (await db.collection('vocab').aggregate([{ $group: { _id: '$userId', n: { $sum: 1 } } }, { $sort: { n: -1 } }, { $limit: 1 }]).toArray())[0]?._id
-    const entries = await db.collection('vocab').find({ userId }).project({ id: 1, 'forms.key': 1, 'forms.writer': 1, 'forms.support': 1, 'forms.variants.writer': 1, 'forms.variants.support': 1 }).toArray()
+    const entries = await db.collection('vocab').find({ userId }).project({ id: 1, 'forms.key': 1, 'forms.writer': 1, 'forms.support': 1, 'forms.variants.writer': 1, 'forms.variants.support': 1, 'forms.variants.why': 1 }).toArray()
     const cardOf = new Map(entries.flatMap(entry => (entry.forms || []).map(form => [`${entry.id}:${form.key}`, form])))
     // Since the writers were split: each showing and answer by the writer of the sentence shown
     // (the event says, or the card's own), lookups on a card by the showing they follow.
@@ -292,5 +292,26 @@ async function outcomes() {
     const choices = events.filter(event => event.type === 'answer' && event.exercise === 'choice')
     console.log(`\nFill in the blank: ${pct(right(choices), choices.length)} right; the word ${pct(right(choices.filter(c => c.tests === 'word')), choices.filter(c => c.tests === 'word').length)}, its form ${pct(right(choices.filter(c => c.tests === 'form')), choices.filter(c => c.tests === 'form').length)}`)
     for (const choice of choices.filter(c => !c.knew).slice(-8)) console.log(`  chose ${choice.chosen} for ${choice.answer} (${choice.lemma}, ${choice.tests})`)
+    // Which sentence Study chose and why (mobile lib/forms.ts sentenceFor), from when it began
+    // saying: answers on it, apart when primed (just after its word: not what is remembered), and
+    // the card's next answer on a later day, unprimed (what stayed, or carried to the next sentence).
+    const answers = events.filter(event => event.type === 'answer' && event.sentence && !event.revised)
+    const next = answer => answers.find(other => other.key === answer.key && other.at - answer.at > 12 * 3_600_000 && !other.primed)
+    const groups = new Map()
+    for (const answer of answers) {
+      const name = `${answer.sentence}${answer.sentenceNew ? ', new to the learner' : ''} · ${answer.exercise === 'choice' ? 'choice' : 'flashcard'}`
+      ;(groups.get(name) ?? groups.set(name, []).get(name)).push(answer)
+    }
+    console.log(`\nSentences as Study chose them (${answers.length} answers):`)
+    for (const [name, list] of [...groups.entries()].sort()) {
+      const unprimed = list.filter(a => !a.primed), primed = list.filter(a => a.primed), later = list.map(next).filter(Boolean)
+      console.log(`  ${name}: unprimed ${pct(right(unprimed), unprimed.length)}, primed ${pct(right(primed), primed.length)}; next answer a later day ${pct(right(later), later.length)}`)
+    }
+    const why = events.filter(event => event.type === 'show' && event.exerciseWhy)
+    const counts = {}; for (const show of why) counts[show.exerciseWhy] = (counts[show.exerciseWhy] ?? 0) + 1
+    console.log(`How cards were asked: ${Object.entries(counts).map(([name, n]) => `${name} ${n}`).join(', ') || '—'}`)
+    const written = entries.flatMap(entry => (entry.forms || []).flatMap(form => form.variants || [])).filter(item => item.why)
+    const reasons = {}; for (const item of written) reasons[item.why] = (reasons[item.why] ?? 0) + 1
+    console.log(`New sentences written, by why: ${Object.entries(reasons).map(([name, n]) => `${name} ${n}`).join(', ') || '—'}`)
   } finally { await client.close() }
 }

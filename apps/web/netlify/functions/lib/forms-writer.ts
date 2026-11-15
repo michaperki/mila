@@ -75,7 +75,7 @@ export type WrittenForm = {
   // its results stay as they are; Study shows one or another (apps/mobile/src/lib/forms.ts).
   variants?: Variant[]
 }
-export type Variant = Pick<WrittenForm, 'he' | 'en' | 'sentence' | 'mark' | 'said' | 'translation' | 'enMark' | 'cue' | 'cueAfter' | 'cues' | 'usage' | 'glosses' | 'distractors' | 'writer' | 'support'> & { at: number }
+export type Variant = Pick<WrittenForm, 'he' | 'en' | 'sentence' | 'mark' | 'said' | 'translation' | 'enMark' | 'cue' | 'cueAfter' | 'cues' | 'usage' | 'glosses' | 'distractors' | 'writer' | 'support'> & { at: number; why?: string }
 // What a word of a card's sentence means there, for looking it up on the card without asking the
 // model: `i` is the word's place among the sentence's words (split at spaces, as the card draws
 // them), so a word that comes twice has a meaning for each place; `lemma` its dictionary form
@@ -207,7 +207,9 @@ export function disagreement(stage: string, slot: string, agrees: Agreement | un
 // `again`: cards already written to write a new sentence for, each the same form and meaning.
 export type Again = { slot: string; he: string; en: string }
 export function promptFor(entry: Entry, stage: string, slots: Slot[], retry: { slot: string; why: string }[] = [], learner = '', again: Again[] = []) {
-  const used = (entry.forms || []).map(form => (form.usage ? `${form.sentence} (${form.usage})` : form.sentence)).slice(-30)
+  // Its cards' sentences, with those written for them later (WrittenForm.variants).
+  const used = (entry.forms || []).flatMap(form => [form, ...((form as { variants?: { sentence: string; usage?: string }[] }).variants || [])])
+    .map(form => (form.usage ? `${form.sentence} (${form.usage})` : form.sentence)).slice(-30)
   const meanings = (entry.forms || []).filter(form => form.stage === 'meanings' && form.en).map(form => form.en)
   const met = (entry.encounters || []).slice(-5).map(item => `${item.surface} in: ${item.context}`)
   const expression = entry.partOfSpeech === 'expression'

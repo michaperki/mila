@@ -38,7 +38,8 @@ No dates; order only. Move items between bands as decisions are made.
 
 **Now**
 1. Use them on the phone, and check `personalize.mjs outcomes` after a couple of weeks:
-   - new sentences rounds and the new cards ([LM-4](#lm-4-personalized-card-writing));
+   - new sentences in ordinary Study, chosen and written by Mila
+     ([LM-4](#lm-4-personalized-card-writing), [LM-8](#lm-8-a-teaching-policy)), and the new cards;
    - fill in the blank ([EX-0](#exercises));
    - the intake order ([STUDY-3](#study-3-choosing-which-new-words-come-in)).
 
@@ -53,12 +54,17 @@ No dates; order only. Move items between bands as decisions are made.
 
 Learner evidence feeds all three, but they stay separate decisions.
 
+2. **Remove Settings → Try → New sentences** once ordinary Study is seen bringing new sentences
+   where they help (a few weeks of `outcomes`: new sentences written by `another-context` and
+   `another-example`, and their cards' answers on later days). It stays only as a way to check
+   the automatic behaviour, not as a feature (Mike, 2026-11-15).
+
 **Next**
-2. [DATA-1](#data-1-export-and-import) Export and import foundation, then the
+3. [DATA-1](#data-1-export-and-import) Export and import foundation, then the
    [12 malformed entries](#vocab-1-the-12-malformed-phrase-entries) as its first use.
-3. [VOCAB-2](#vocab-2-categories-level-and-register) Taxonomy and per-word categories, level and
+4. [VOCAB-2](#vocab-2-categories-level-and-register) Taxonomy and per-word categories, level and
    register (needs DATA-1 for existing words).
-4. [STUDY-2](#study-2-review-intervals-that-grow) Review intervals that grow, starting with FSRS in
+5. [STUDY-2](#study-2-review-intervals-that-grow) Review intervals that grow, starting with FSRS in
    shadow mode ([LM-5](#lm-5-fsrs-in-shadow-mode)).
 
 **Later**
@@ -162,9 +168,8 @@ by the app.
     07:29), kept going by a resumed round. No answers from iteration 2's build had arrived yet.
 - **Remaining:**
   - **P2:** after a few weeks of `outcomes`, decide all, revise, or off.
-  - **Planned:** once every studied stage of a word has a new sentence, New sentences can't
-    write it again (once per card). Lift that limit only with a reason, such as a card failed
-    in both its sentences.
+  - ~~Once per card~~: lifted in LM-8's first iteration. Further sentences come when a card needs
+    one, up to 4 a card, at most one a day.
   - **Exploratory:** Mila deciding on its own when a word needs another example, another context
     or a harder sentence, instead of the New sentences button (LM-8).
   - **Exploratory:**
@@ -193,8 +198,36 @@ probabilities.
 - how much difficulty to bring, including when to write new sentences (LM-4)
 
 Not a rebuild: each of these is a separate decision with its own code today (`intakeOrder`,
-`deckOf`, `asChoice`, `profileBlock`). Each can take evidence from the profile and learner model
-as it earns it, by beating its baseline.
+`deckOf`, `exerciseOf`, `sentenceFor`/`wantsSentence`, `profileBlock`). Each can take evidence
+from the profile and learner model as it earns it, by beating its baseline.
+
+**First iteration, live 2026-11-15** (mobile `lib/forms.ts`; every decision logged with its
+reason, nothing shown to the learner but "New sentence" over a card in a sentence new to them):
+- **Which sentence** (`sentenceFor`, logged as `sentence` and `sentenceNew`): its own at a first
+  meeting; while being learned, the one last answered on (`repeat`: the same example again is how
+  it's learned); once familiar, one it hasn't been answered on (`another-context`: is it known
+  beyond that sentence?); wrong twice running, one not answered on (`another-example`); with all
+  seen, the next in turn. Each sentence card now keeps which sentence each answer was on (`on`)
+  and every sentence answered on (`seen`); older answers count as on its own sentence.
+- **When to write one** (`wantsSentence`, while the round goes on, `varyAhead` in practice.tsx):
+  only when a card is familiar with its last two answers right on the same sentence (known there,
+  maybe only there), or wrong twice running on the same one, and it has no sentence left unseen.
+  Never at a first meeting or while being learned normally. A card has at most 4 sentences, gets
+  at most one a day, a Study visit writes for at most 3 words, and a learner's day at most 16
+  requests (word-forms.ts, about $0.25); the New sentences button shares those limits. The one
+  extra sentence per card limit is gone. Each sentence written keeps `why`.
+- **How it's asked** (`exerciseOf`, logged as `exerciseWhy`): a card in a sentence new to it once
+  familiar is a flashcard (`new-context`: recall there is the check of transfer); a card missed
+  last time in the same sentence is a fill in the blank (`support`: recognition as a step, which
+  can't make it familiar); a card right lately only by choosing or primed is a flashcard
+  (`needs-recall`); otherwise about one in three a choice (`check`), as before.
+- **Judged by** `scripts/personalize.mjs outcomes`: answers by sentence reason, new or not, and
+  flashcard or choice, primed apart, with the card's next unprimed answer on a later day; how
+  cards were asked; new sentences written by why.
+- **Open:** whether `another-context` cards hold up days later better than cards kept in one
+  sentence (LM-7); difficulty (a harder sentence for a card familiar across several; the writer
+  is told the profile but not what the card needs, which `why` could carry); production
+  exercises (EX-1); review timing (STUDY-2) stays as it is.
 
 ### LM-7 Learning outcomes
 **Exploratory.** Measure retention days later and understanding of words met again in new reading,
