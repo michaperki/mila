@@ -177,7 +177,7 @@ Patterns: when the word is learned as a pattern (נָטוּל + [שֵׁם עֶצ
 
 Glosses: for each card, after its translation, gloss every other word of its sentence (glosses), so the learner can tap any word on the card for its meaning there.
 
-Distractors: on a meanings card the learner may be asked to fill the word's place in the sentence from four words, so give three that make them think about what the sentence says: common words of the same kind that are related in some way (the same situation, a near meaning, a similar look or sound) but clearly wrong here once the sentence is understood. Never a word that would also fit the sentence, a synonym, or a rare word.
+Distractors: on a meanings card the learner may be asked to fill the word's place in the sentence from four words, so give three that make them think about what the sentence says: common words of the same kind that are related in some way (the same situation, a near meaning, a similar look or sound) but that mean something clearly different from this word, so that someone who knows what it means picks it. Never a synonym, a word that would also make a natural sentence here, or a rare word.
 
 ${CUE_RULES}
 

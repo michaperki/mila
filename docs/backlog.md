@@ -319,9 +319,11 @@ flashcard or fill in the blank. A new format is another branch there plus its lo
       Looking up a word on it, swiping or the arrows stop that.
     - Going back shows how it was answered (the answer, the choice) and can't be answered again,
       including in a resumed round.
-    - A meaning question no longer shows the word in its header, and its English has the word's
-      own words blanked too. A form question keeps the infinitive and the full English, since
-      the choice there is the form.
+    - A meaning question no longer shows the word in its header. It keeps the sentence's English:
+      with the word's English blanked, a related distractor could fit as well (live test: ללטף
+      against לנשק in "began to ___ her hand"), so the question is "which Hebrew word says this
+      here". A form question keeps the infinitive and the English, since the choice there is the
+      form.
     - The blank is drawn visibly (＿＿＿).
     - New meaning cards come with three distractors from the writer: related, common and wrong
       in this sentence, never one that also fits. Older cards still choose among saved words.

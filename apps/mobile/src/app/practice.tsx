@@ -38,7 +38,7 @@ type Settings = { front: Front; order: Order; include: Include; choices: ChoiceM
 const CHOICES: Record<ChoiceMode, string> = { some: 'Sometimes', all: 'Always', off: 'Off' }
 // How long a filled-in blank stays to show how it went before the next card: enough to see the
 // right answer, longer beside a wrong one.
-// A blank, drawn as a line long enough to see in Hebrew or English.
+// A blank in the Hebrew, drawn as a line long enough to see.
 const BLANK = '＿＿＿'
 const RIGHT_PAUSE = 900
 const WRONG_PAUSE = 2200
@@ -464,7 +464,7 @@ export default function Practice() {
   const listen = checkpoint ? undefined : form ? form.sentence : entry.feminine ? `${entry.lemma}, ${entry.feminine}` : entry.lemma
   const side = (english: boolean, answerSide: boolean) => <ScriptContext.Provider value={answerSide ? 'answers' : 'print'}>
     {form
-      ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} hideMeaning={!!choices && !testsForm} v={answerSide ? vAnswer : vQuestion} lookup={answerSide ? lookup : undefined} />
+      ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={answerSide ? vAnswer : vQuestion} lookup={answerSide ? lookup : undefined} />
       : <WordSide entry={entry} english={english} answer={answerSide} v={answerSide ? vAnswer : vQuestion} />}
   </ScriptContext.Provider>
   const hint = checkpoint
@@ -671,10 +671,8 @@ const heardOf = (form: FormCard) => form.said || (form.stage === 'meanings' ? fo
 // alone to listen to), the form with the constructions the word is used in, and the translation.
 // On the answer side each word of the sentence can be tapped to look it up (`lookup`); the
 // question side is only turned over by a tap, so a lookup never gives the answer away.
-// `hideMeaning`, for a blank that asks for the word: the English with the word's own words left
-// out too, so the sentence says what is needed and the choice is which word says it.
-function SentenceSide({ entry, form, english, answer: answerSide, hideMark, hideMeaning = false, v, lookup }: {
-  entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; hideMark: boolean; hideMeaning?: boolean; v: (text: string) => string; lookup?: WordLookup
+function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, lookup }: {
+  entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; hideMark: boolean; v: (text: string) => string; lookup?: WordLookup
 }) {
   const he = useHebrew()
   // A word tapped at its place among the sentence's words (`at`): what the card says it means
@@ -690,8 +688,10 @@ function SentenceSide({ entry, form, english, answer: answerSide, hideMark, hide
   const hebrew = <Text style={[practice.sentence, he]}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} onWord={onWord} looked={looked} /></Text>
   if (!answerSide) return <>
     {english ? <Text style={practice.english}><Marked text={cuedTranslation(form)} mark={form.enMark} /></Text> : hebrew}
-    {/* Fill in the blank: what the whole sentence says, so the choice is the Hebrew that says it here. */}
-    {hideMark && <Text style={practice.hint}><Marked text={cuedTranslation(form)} mark={form.enMark} blank={hideMeaning} /></Text>}
+    {/* Fill in the blank: what the whole sentence says, so the choice is the Hebrew that says it
+        here. Its English is kept for a word too: with it left out, a related distractor can fit
+        the sentence as well (ללטף, לנשק: "began to ___ her hand"), and the question is unfair. */}
+    {hideMark && <Text style={practice.hint}><Marked text={cuedTranslation(form)} mark={form.enMark} /></Text>}
   </>
   const heard = heardOf(form)
   return <View style={{ gap: 8, alignSelf: 'stretch' }}>
@@ -734,9 +734,8 @@ function MarkedHebrew({ sentence, mark, form, blank, onWord, looked }: {
 // unmarked if they aren't found. Each word is marked on its own and the spaces between are not:
 // iOS draws a marked run that wraps onto the next line of centred text from that line's edge,
 // far wider than the words, so no marked run may contain a place where the line can break.
-// `blank`: the marked words left out, as a blank.
-function Marked({ text, mark, blank = false }: { text: string; mark?: string; blank?: boolean }) {
-  return <>{englishPieces(text, mark).map((piece, i) => (piece.marked ? <Text key={i} style={blank ? practice.blank : practice.mark}>{blank ? BLANK : piece.text}</Text> : piece.text))}</>
+function Marked({ text, mark }: { text: string; mark?: string }) {
+  return <>{englishPieces(text, mark).map((piece, i) => (piece.marked ? <Text key={i} style={practice.mark}>{piece.text}</Text> : piece.text))}</>
 }
 
 // A checkpoint: recall a whole tense (or an adjective's forms) at once. The question side gives
