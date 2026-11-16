@@ -88,3 +88,27 @@ export function helpFor(index: number, aligned: Map<number, number[]> & { unplac
   const words = sentence.split(/\s+/).filter(Boolean)
   return { kind: 'hebrew', places, hebrew: places.map(place => bareWord(words[place] ?? '')).filter(Boolean).join(' ') }
 }
+
+// Whether a card's sentence has its word data (glosses saying which English words each Hebrew
+// word is), as cards written since 2026-11-16 do and older ones get once prepared (card-words).
+type Sentence = { sentence?: string; translation?: string; glosses?: { i: number; lemma: string; en: string; t?: string }[] }
+export const hasWords = (item: Sentence) => !!item.glosses?.some(gloss => gloss.t !== undefined)
+// A sentence card with a sentence still without it: Study prepares it before it is shown.
+export const needsWords = (form: Sentence & { variants?: Sentence[] }) =>
+  [form, ...(form.variants || [])].some(item => !!item.sentence && !!item.translation && !hasWords(item))
+
+// A word's entry with a card's sentences given their word data (`variant` -1: its own sentence).
+export function withSentenceWords<E extends { forms?: (Sentence & { key: string; variants?: Sentence[] })[] }>(entry: E, key: string, sentences: { variant: number; glosses: NonNullable<Sentence['glosses']> }[]): E {
+  if (!sentences.length || !entry.forms?.some(form => form.key === key)) return entry
+  return {
+    ...entry,
+    forms: entry.forms.map(form => {
+      if (form.key !== key) return form
+      const own = sentences.find(item => item.variant < 0)
+      return {
+        ...form, ...(own ? { glosses: own.glosses } : {}),
+        ...(form.variants ? { variants: form.variants.map((item, i) => { const done = sentences.find(other => other.variant === i); return done ? { ...item, glosses: done.glosses } : item }) } : {}),
+      }
+    }),
+  }
+}

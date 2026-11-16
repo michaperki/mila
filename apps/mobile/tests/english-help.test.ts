@@ -53,3 +53,15 @@ test('a word that comes twice is matched in order, and a cue in brackets is neve
   const person = alignment(englishTokens('Yesterday you 👩 were tired.'), [{ place: 0, t: 'Yesterday' }, { place: 1, t: 'you were' }, { place: 2, t: 'tired' }])
   assert.deepEqual([...person.entries()], [[0, [0]], [1, [1]], [3, [1]], [4, [2]]])
 })
+
+test('a card\'s sentences take their word data once prepared, and only those without it need preparing', async () => {
+  const { hasWords, needsWords, withSentenceWords } = await import('../src/lib/english-help.ts')
+  const card = { key: 'k', sentence: 'היא לחשה', translation: 'She whispered.', variants: [{ sentence: 'היא לחשה לו', translation: 'She whispered to him.', glosses: [{ i: 0, lemma: 'היא', en: 'she', t: 'She' }] }] }
+  assert.equal(needsWords(card), true)
+  assert.equal(hasWords(card.variants[0]), true)
+  const entry = withSentenceWords({ id: 'x', forms: [card, { key: 'other' }] }, 'k', [{ variant: -1, glosses: [{ i: 0, lemma: '', en: 'she', t: 'She' }] }])
+  assert.equal(needsWords(entry.forms[0]), false)
+  assert.deepEqual(entry.forms[0].variants, card.variants)
+  assert.deepEqual(entry.forms[1], { key: 'other' })
+  assert.equal(withSentenceWords(entry, 'missing', [{ variant: -1, glosses: [] }]), entry)
+})

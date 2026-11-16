@@ -303,24 +303,28 @@ being learned come back (STUDY-2), and how their cards are written (LM-4).
 **Done, first version** (2026-11-16). The problem (Mike, who studies almost only English first):
 knowing the card's word but not the other Hebrew words needed to build the sentence, and having to
 turn the whole card over for them.
-- **The interaction** (revised 2026-11-16 after Mike's first try: a dark bubble over the text hid
-  the sentence, and its spinner was disruptive): press and hold an English word (not the card's
-  own, marked one) and the Hebrew that says it, as the sentence writes it, joins a row of chips
-  under the sentence, styled as a word's constructions are, in the English's order; the word held
-  is underlined. The row stays until the card is turned over, so the Hebrew needed to build the
-  sentence gathers there. A word still being looked up has an empty chip that fills in, no
-  spinner. A tap still turns the card over. A word Hebrew has no word of its own for, one the
-  card's own word says (a suffix on it), or one that couldn't be matched gets a short note under
-  the chips instead ("no separate word in Hebrew", "part of the word you're recalling", "not found
-  in this sentence"), replaced by the next hold. The Hebrew words given are underlined on the
-  answer side, where a tap opens them in the drawer to save. The line under the card says "Hold
-  any word for its Hebrew" until the first hold.
-- **Which English word is which Hebrew word:** new cards record it with their glosses (`t`, the
-  writer's same call); older cards ask the sentence's quick meanings with its English
-  (`sentence-glosses` with `translation`, about $0.007 once a sentence, kept for everyone; approved
-  by Mike), on the first hold in that sentence (2–3 s; the chip fills in). Matching is
-  `lib/english-help.ts`: exact words in order, a word or two allowed between a phrase's words
-  ("would only come"), Study's person cues skipped.
+- **The interaction** (third version, 2026-11-16; Mike: keep the card simple, the learner model
+  records what was asked, the screen needn't show it): press and hold an English word (not the
+  card's own, marked one) and the Hebrew that says it, as the sentence writes it, shows on one
+  quiet line under the sentence; the word is marked only while held. The next hold replaces the
+  line and turning the card over clears it. A word Hebrew has no word of its own for, the card's
+  own word (a suffix on it), or one that couldn't be matched says so on the same line. A tap still
+  turns the card over; the answer side is as before (tap any word for the drawer, to save it).
+  The line under the card says "Hold any word for its Hebrew" until the first hold. Earlier
+  versions this day: a floating bubble (hid the sentence; a spinner while loading), then chips
+  gathering under the sentence with underlines (cluttered).
+- **A card carries what it needs** (Mike: flashcards should be self-contained): each sentence's
+  glosses say what each word means there and which English words say it (`t`). New cards and new
+  sentences have it from the writer. Older ones get it before they are shown: when Study builds a
+  round, it asks `card-words` for the round's cards without it, in the background, in order, two
+  at a time, and the server keeps it on the card for good (about $0.007 a sentence, once, only for
+  cards that come up). A word held on a card not yet prepared asks for that sentence then
+  (`card-words` with `variant`, counted apart as `card-words-now`, logged as `from: 'late'`): the
+  fallback, which should be rare; Account → AI usage and `ai-report.mjs` show how rare. Saving a
+  word and More still ask for the full explanation, as they create or show a dictionary entry.
+- **Matching an English word to the Hebrew** (`lib/english-help.ts`, on the phone, from the
+  glosses' `t`): exact words in order, a word or two allowed between a phrase's words ("would only
+  come"), Study's person cues skipped.
 - **Measured 2026-11-16:**
   - a faster model for the matching: Sonnet 5.5 agreed with Opus on 93 of 99 English words and
     Haiku 5.5 on 94, at 2.5 and 2.1 s against Opus's 2.7 s; one Haiku match was wrong ("this" for

@@ -122,19 +122,3 @@ export function quickMeanings(sentence: string, words: string[], token: string):
   return pending
 }
 
-const aligned = new Map<string, Promise<string[]>>()
-// For a card shown in English: which words of its English each word of the sentence says, by the
-// word's place ('' for none), asked once a sentence with its English and kept for everyone
-// (sentence-glosses), for cards written before their glosses said so (lib/english-help.ts).
-// Failures give [].
-export function translationWords(sentence: string, words: string[], translation: string, token: string): Promise<string[]> {
-  const key = `${sentence}\u0000${words.join(' ')}\u0000${translation}`
-  let pending = aligned.get(key)
-  if (!pending) {
-    pending = request<{ meanings: string[]; renders?: string[] }>('sentence-glosses', { token, body: { sentence, words, translation } })
-      .then(result => result.renders ?? [], () => { aligned.delete(key); return [] })
-    if (aligned.size >= 100) aligned.delete(aligned.keys().next().value!)
-    aligned.set(key, pending)
-  }
-  return pending
-}

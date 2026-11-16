@@ -20,7 +20,7 @@ import { shareBackup, shareTask, type TaskName } from '../lib/data-export'
 // 403 and sees nothing): this month's paid calls across all learners, by feature and by learner,
 // and how many answers came from the cache instead (free).
 type Usage = { since: string; cost: number; requests: number; features: { feature: string; requests: number; cacheHits?: number; cost: number }[]; users: { email: string; requests: number; cost: number }[] }
-const FEATURES: Record<string, string> = { page: 'Page reads', word: 'Word explanations', glosses: 'Sentence meanings', forms: 'Practice cards', variation: 'New sentences', table: 'Tables of forms', root: 'Root families', ocr: 'Text recognition', translate: 'Translation', speech: 'Listening' }
+const FEATURES: Record<string, string> = { page: 'Page reads', word: 'Word explanations', glosses: 'Sentence meanings', forms: 'Practice cards', variation: 'New sentences', table: 'Tables of forms', root: 'Root families', ocr: 'Text recognition', translate: 'Translation', speech: 'Listening', 'card-words': 'Card words, prepared ahead', 'card-words-now': 'Card words, while studying' }
 // Played when a voice is picked, so the choice is heard straight away.
 const SAMPLE = 'מָחָר יֵשׁ לִי מִבְחָן בְּחֶשְׁבּוֹן.'
 const dollars = (value: number) => (value > 0 && value < 0.01 ? '< $0.01' : `$${value.toFixed(2)}`)

@@ -295,7 +295,7 @@ async function outcomes() {
     const english = events.filter(event => event.type === 'answer' && !event.revised && Array.isArray(event.asked))
     if (english.length) {
       const helped = english.filter(a => a.asked.length)
-      console.log(`\nHeld for their Hebrew on English cards: ${helps.length} words (${helps.filter(h => h.from === 'quick').length} by asking), on ${helped.length} of ${english.length} cards; right with help ${pct(right(helped), helped.length)}, without ${pct(right(english.filter(a => !a.asked.length)), english.length - helped.length)}`)
+      console.log(`\nHeld for their Hebrew on English cards: ${helps.length} words (${helps.filter(h => h.from === 'late' || h.from === 'quick').length} asked for while studying, the fallback), on ${helped.length} of ${english.length} cards; right with help ${pct(right(helped), helped.length)}, without ${pct(right(english.filter(a => !a.asked.length)), english.length - helped.length)}`)
     }
     const choices = events.filter(event => event.type === 'answer' && event.exercise === 'choice')
     console.log(`\nFill in the blank: ${pct(right(choices), choices.length)} right; the word ${pct(right(choices.filter(c => c.tests === 'word')), choices.filter(c => c.tests === 'word').length)}, its form ${pct(right(choices.filter(c => c.tests === 'form')), choices.filter(c => c.tests === 'form').length)}`)

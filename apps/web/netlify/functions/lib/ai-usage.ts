@@ -6,7 +6,9 @@ import { getDb } from './mongo'
 // Prices: platform.claude.com/docs/en/about-claude/pricing, cloud.google.com/vision/pricing,
 // cloud.google.com/translate/pricing (checked 2026-10-16), elevenlabs.io/pricing/api,
 // ai.google.dev/gemini-api/docs/pricing (checked 2026-10-17).
-export type Feature = 'page' | 'word' | 'glosses' | 'forms' | 'variation' | 'table' | 'root' | 'ocr' | 'translate' | 'speech'
+// card-words: a Study card's word data prepared ahead (card-words.ts); card-words-now: the same,
+// asked for while the card was in front of the learner, the fallback that should be rare.
+export type Feature = 'page' | 'word' | 'glosses' | 'forms' | 'variation' | 'table' | 'root' | 'ocr' | 'translate' | 'speech' | 'card-words' | 'card-words-now'
 
 // USD per million tokens. Cache writes are the 5-minute rate.
 const CLAUDE: Record<string, { input: number; cacheWrite: number; cacheRead: number; output: number }> = {

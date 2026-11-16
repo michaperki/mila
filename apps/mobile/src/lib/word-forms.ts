@@ -31,3 +31,14 @@ export async function freshSentences(entry: VocabEntry, stage: string, token: st
   const byKey = new Map(forms.map(form => [form.key, form]))
   return { ...entry, forms: (entry.forms || []).map(form => (byKey.has(form.key) ? { ...form, variants: byKey.get(form.key)!.variants } : form)) }
 }
+
+// A card's word data (lib/english-help.ts): for an older card, asked for while a round is built,
+// before it is shown, and kept on the card by the server (card-words), so studying it needs no
+// request; `variant` (the sentence shown: -1 its own) only when a word is held on a card not yet
+// prepared, the rare fallback. A card asked for while one request for it is on its way shares it.
+type Prepared = { sentences: { variant: number; glosses: NonNullable<FormCard['glosses']> }[] }
+const preparing = sharing<Prepared>()
+export function cardWords(entry: VocabEntry, key: string, token: string, variant?: number): Promise<Prepared> {
+  return preparing(`${entry.id}:${key}:${variant ?? 'all'}`, () =>
+    request<Prepared>('card-words', { token, body: { id: entry.id, key, ...(variant !== undefined ? { variant } : {}) }, timeoutMs: 30000 }))
+}
