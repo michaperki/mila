@@ -77,6 +77,22 @@ describe('learner model', () => {
     expect(tapped.band).toBe('unfamiliar')
     expect(tapped.evidence[0].what).toContain('looked up on a card')
   })
+  it('reads hints as help with the words around a card, not with its own word', () => {
+    const hint: LearnerEvent = { session: 's', seq: 1, at: now - DAY, type: 'lookup', id: 's:1', key: 'native-v:meanings:sense1', position: 2, word: 'תקציב', lemma: 'תַּקְצִיב', place: 2, hint: true, own: false }
+    const knew = (hints: number[]) => learnerState([verb], [hint, answer(2, 'native-v:meanings:sense1', true, 'he', { hints })], level, now).words.find(item => item.id === 'native-v')!
+    const missed = (hints: number[]) => learnerState([verb], [hint, answer(2, 'native-v:meanings:sense1', false, 'he', { hints })], level, now).words.find(item => item.id === 'native-v')!
+    // Right after a hint: still evidence of knowing it, a little less; missed after one: fully.
+    const answered = (word: ReturnType<typeof knew>) => word.evidence.find(item => item.what.startsWith('knew') || item.what.startsWith('missed'))!
+    expect(answered(knew([2])).weight).toBeLessThan(answered(knew([])).weight)
+    expect(answered(knew([2])).what).toContain('1 word around it hinted')
+    expect(answered(missed([2])).weight).toBe(answered(missed([])).weight)
+    // Not noted as what made the card hard, as a lookup after answering is.
+    expect(knew([2]).evidence.some(item => item.uncertain)).toBe(false)
+    // The word hinted: evidence against knowing it, in reading.
+    const state = learnerState([verb], [hint, answer(2, 'native-v:meanings:sense1', true, 'he', { hints: [2] })], level, now)
+    const tapped = state.words.find(item => item.key === 'תקציב')!
+    expect(tapped.evidence).toEqual([expect.objectContaining({ channel: 'recognition', knew: false, what: expect.stringContaining('hinted on a card') })])
+  })
   it('takes a reader lookup\'s word from its explanation', () => {
     const events: LearnerEvent[] = [
       { session: 'r', seq: 1, at: now - 1000, type: 'lookup', id: 'r:1', text: 't', segment: 0, word: 'שכתבה' },

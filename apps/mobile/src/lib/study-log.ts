@@ -6,9 +6,10 @@ import { request } from './api'
 // answered (with which side came first, whether the answer was primed, and what of the word had
 // been shown before), and a round ending. Reading is kept the same way: a passage opened, each
 // sentence selected (and whether its English showed), and in both, each word looked up (where,
-// and whether it was saved already), its explanation arriving, and saves made or undone. They
+// and whether it was saved already; on a card's question side, before answering, a `hint`, whose
+// places the answer lists as `hints`), its explanation arriving, and saves made or undone. They
 // are observations, not conclusions: a word looked up on a card that was then missed may or may
-// not be why it was missed. They are for looking back at what Study chose, how
+// not be why it was missed, and a word not hinted may or may not be known. They are for looking back at what Study chose, how
 // often things came round and what was remembered (apps/web/scripts/study-events.mjs), and are
 // sent to apps/web/netlify/functions/study-events.ts. Until the server has them they wait in a
 // file on the phone, so a lost connection or a closed app loses nothing; each has its own id, so

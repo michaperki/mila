@@ -5,7 +5,7 @@ each thing forward. Detailed research lives in the linked docs and commits; this
 to it. Read it before starting product work; update it in the same commit as the work (see
 [Keeping this up to date](#keeping-this-up-to-date)).
 
-Last reviewed: 2026-11-16 (vocabulary organisation VOCAB-2: taxonomy v1, themes in the word list, themes on save; VOCAB-1 proposals revised).
+Last reviewed: 2026-11-16 (hints on a card's question side STUDY-4; vocabulary organisation VOCAB-2: taxonomy v1, themes in the word list, themes on save; VOCAB-1 proposals revised).
 
 **Status words**
 - **Done**: shipped and on the phone.
@@ -298,6 +298,37 @@ being learned come back (STUDY-2), and how their cards are written (LM-4).
     to save them, or bring them into Study.
 - Mike: unstudied saved words aren't a problem to clear; interest matters as much as usefulness;
   no rigid formula imposed early.
+
+### STUDY-4 Hints on a card's question side
+**Done, first version** (2026-11-16). On a sentence card shown in Hebrew (and a fill in the blank),
+a tap on another word of the sentence shows its meaning under the sentence, without turning the
+card over (`lib/hints.ts`); the word stays underlined, on the answer side too, where a tap opens it
+in the drawer to save as before. The card's own word, or a tap anywhere else, turns it over. An
+English question side has no hints (its Hebrew is the answer). A small line says so on the first
+cards of a round, until a hint is used.
+- **Where the meaning comes from**, instantly and without a new call: the card's own gloss for that
+  place, else the learner's saved word spelled that way. Cards written before glosses (1,585 of
+  1,613 on 2026-11-16) and words not saved fall back to the sentence's quick meanings, the call
+  the answer side's drawer already makes for them: about $0.006 once a sentence, kept for everyone.
+  It fades as cards are written with glosses; no backfill.
+- **What is recorded:** each hint is a `lookup` event with `hint: true`, its place, dictionary form
+  when known, whether it is a saved word and where its meaning came from; the answer lists the
+  places hinted (`hints`).
+- **How it is read** (learner-v1.3, `lib/learner.ts`):
+  - the hinted word: evidence against knowing it in reading, as a lookup on a card (0.5), so a
+    saved word hinted again turns shaky in the writer's profile and an unsaved one shows as
+    unfamiliar;
+  - the card's own word: right after hints counts 0.75 of an answer (the words given may have let
+    it be worked out from the sentence); missed after hints counts fully (what was around it was
+    no longer in the way); a hint is never noted as what made the card hard;
+  - a word not hinted is no evidence either way;
+  - recognition only: hints exist only where the Hebrew is the question.
+  Not fitted: round weights, to be checked against later answers (`personalize.mjs outcomes` now
+  reports hinted answers and their next answer on a later day).
+- **Unchanged:** a card's own progress (Study's rules on the phone) doesn't depend on hints, since
+  they were about other words.
+- **Later, if hints are used:** offer to save a word hinted on several cards; let the card writer
+  avoid or support words often hinted (the profile's shaky list already carries them).
 
 ---
 
