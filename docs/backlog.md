@@ -5,7 +5,7 @@ each thing forward. Detailed research lives in the linked docs and commits; this
 to it. Read it before starting product work; update it in the same commit as the work (see
 [Keeping this up to date](#keeping-this-up-to-date)).
 
-Last reviewed: 2026-11-16 (vocabulary organisation VOCAB-2: taxonomy v1, themes in the word list, themes on save; VOCAB-1 proposals revised).
+Last reviewed: 2026-11-16 (help on English cards STUDY-4; vocabulary organisation VOCAB-2: taxonomy v1, themes in the word list, themes on save; VOCAB-1 proposals revised).
 
 **Status words**
 - **Done**: shipped and on the phone.
@@ -298,6 +298,34 @@ being learned come back (STUDY-2), and how their cards are written (LM-4).
     to save them, or bring them into Study.
 - Mike: unstudied saved words aren't a problem to clear; interest matters as much as usefulness;
   no rigid formula imposed early.
+
+### STUDY-4 Help with one word on a card shown in English
+**Done, first version** (2026-11-16). The problem (Mike, who studies almost only English first):
+knowing the card's word but not the other Hebrew words needed to build the sentence, and having to
+turn the whole card over for them.
+- **The interaction:** press and hold an English word (not the card's own, marked one) and the Hebrew
+  that says it, as the sentence writes it, shows in a bubble just above it while held. A tap still
+  turns the card over. An English word Hebrew has no word of its own for says "No separate word in
+  Hebrew"; one the card's own word says (a suffix on it) says "Part of the word you're recalling",
+  so the answer never shows. The Hebrew words given are underlined on the answer side, where a tap
+  opens them in the drawer to save. "Press and hold a word for its Hebrew" shows until the first hold.
+- **Which English word is which Hebrew word:** new cards record it with their glosses (`t`, the
+  writer's same call); older cards ask the sentence's quick meanings with its English
+  (`sentence-glosses` with `translation`, about $0.007 once a sentence, kept for everyone; approved
+  by Mike), on the first hold in that sentence, which then waits 2–3 s with a spinner. Matching is
+  `lib/english-help.ts`.
+- **What is recorded:** each Hebrew word given is a `lookup` with `help: 'english'`, the English
+  word held, its place, dictionary form when known, whether it is saved and where the matching
+  came from; the answer lists the places given (`asked`).
+- **How it is read** (learner-v1.3): a word given counts against producing it (0.5), not reading
+  it; the card's own answer counts as before (the help was with another word and never showed
+  it), and it isn't noted against the card; a word not asked for is no evidence. Study's card
+  progress is unchanged. `personalize.mjs outcomes` reports it.
+- **First attempt, reverted** (8990634, fb51150, reverted in 68f68af): tap-for-meaning on Hebrew
+  cards, then the Hebrew sentence shown with the word blank on English ones. Cluttered and awkward
+  on the phone, and on an English card it made the learner find the Hebrew for the English word
+  they were stuck on.
+- **Not done:** the same hold on Hebrew-first cards (decided to wait until this feels right).
 
 ---
 

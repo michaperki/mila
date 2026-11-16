@@ -6,7 +6,7 @@ vi.mock('@anthropic-ai/sdk', () => {
   return { default: Anthropic }
 })
 vi.mock('../netlify/functions/lib/auth', () => ({ verifyAuth: () => ({ userId: 'user' }) }))
-vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn(), recordCacheHit: vi.fn() }))
+vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn(), recordCacheHit: vi.fn(), checkDailySpend: vi.fn() }))
 vi.mock('../netlify/functions/lib/ai-cache', () => ({ cachedAnswer: vi.fn(), rememberAnswer: vi.fn() }))
 import { cachedAnswer } from '../netlify/functions/lib/ai-cache'
 import { handler } from '../netlify/functions/sentence-glosses'
@@ -31,6 +31,13 @@ describe('sentence glosses', () => {
     vi.mocked(cachedAnswer).mockResolvedValueOnce(['she', 'wrote'])
     expect((await invoke({ sentence: 'היא כתבה', words: ['היא', 'כתבה'] })).meanings).toEqual(['she', 'wrote'])
     expect(create).not.toHaveBeenCalled()
+  })
+  it('with a card\'s English, also says which of its words say each Hebrew word, kept apart', async () => {
+    create.mockResolvedValue({ model: 'claude-opus-5-5', usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ meanings: [{ n: 1, meaning: 'she', inTranslation: 'She' }, { n: 2, meaning: 'whispered', inTranslation: 'whispered' }, { n: 3, meaning: 'quietly', inTranslation: 'quietly' }] }) }] })
+    const answer = await invoke({ sentence: 'היא לחשה בשקט', words: ['היא', 'לחשה', 'בשקט'], translation: 'She whispered quietly.' })
+    expect(answer).toMatchObject({ meanings: ['she', 'whispered', 'quietly'], renders: ['She', 'whispered', 'quietly'] })
+    expect(create.mock.calls[0][0].messages[0].content).toContain('English translation: She whispered quietly.')
+    expect(create.mock.calls[0][0].output_config.format.schema.properties.meanings.items.required).toContain('inTranslation')
   })
   it('rejects requests without words', async () => {
     expect((await invoke({ sentence: 'שלום', words: [] })).status).toBe(400)

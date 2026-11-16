@@ -289,6 +289,14 @@ async function outcomes() {
       console.log(`    from the Hebrew ${pct(right(cards.filter(a => a.front === 'he')), cards.filter(a => a.front === 'he').length)}, from the English ${pct(right(cards.filter(a => a.front === 'en')), cards.filter(a => a.front === 'en').length)}`)
       console.log(`  answered again 2+ days after their first answer: ${pct(right(later), later.length)}`)
     }
+    // Help on cards shown in English (mobile lib/english-help.ts): Hebrew words given for English
+    // words held before answering, and the cards answered with and without it.
+    const helps = events.filter(event => event.type === 'lookup' && event.help === 'english')
+    const english = events.filter(event => event.type === 'answer' && !event.revised && Array.isArray(event.asked))
+    if (english.length) {
+      const helped = english.filter(a => a.asked.length)
+      console.log(`\nHeld for their Hebrew on English cards: ${helps.length} words (${helps.filter(h => h.from === 'quick').length} by asking), on ${helped.length} of ${english.length} cards; right with help ${pct(right(helped), helped.length)}, without ${pct(right(english.filter(a => !a.asked.length)), english.length - helped.length)}`)
+    }
     const choices = events.filter(event => event.type === 'answer' && event.exercise === 'choice')
     console.log(`\nFill in the blank: ${pct(right(choices), choices.length)} right; the word ${pct(right(choices.filter(c => c.tests === 'word')), choices.filter(c => c.tests === 'word').length)}, its form ${pct(right(choices.filter(c => c.tests === 'form')), choices.filter(c => c.tests === 'form').length)}`)
     for (const choice of choices.filter(c => !c.knew).slice(-8)) console.log(`  chose ${choice.chosen} for ${choice.answer} (${choice.lemma}, ${choice.tests})`)

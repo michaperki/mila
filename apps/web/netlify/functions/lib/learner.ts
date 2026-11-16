@@ -21,7 +21,12 @@ import { isListed, PREFIXES, plainWord, rankedForm, rankOf } from './frequency.t
 // have been and marked undated, and lookups without a dictionary form matched by spelling.
 // learner-v1.2: a blank filled from choices counts by what it tested (answered), not as a card
 // recalled from whichever side its showing had.
-export const MODEL_VERSION = 'learner-v1.2'
+// learner-v1.3: help on a card shown in English. A Hebrew word given for an English word held
+// (mobile lib/english-help.ts, a lookup with `help: 'english'`) counts against producing that
+// word, not reading it: it wasn't there when the learner was building the sentence. It isn't
+// noted against the card, and the card's own answer counts as before: the help was with another
+// word, and never showed it. A word not asked for is no evidence.
+export const MODEL_VERSION = 'learner-v1.3'
 export const WEIGHTS = {
   answer: 1, // an answer recalled or missed, not primed
   primed: 0.25, // the same, just after the word's Hebrew was shown (lib/forms.ts isPrimed)
@@ -29,6 +34,7 @@ export const WEIGHTS = {
   formCard: 0.5, // a form card's answer, for the word (the rest is the form's: grammar)
   lookup: 0.7, // the word looked up while reading (or saved from a page, before lookups were kept)
   cardLookup: 0.5, // the word looked up on a card in Study
+  askedFor: 0.5, // a Hebrew word asked for from its English on a card shown in English (production)
   either: 0.5, // evidence that doesn't say which side came first, for each side
   prior: 2, // how many answers' worth the starting estimate is
   productionPrior: 0.6, // producing a word is harder than recognizing it: the prior chance, scaled
@@ -240,11 +246,11 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
   // (WEIGHTS.quiz), and what it says depends on what it tested: the word's meaning in context (to
   // reading it), or which of its forms the sentence needs (to the grammar only: choosing the wrong
   // form isn't not knowing the word).
-  const answered = (entry: LearnerEntry, card: { kind: string; stage?: string; slot?: string }, item: Omit<Evidence, 'weight' | 'what'> & { primed?: boolean; quiz?: boolean; tests?: 'word' | 'form' }) => {
+  const answered = (entry: LearnerEntry, card: { kind: string; stage?: string; slot?: string }, item: Omit<Evidence, 'weight' | 'what'> & { primed?: boolean; quiz?: boolean; tests?: 'word' | 'form'; asked?: number }) => {
     const base = (item.primed ? WEIGHTS.primed : WEIGHTS.answer) * (item.quiz ? WEIGHTS.quiz : 1)
     const label = card.kind === 'word' ? 'word card' : card.kind === 'checkpoint' ? `${card.stage} checkpoint` : `${card.stage} ${card.slot}`
     const side = item.channel === 'production' ? 'English first' : item.channel === 'recognition' ? 'Hebrew first' : 'side not recorded'
-    const what = `${item.knew ? 'knew' : 'missed'} ${label} (${side}${item.primed ? ', primed' : ''}${item.quiz ? `, choices${item.tests ? `: ${item.tests}` : ''}` : ''}${item.dated === false ? ', older result: date not kept' : ''})`
+    const what = `${item.knew ? 'knew' : 'missed'} ${label} (${side}${item.primed ? ', primed' : ''}${item.quiz ? `, choices${item.tests ? `: ${item.tests}` : ''}` : ''}${item.asked ? `, Hebrew for ${item.asked} ${item.asked === 1 ? 'word' : 'words'} around it given` : ''}${item.dated === false ? ', older result: date not kept' : ''})`
     const own = word(entry.lemma, entry)
     const undated = item.dated === false ? { dated: false as const } : {}
     if (item.tests !== 'form') own.evidence.push({ at: item.at, channel: item.channel, knew: item.knew, weight: base * (isWordCard(card.stage) && card.kind !== 'checkpoint' ? 1 : WEIGHTS.formCard), what, ...undated })
@@ -280,7 +286,7 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
       recordedAt.set(event.key, [...(recordedAt.get(event.key) ?? []), event.at])
       const tests = event.exercise === 'choice' && (event.tests === 'word' || event.tests === 'form') ? event.tests : undefined
       const channel = tests ? 'recognition' : front === 'en' ? 'production' : front === 'he' ? 'recognition' : 'either'
-      answered(entry, card, { at: event.at, knew: !!event.knew, primed: !!event.primed, quiz: !!event.quiz, channel, tests })
+      answered(entry, card, { at: event.at, knew: !!event.knew, primed: !!event.primed, quiz: !!event.quiz, channel, tests, asked: Array.isArray(event.asked) ? event.asked.length : 0 })
     }
     if (event.type === 'lookup') {
       // The same word tapped again in the same place within seconds (while its meaning loads) is
@@ -310,12 +316,14 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
   function lookedUp(event: LearnerEvent, lemma: string, how = '', known?: LearnerEntry) {
     const entry = known ?? [...byId.values()].find(item => lemmaKeyOf(item.lemmaPlain || item.lemma) === lemmaKeyOf(lemma))
     const onCard = typeof event.key === 'string'
+    const fromEnglish = event.help === 'english'
     word(lemma, entry).evidence.push({
-      at: event.at, channel: 'recognition', knew: false, weight: onCard ? WEIGHTS.cardLookup : WEIGHTS.lookup,
-      what: (onCard ? `looked up on a card in Study (${String(event.word)})` : `looked up while reading (${String(event.word)})`) + how,
+      at: event.at, channel: fromEnglish ? 'production' : 'recognition', knew: false, weight: fromEnglish ? WEIGHTS.askedFor : onCard ? WEIGHTS.cardLookup : WEIGHTS.lookup,
+      what: (fromEnglish ? `asked for on a card shown in English, for "${String(event.english ?? '')}" (${String(event.word)})` : onCard ? `looked up on a card in Study (${String(event.word)})` : `looked up while reading (${String(event.word)})`) + how,
     })
-    // The card it was looked up on: noted, not counted, as what may have made it hard.
-    if (onCard) {
+    // The card it was looked up on (after answering): noted, not counted, as what may have made
+    // it hard. Help asked from the English came before the answer, and was with another word.
+    if (onCard && !fromEnglish) {
       const target = byId.get(parseCardKey(event.key as string).wordId)
       if (target && lemmaKeyOf(target.lemmaPlain || target.lemma) !== lemmaKeyOf(lemma)) {
         word(target.lemma, target).evidence.push({ at: event.at, channel: 'either', knew: false, weight: 0, uncertain: true, what: `${plainWord(lemma)} was looked up on this card: maybe why it was hard, maybe not` })

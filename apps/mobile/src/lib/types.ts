@@ -128,7 +128,8 @@ export type FormCard = {
   // What each other word of the sentence means there, by its place among the sentence's words
   // (split at spaces), with its dictionary form: tapped on the card, shown at once. Missing on
   // cards written before glosses (apps/web/netlify/functions/lib/forms-writer.ts Gloss).
-  glosses?: { i: number; lemma: string; en: string }[]
+  // `t`: the words of its translation that say it (cards written since 2026-11-16), for help on a card shown in English.
+  glosses?: { i: number; lemma: string; en: string; t?: string }[]
   // Which writer wrote it ('base', or 'personal-v1' told what the learner knows) and what its other
   // words were to the learner then; missing on cards written before (word-forms.ts).
   writer?: string; support?: Record<string, number>

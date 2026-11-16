@@ -77,6 +77,18 @@ describe('learner model', () => {
     expect(tapped.band).toBe('unfamiliar')
     expect(tapped.evidence[0].what).toContain('looked up on a card')
   })
+  it('reads a Hebrew word asked for from an English card as not there to produce, and leaves the card\'s own answer as it was', () => {
+    const key = 'native-v:meanings:sense1'
+    const help: LearnerEvent = { session: 's', seq: 1, at: now - DAY, type: 'lookup', id: 's:1', key, position: 2, word: 'בשקט', lemma: 'בְּשֶׁקֶט', place: 3, help: 'english', english: 'quietly', own: false }
+    const state = learnerState([verb], [help, answer(2, key, true, 'en', { asked: [3] })], level, now)
+    const asked = state.words.find(item => item.key === 'בשקט')!
+    expect(asked.evidence).toEqual([expect.objectContaining({ channel: 'production', knew: false, weight: 0.5, what: expect.stringContaining('"quietly"') })])
+    const own = state.words.find(item => item.id === 'native-v')!
+    const plain = learnerState([verb], [answer(2, key, true, 'en')], level, now).words.find(item => item.id === 'native-v')!
+    expect(own.production).toEqual(plain.production)
+    expect(own.evidence.some(item => item.uncertain)).toBe(false)
+    expect(own.evidence.find(item => item.what.startsWith('knew'))!.what).toContain('Hebrew for 1 word around it given')
+  })
   it('takes a reader lookup\'s word from its explanation', () => {
     const events: LearnerEvent[] = [
       { session: 'r', seq: 1, at: now - 1000, type: 'lookup', id: 'r:1', text: 't', segment: 0, word: 'שכתבה' },

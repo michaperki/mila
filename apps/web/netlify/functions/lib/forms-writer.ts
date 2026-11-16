@@ -79,8 +79,11 @@ export type Variant = Pick<WrittenForm, 'he' | 'en' | 'sentence' | 'mark' | 'sai
 // What a word of a card's sentence means there, for looking it up on the card without asking the
 // model: `i` is the word's place among the sentence's words (split at spaces, as the card draws
 // them), so a word that comes twice has a meaning for each place; `lemma` its dictionary form
-// without niqqud, for knowing whether it is saved. Cards written before glosses have none.
-export type Gloss = { i: number; lemma: string; en: string }
+// without niqqud, for knowing whether it is saved; `t` the words of the card's translation it
+// says, as written there ('' when it has none of its own: a copula left out, את), so a card shown in
+// English can give the Hebrew for an English word held. Cards written before glosses have none,
+// and those written before `t` (2026-11-16) no `t`.
+export type Gloss = { i: number; lemma: string; en: string; t?: string }
 
 export const kindOf = (partOfSpeech?: string) =>
   partOfSpeech === 'verb' || partOfSpeech === 'adjective' || partOfSpeech === 'noun' ? partOfSpeech : 'other'
@@ -138,11 +141,12 @@ export const schema = {
           glosses: {
             type: 'array', description: 'Every word of the sentence except this form\'s own words (inSentence), in order, a word that comes twice glossed each time.',
             items: {
-              type: 'object', additionalProperties: false, required: ['w', 'lemma', 'en'],
+              type: 'object', additionalProperties: false, required: ['w', 'lemma', 'en', 't'],
               properties: {
                 w: { type: 'string', description: 'The word exactly as written in the sentence, with any attached prefix, without punctuation.' },
                 lemma: { type: 'string', description: 'Its dictionary form without niqqud, in full spelling (כתיב מלא): verbs as the infinitive, adjectives and nouns masculine singular, no attached prefixes.' },
                 en: { type: 'string', description: 'What it means in this sentence, in 1 to 4 English words, including what its attached prefixes add ("and in the house").' },
+                t: { type: 'string', description: 'The words of the translation that say this word, copied exactly from it and in its order ("quietly", "to him", "in the house"), or "" if no words of the translation say it on their own.' },
               },
             },
           },
@@ -175,7 +179,7 @@ Constructions: when you are told the constructions the word is used in (לְהַ
 
 Patterns: when the word is learned as a pattern (נָטוּל + [שֵׁם עֶצֶם], "free of [noun]"), every card uses the pattern, with a different everyday word in its open place each time (נטול סוכר, נטולת דאגות, נטולי שומן), so the pattern is what is learned and not one example of it. "english" is the pattern's meaning with that card's word in its open place, marked for the form as usual ("free of sugar (f.)"), and inSentence and inTranslation list only the pattern's own words, not the word in its open place.
 
-Glosses: for each card, after its translation, gloss every other word of its sentence (glosses), so the learner can tap any word on the card for its meaning there.
+Glosses: for each card, after its translation, gloss every other word of its sentence (glosses), so the learner can tap any word on the card for its meaning there, and say which words of the translation say it (t), so a learner building the Hebrew from the English can ask for one word.
 
 Distractors: on a meanings card the learner may be asked to fill the word's place in the sentence from four words, so give three that make them think about what the sentence says: common words of the same kind that are related in some way (the same situation, a near meaning, a similar look or sound) but that mean something clearly different from this word, so that someone who knows what it means picks it. Never a synonym, a word that would also make a natural sentence here, or a rare word.
 
@@ -238,7 +242,7 @@ export function promptFor(entry: Entry, stage: string, slots: Slot[], retry: { s
 
 export type Generated = {
   slot: string; form: string; english: string; usage?: string; agreesWith?: Agreement; sentence: string; inSentence: string[]; said: string; translation: string; inTranslation: string[]
-  cues?: { cue: string; after: string }[]; cue?: string; cueAfter?: string; glosses?: { w: string; lemma: string; en: string }[]; distractors?: string[]
+  cues?: { cue: string; after: string }[]; cue?: string; cueAfter?: string; glosses?: { w: string; lemma: string; en: string; t?: string }[]; distractors?: string[]
 }
 // A word as a card's tap finds it: without niqqud, maqaf or the punctuation around it (as
 // apps/mobile/src/lib/ocr-cleanup.ts bareWord trims it).
@@ -248,12 +252,12 @@ const wordKey = (text: string) => text.replace(/[֑-ׇ־]/g, '')
 // same, so a word that comes twice gets each of its glosses at its own place; one out of order
 // goes to the first such word still without one. A gloss for a word not in the sentence is
 // dropped, and a word left without one is looked up another way on the card.
-export function placeGlosses(sentence: string, glosses: { w: string; lemma: string; en: string }[]): Gloss[] {
+export function placeGlosses(sentence: string, glosses: { w: string; lemma: string; en: string; t?: string }[]): Gloss[] {
   const words = sentence.split(/\s+/).filter(Boolean).map(wordKey)
   const placed: Gloss[] = []
   const taken = new Set<number>()
   let next = 0
-  for (const { w, lemma, en } of glosses) {
+  for (const { w, lemma, en, t } of glosses) {
     const key = wordKey(w ?? '')
     if (!key || !en?.trim()) continue
     const free = (i: number) => words[i] === key && !taken.has(i)
@@ -261,7 +265,7 @@ export function placeGlosses(sentence: string, glosses: { w: string; lemma: stri
     if (at === -1) at = words.findIndex((_, i) => free(i))
     if (at === -1) continue
     taken.add(at); next = at + 1
-    placed.push({ i: at, lemma: (lemma ?? '').trim(), en: en.trim() })
+    placed.push({ i: at, lemma: (lemma ?? '').trim(), en: en.trim(), ...(typeof t === 'string' ? { t: t.trim() } : {}) })
   }
   return placed.sort((a, b) => a.i - b.i)
 }

@@ -7,7 +7,8 @@ export type EnglishMode = 'tap' | 'all' | 'off'
 // voice: the read-aloud voice (lib/speech.ts); speechRate: '1', '0.5' or '0.25'.
 // textSize: the reader's text scale, one of TEXT_SIZES. readerHint: the reader's one line of
 // help, shown until the learner has selected a sentence once.
-// Studying (practice.tsx): which side a card shows first, the order, which cards, quiz mode, and
+// Studying (practice.tsx): holdTip, whether to say a word on an English card can be held for its
+// Hebrew (until it first is); which side a card shows first, the order, which cards, quiz mode, and
 // whether each card says why it is in the round (studyWhy).
 // Today (lib/today.ts): studyDays, the days studied on this phone (comma-separated); lastRead,
 // where reading stopped (JSON). tableEnglish: English shown beside a table of forms (table.tsx).
@@ -19,13 +20,13 @@ export type Front = 'he' | 'en' | 'mixed'
 export const TEXT_SIZES = [0.85, 1, 1.15, 1.3, 1.5]
 type Prefs = {
   livePreview: boolean; english: EnglishMode; showNiqqud: boolean; sounds: boolean; haptics: boolean; voice: 'sarah' | 'charon'; speechRate: string; textSize: string; readerHint: boolean
-  studyFront: Front; studyOrder: Order; studyCards: Include; studyQuiz: boolean; studyChoices: 'some' | 'all' | 'off'; studyWhy: boolean
+  studyFront: Front; studyOrder: Order; studyCards: Include; studyQuiz: boolean; studyChoices: 'some' | 'all' | 'off'; studyWhy: boolean; holdTip: boolean
   studyDays: string; lastRead: string; tableEnglish: boolean
   tree: string; treePending: string; treeMotion: boolean; readerCursive: boolean; answerCursive: boolean
 }
 const defaults: Prefs = {
   livePreview: false, english: 'tap', showNiqqud: true, sounds: true, haptics: true, voice: 'sarah', speechRate: '1', textSize: '1', readerHint: true,
-  studyFront: 'he', studyOrder: 'smart', studyCards: 'both', studyQuiz: false, studyChoices: 'some', studyWhy: false,
+  studyFront: 'he', studyOrder: 'smart', studyCards: 'both', studyQuiz: false, studyChoices: 'some', studyWhy: false, holdTip: true,
   studyDays: '', lastRead: '', tableEnglish: true,
   tree: '', treePending: '', treeMotion: true, readerCursive: false, answerCursive: true,
 }
