@@ -303,17 +303,31 @@ being learned come back (STUDY-2), and how their cards are written (LM-4).
 **Done, first version** (2026-11-16). The problem (Mike, who studies almost only English first):
 knowing the card's word but not the other Hebrew words needed to build the sentence, and having to
 turn the whole card over for them.
-- **The interaction:** press and hold an English word (not the card's own, marked one) and the Hebrew
-  that says it, as the sentence writes it, shows in a bubble just above it while held. A tap still
-  turns the card over. An English word Hebrew has no word of its own for says "No separate word in
-  Hebrew"; one the card's own word says (a suffix on it) says "Part of the word you're recalling",
-  so the answer never shows. The Hebrew words given are underlined on the answer side, where a tap
-  opens them in the drawer to save. "Press and hold a word for its Hebrew" shows until the first hold.
+- **The interaction** (revised 2026-11-16 after Mike's first try: a dark bubble over the text hid
+  the sentence, and its spinner was disruptive): press and hold an English word (not the card's
+  own, marked one) and the Hebrew that says it, as the sentence writes it, joins a row of chips
+  under the sentence, styled as a word's constructions are, in the English's order; the word held
+  is underlined. The row stays until the card is turned over, so the Hebrew needed to build the
+  sentence gathers there. A word still being looked up has an empty chip that fills in, no
+  spinner. A tap still turns the card over. A word Hebrew has no word of its own for, one the
+  card's own word says (a suffix on it), or one that couldn't be matched gets a short note under
+  the chips instead ("no separate word in Hebrew", "part of the word you're recalling", "not found
+  in this sentence"), replaced by the next hold. The Hebrew words given are underlined on the
+  answer side, where a tap opens them in the drawer to save. The line under the card says "Hold
+  any word for its Hebrew" until the first hold.
 - **Which English word is which Hebrew word:** new cards record it with their glosses (`t`, the
   writer's same call); older cards ask the sentence's quick meanings with its English
   (`sentence-glosses` with `translation`, about $0.007 once a sentence, kept for everyone; approved
-  by Mike), on the first hold in that sentence, which then waits 2–3 s with a spinner. Matching is
-  `lib/english-help.ts`.
+  by Mike), on the first hold in that sentence (2–3 s; the chip fills in). Matching is
+  `lib/english-help.ts`: exact words in order, a word or two allowed between a phrase's words
+  ("would only come"), Study's person cues skipped.
+- **Measured 2026-11-16:**
+  - a faster model for the matching: Sonnet 5.5 agreed with Opus on 93 of 99 English words and
+    Haiku 5.5 on 94, at 2.5 and 2.1 s against Opus's 2.7 s; one Haiku match was wrong ("this" for
+    לחודש). Not switched: half a second isn't worth worse matches;
+  - three new sentences written live after the change all had `t` on every gloss;
+  - backfilled (approved, `scripts/backfill-alignment.mjs`): the sentences of cards answered in
+    the last 30 days or shown in the last 14, with their new sentences, through the Batch API.
 - **What is recorded:** each Hebrew word given is a `lookup` with `help: 'english'`, the English
   word held, its place, dictionary form when known, whether it is saved and where the matching
   came from; the answer lists the places given (`asked`).

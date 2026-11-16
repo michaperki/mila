@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import Animated from 'react-native-reanimated'
-import { ActivityIndicator, Alert, type GestureResponderEvent, Pressable, ScrollView, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { router, Stack } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -171,37 +171,37 @@ export default function Practice() {
   // card: saving it keeps it for later study and leaves this round as it is.
   const lookup = useWordLookup(session, { onLostError: setError, log: (type, fields) => study.current?.log(type, fields) ?? '' })
   // Help with one word on a card shown in English (lib/english-help.ts): an English word held
-  // shows the Hebrew that says it in a bubble above it, while held (or, when it had to be asked
-  // for, until a moment after it arrives). `asked`, by position: the Hebrew words given, which the
-  // answer keeps and the answer side underlines, to tap and save.
-  const [held, setHeld] = useState<{ x: number; y: number; text: string } | null>(null)
-  const holding = useRef({ id: 0, down: false })
+  // adds the Hebrew that says it to a row under the sentence, kept until the card is turned over,
+  // so the words needed to build the sentence gather there in its order (`helps`, by position).
+  // Where the Hebrew must first be asked for, its place in the row shows at once and fills in. A
+  // word with no Hebrew of its own, or the card's own, gets a short note instead, which the next
+  // hold replaces. `asked`, by position: the Hebrew words given, which the answer keeps and the
+  // answer side underlines, to tap and save.
+  const [helps, setHelps] = useState<Record<number, Helped[]>>({})
   const [asked, setAsked] = useState<Record<number, number[]>>({})
   const [holdTip, setHoldTip] = useState(false)
   useEffect(() => { void getPref('holdTip').then(setHoldTip) }, [])
-  const root = useRef<View>(null)
-  const [rootTop, setRootTop] = useState(0)
-  const { width } = useWindowDimensions()
-  const holdWord = async (card: Card, entry: VocabEntry, form: FormCard, index: number, event: GestureResponderEvent) => {
-    if (!session) return
-    const id = ++holding.current.id
-    holding.current.down = true
-    const { pageX: x, pageY: y } = event.nativeEvent
+  const holdWord = async (card: Card, form: FormCard, index: number) => {
+    if (!session || (helps[position] ?? []).some(item => item.index === index && !item.note)) return
     const here = position
     feel('select')
-    setHeld({ x, y, text: '' })
+    const put = (item: Helped) => setHelps(current => ({ ...current, [here]: [...(current[here] ?? []).filter(other => other.index !== item.index && !other.note), item] }))
+    put({ index, text: null })
+    if (holdTip) { setHoldTip(false); setPref('holdTip', false) }
     // Which English words each Hebrew word says: from the card, or asked once for the sentence.
     const words = form.sentence.split(/\s+/).filter(Boolean)
     const fromCard = form.glosses?.some(item => item.t !== undefined)
     const renders = fromCard
       ? form.glosses!.map(item => ({ place: item.i, t: item.t ?? '' }))
       : (await translationWords(form.sentence, words.map(bareWord), form.translation ?? '', session.token)).map((t, place) => ({ place, t }))
-    if (holding.current.id !== id) return
     const help = renders.length ? helpFor(index, alignment(englishTokens(cuedTranslation(form)), renders), form.sentence, targetPlaces(form.sentence, form.mark)) : null
-    setHeld({ x, y, text: !help ? 'Couldn’t be looked up just now' : help.kind === 'target' ? 'Part of the word you’re recalling' : help.kind === 'none' ? 'No separate word in Hebrew' : vQuestion(help.hebrew) })
-    if (!holding.current.down) setTimeout(() => { if (holding.current.id === id) setHeld(null) }, 1500)
-    if (holdTip) { setHoldTip(false); setPref('holdTip', false) }
-    if (help?.kind !== 'hebrew' || help.places.every(place => asked[here]?.includes(place))) return
+    if (help?.kind !== 'hebrew') {
+      put({ index, note: true, text: !help ? 'couldn’t be looked up just now' : help.kind === 'target' ? 'part of the word you’re recalling'
+        : help.kind === 'none' ? 'no separate word in Hebrew' : 'not found in this sentence' })
+      return
+    }
+    put({ index, text: help.hebrew })
+    if (help.places.every(place => asked[here]?.includes(place))) return
     setAsked(current => ({ ...current, [here]: [...new Set([...(current[here] ?? []), ...help.places])] }))
     // Logged as a lookup of each Hebrew word given, on the card, asked from its English.
     const saved = cachedVocab(session) ?? []
@@ -214,10 +214,6 @@ export default function Practice() {
         saved: !!(gloss?.lemma ? byLemma.get(lemmaKey(gloss.lemma)) : bySurface.get(lemmaKey(word))), ...(gloss?.lemma ? { lemma: gloss.lemma } : {}),
       })
     }
-  }
-  const releaseWord = () => {
-    holding.current.down = false
-    if (held?.text) setHeld(null)
   }
   // How a card is put to the learner: which of its sentences and why (lib/forms.ts sentenceFor),
   // settled from its record before this visit's answer and kept for its place in the round, so
@@ -579,12 +575,12 @@ export default function Practice() {
   // A noun for a person with both forms is heard as both (מַזְכִּיר, מַזְכִּירָה).
   const listen = checkpoint ? undefined : form ? form.sentence : entry.feminine ? `${entry.lemma}, ${entry.feminine}` : entry.lemma
   // An English word held on this card's question side (holdWord).
-  const holdHere = (index: number, event: GestureResponderEvent) => { if (form) void holdWord(card, entry, form, index, event) }
+  const holdHere = (index: number) => { if (form) void holdWord(card, form, index) }
   const flipHere = () => { if (tapped()) { feel('reveal'); turnOver() } }
   const side = (english: boolean, answerSide: boolean) => <ScriptContext.Provider value={answerSide ? 'answers' : 'print'}>
     {form
       ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={answerSide ? vAnswer : vQuestion} lookup={answerSide ? lookup : undefined}
-        asked={asked[position] ?? []} tip={holdTip} holdable={english && !answerSide && !choices} onHold={holdHere} onRelease={releaseWord} onTap={flipHere} />
+        asked={asked[position] ?? []} helps={helps[position] ?? []} holdable={english && !answerSide && !choices} onHold={holdHere} onTap={flipHere} />
       : <WordSide entry={entry} english={english} answer={answerSide} v={answerSide ? vAnswer : vQuestion} />}
   </ScriptContext.Provider>
   const hint = checkpoint
@@ -592,9 +588,10 @@ export default function Practice() {
       : flipped ? 'Swipe right if you knew them all, left if not.' : 'Say them to yourself, then tap to check.')
     : choices ? (picked !== null ? (pausing && !lookup.tap ? (right ? '' : 'Tap the card to stay on it.') : 'Answered. Swipe or → to go on.') : testsForm ? 'Choose the form that fits.' : 'Choose the word that fits.')
       : answered !== undefined ? `${answered ? 'You knew it' : 'Still learning'}. Swipe again to change.`
-        : Object.keys(answers).length < 3 ? 'Swipe right if you knew it, left if you\'re still learning.' : ''
+        : !flipped && holdTip && englishFirst && !!form ? 'Hold any word for its Hebrew. Tap to turn the card over.'
+          : Object.keys(answers).length < 3 ? 'Swipe right if you knew it, left if you\'re still learning.' : ''
 
-  return <View ref={root} onLayout={() => root.current?.measureInWindow((_, y) => setRootTop(y))} style={{ flex: 1, backgroundColor: colors.paper }}>
+  return <View style={{ flex: 1, backgroundColor: colors.paper }}>
     {title}
     <TopBar summary={summary} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onNewRound={confirmNewRound} onWhy={toggleWhy} onSettings={() => { stopAdvancing(); setSettingsOpen(true) }} />
     <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: 'center', paddingBottom: 24 + insets.bottom }]}>
@@ -646,12 +643,6 @@ export default function Practice() {
       <Text style={[practice.hint, { minHeight: 22 }]}>{hint}</Text>
     </ScrollView>
     <WordDrawer lookup={lookup} v={v} style={{ paddingBottom: 12 + insets.bottom }} />
-    {/* The Hebrew for an English word held, just above it. */}
-    {held && <View pointerEvents="none" style={[practice.bubbleWrap, { top: held.y - rootTop - 64, left: Math.max(8, Math.min(width - 248, held.x - 120)) }]}>
-      <View style={practice.bubble}>
-        {held.text ? <Text style={[practice.bubbleText, !/[א-ת]/.test(held.text) && practice.bubbleNote]}>{held.text}</Text> : <ActivityIndicator color={colors.white} />}
-      </View>
-    </View>}
     {sheet}
   </View>
 }
@@ -803,11 +794,13 @@ const heardOf = (form: FormCard) => form.said || (form.stage === 'meanings' ? fo
 // On the answer side each word of the sentence can be tapped to look it up (`lookup`); the
 // question side is only turned over by a tap, so a lookup never gives the answer away.
 // On a question side shown in English, each English word but the card's own can be held for the
-// Hebrew that says it (`hold`, lib/english-help.ts), and a tap still turns the card over; the
-// answer side underlines the Hebrew words given (`asked`). A line says so until a word is first held.
-function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, lookup, asked, tip, holdable, onHold, onRelease, onTap }: {
+// Hebrew that says it (`onHold`, lib/english-help.ts), and a tap still turns the card over. The
+// Hebrew given gathers under the sentence as chips, like a word's constructions, in the order of
+// the English words held, which are underlined; the answer side underlines the Hebrew words given
+// (`asked`), to tap and save.
+function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, lookup, asked, helps, holdable, onHold, onTap }: {
   entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; hideMark: boolean; v: (text: string) => string; lookup?: WordLookup
-  asked: number[]; tip: boolean; holdable: boolean; onHold: (index: number, event: GestureResponderEvent) => void; onRelease: () => void; onTap: () => void
+  asked: number[]; helps: Helped[]; holdable: boolean; onHold: (index: number) => void; onTap: () => void
 }) {
   const he = useHebrew()
   // A word tapped at its place among the sentence's words (`at`): what the card says it means
@@ -822,8 +815,8 @@ function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, l
   const looked = lookup?.tap?.sentence === form.sentence ? lookup.tap.card?.at : undefined
   const hebrew = <Text style={[practice.sentence, he]}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} onWord={onWord} looked={looked} asked={asked} /></Text>
   if (!answerSide) return <>
-    {english ? <Text style={practice.english}><Marked text={cuedTranslation(form)} mark={form.enMark} holdable={holdable} onHold={onHold} onRelease={onRelease} onTap={onTap} /></Text> : hebrew}
-    {english && holdable && tip && <Text style={practice.holdTip}>Press and hold a word for its Hebrew</Text>}
+    {english ? <Text style={practice.english}><Marked text={cuedTranslation(form)} mark={form.enMark} holdable={holdable} held={helps.map(item => item.index)} onHold={onHold} onTap={onTap} /></Text> : hebrew}
+    {english && holdable && helps.length > 0 && <HelpRow helps={helps} v={v} />}
     {/* Fill in the blank: what the whole sentence says, so the choice is the Hebrew that says it
         here. Its English is kept for a word too: with it left out, a related distractor can fit
         the sentence as well (ללטף, לנשק: "began to ___ her hand"), and the question is unfair. */}
@@ -872,17 +865,36 @@ function MarkedHebrew({ sentence, mark, form, blank, onWord, looked, asked = [] 
 // far wider than the words, so no marked run may contain a place where the line can break.
 // `holdable`: each word but the marked ones can be held (onHold, with its index among the text's
 // words) and tapped (onTap, as the card itself would be).
-function Marked({ text, mark, holdable, onHold, onRelease, onTap }: {
-  text: string; mark?: string; holdable?: boolean; onHold?: (index: number, event: GestureResponderEvent) => void; onRelease?: () => void; onTap?: () => void
+function Marked({ text, mark, holdable, held = [], onHold, onTap }: {
+  text: string; mark?: string; holdable?: boolean; held?: number[]; onHold?: (index: number) => void; onTap?: () => void
 }) {
   let index = -1
   return <>{englishPieces(text, mark).map((piece, i) => {
     if (piece.text && !/^\s+$/.test(piece.text)) index++
     const at = index
     if (piece.marked) return <Text key={i} style={practice.mark}>{piece.text}</Text>
-    if (!holdable || !onHold || !piece.text || /^\s+$/.test(piece.text)) return piece.text
-    return <Text key={i} onPress={onTap} onLongPress={event => onHold(at, event)} onPressOut={onRelease} suppressHighlighting>{piece.text}</Text>
+    // Only words: a person cue (👩) or a dash is part of the English, not a word to hold.
+    if (!holdable || !onHold || !/\p{L}/u.test(piece.text)) return piece.text
+    return <Text key={i} onPress={onTap} onLongPress={() => onHold(at)} suppressHighlighting style={held.includes(at) ? practice.asked : undefined}>{piece.text}</Text>
   })}</>
+}
+
+// What was held on an English card, as it gathers under the sentence: each Hebrew word given as a
+// chip (as a word's constructions are shown), in the order of the English words held, a chip
+// still being looked up drawn empty; and the latest note, for a word that gave none.
+type Helped = { index: number; text: string | null; note?: boolean }
+function HelpRow({ helps, v }: { helps: Helped[]; v: (text: string) => string }) {
+  const he = useHebrew()
+  const chips = helps.filter(item => !item.note).sort((a, b) => a.index - b.index)
+  const note = helps.find(item => item.note)
+  return <View style={practice.helpRow} accessibilityLiveRegion="polite">
+    {chips.length > 0 && <View style={practice.helpChips}>
+      {chips.map(item => <View key={item.index} style={[practice.helpChip, !item.text && practice.helpChipWaiting]}>
+        <Text style={[practice.helpText, he, !item.text && { color: colors.muted }]} numberOfLines={1}>{item.text ? v(item.text) : '···'}</Text>
+      </View>)}
+    </View>}
+    {!!note?.text && <Text style={practice.helpNote}>{note.text}</Text>}
+  </View>
 }
 
 // A checkpoint: recall a whole tense (or an adjective's forms) at once. The question side gives
@@ -1014,11 +1026,13 @@ const practice = StyleSheet.create({
   // A word of the sentence looked up on the answer side.
   looked: { color: colors.green, textDecorationLine: 'underline', textDecorationColor: colors.green },
   asked: { textDecorationLine: 'underline', textDecorationStyle: 'dotted', textDecorationColor: colors.muted },
-  holdTip: { fontSize: 13, color: colors.muted, textAlign: 'center' },
-  bubbleWrap: { position: 'absolute', width: 240, alignItems: 'center' },
-  bubble: { minWidth: 56, minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12, backgroundColor: colors.ink, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 6 },
-  bubbleText: { fontSize: 24, lineHeight: 32, color: colors.white, writingDirection: 'rtl', textAlign: 'center' },
-  bubbleNote: { fontSize: 14, lineHeight: 20, writingDirection: 'ltr' },
+  helpRow: { alignSelf: 'stretch', alignItems: 'center', gap: 6 },
+  // In the order the English reads, left to right, as the English words held are.
+  helpChips: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 6 },
+  helpChip: { paddingHorizontal: 10, borderRadius: 999, backgroundColor: colors.lime, borderWidth: 1, borderColor: colors.lime, minWidth: 44, alignItems: 'center' },
+  helpChipWaiting: { backgroundColor: 'transparent', borderColor: colors.line },
+  helpText: { fontSize: 18, lineHeight: 27, color: colors.ink },
+  helpNote: { fontSize: 13, color: colors.muted, textAlign: 'center' },
   hint: { fontSize: 15, color: colors.muted, textAlign: 'center' },
   option: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   optionRight: { borderColor: colors.green, backgroundColor: colors.lime },

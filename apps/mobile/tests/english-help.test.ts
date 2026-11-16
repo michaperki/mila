@@ -27,9 +27,29 @@ test('never the card\'s own word, and says so when English has a word Hebrew doe
   assert.deepEqual(helpFor(1, noCopula, 'הוא ישן', new Set()), { kind: 'none' })
 })
 
+test('an English word left over says not found when some Hebrew word wasn\'t found as written', () => {
+  const tokens = englishTokens('The girl loves to pet the neighbors\' cat.')
+  const paraphrased = alignment(tokens, [{ place: 0, t: 'The girl' }, { place: 3, t: 'the kitty' }])
+  // "the cat" is found, with the neighbors' between: the Hebrew's own way of saying it.
+  assert.deepEqual(helpFor(7, alignment(tokens, [{ place: 4, t: 'the cat' }]), 'הילדה אוהבת ללטף את החתול של השכנים', new Set([2])), { kind: 'hebrew', places: [4], hebrew: 'החתול' })
+  assert.equal(paraphrased.unplaced, 1)
+  assert.deepEqual(helpFor(7, paraphrased, 'הילדה אוהבת ללטף את החתול של השכנים', new Set([2])), { kind: 'unknown' })
+})
+
+test('an English phrase with words between its own still finds its Hebrew word', () => {
+  const tokens = englishTokens('They would only come when they needed money.')
+  const aligned = alignment(tokens, [{ place: 0, t: 'would come' }, { place: 1, t: 'only' }, { place: 2, t: 'when they needed' }, { place: 3, t: 'money' }])
+  assert.equal(aligned.unplaced, 0)
+  assert.deepEqual(helpFor(3, aligned, 'יבואו רק כשצריך כסף', new Set()), { kind: 'hebrew', places: [0], hebrew: 'יבואו' })
+  assert.deepEqual(helpFor(2, aligned, 'יבואו רק כשצריך כסף', new Set()), { kind: 'hebrew', places: [1], hebrew: 'רק' })
+})
+
 test('a word that comes twice is matched in order, and a cue in brackets is never matched', () => {
   const twice = alignment(englishTokens('He saw that he was late.'), [{ place: 0, t: 'He' }, { place: 2, t: 'he' }])
   assert.deepEqual([...twice.entries()], [[0, [0]], [3, [2]]])
   const cue = alignment(englishTokens('You (f.) saw you.'), [{ place: 0, t: 'f.' }])
   assert.equal(cue.size, 0)
+  // A person cue between the words of one Hebrew word's English doesn't keep them apart.
+  const person = alignment(englishTokens('Yesterday you 👩 were tired.'), [{ place: 0, t: 'Yesterday' }, { place: 1, t: 'you were' }, { place: 2, t: 'tired' }])
+  assert.deepEqual([...person.entries()], [[0, [0]], [1, [1]], [3, [1]], [4, [2]]])
 })

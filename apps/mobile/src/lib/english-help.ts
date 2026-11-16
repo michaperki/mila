@@ -28,25 +28,41 @@ const plain = (word: string) => word.toLowerCase().replace(/[’]/g, '\'').repla
 
 // Which English words (by their index among `tokens`) each Hebrew place says: each place's words
 // found in the English as shown, in order, the first occurrence not taken by an earlier place.
-// Cues shown in brackets ("(f.)", added by Study, not the translation's) are never matched.
-export function alignment(tokens: Token[], renders: { place: number; t: string }[]) {
+// Cues Study adds (a person's 👩, or in brackets) are never matched, and don't break a match.
+// `unplaced`: how many places' words weren't found as written (the model put them otherwise), so
+// an English word left over may be one of them rather than one Hebrew has no word for.
+export function alignment(tokens: Token[], renders: { place: number; t: string }[]): Map<number, number[]> & { unplaced: number } {
   const inCue = new Set<number>()
   let open = false
   tokens.forEach((token, i) => { if (token.text.startsWith('(')) open = true; if (open) inCue.add(i); if (token.text.includes(')')) open = false })
-  const words = tokens.map(token => plain(token.text))
+  // The words that can be matched, by index: not a cue, and with letters (a person cue such as 👩
+  // stands between words without being one).
+  const usable = tokens.map((token, i) => ({ i, word: plain(token.text) })).filter(item => item.word && !inCue.has(item.i))
   const taken = new Map<number, number[]>()
+  let unplaced = 0
   for (const { place, t } of renders) {
     const wanted = t.split(/\s+/).map(plain).filter(Boolean)
     if (!wanted.length) continue
-    for (let start = 0; start + wanted.length <= words.length; start++) {
-      const span = wanted.map((_, k) => start + k)
-      if (span.some(i => inCue.has(i) || words[i] !== wanted[span.indexOf(i)])) continue
-      if (span.some(i => taken.has(i) && !taken.get(i)!.includes(place))) continue
-      for (const i of span) taken.set(i, [...(taken.get(i) ?? []), place])
-      break
+    let found = false
+    // In order, the first word anywhere not taken by another place, each next one within the
+    // next few words (an English phrase can have words between its own: "would only come").
+    const free = (k: number) => !taken.has(usable[k].i) || taken.get(usable[k].i)!.includes(place)
+    for (let start = 0; start < usable.length && !found; start++) {
+      if (usable[start].word !== wanted[0] || !free(start)) continue
+      const span = [start]
+      for (const word of wanted.slice(1)) {
+        const last = span[span.length - 1]
+        const next = usable.findIndex((item, k) => k > last && k <= last + 3 && item.word === word && free(k))
+        if (next === -1) break
+        span.push(next)
+      }
+      if (span.length < wanted.length) continue
+      for (const k of span) taken.set(usable[k].i, [...(taken.get(usable[k].i) ?? []), place])
+      found = true
     }
+    if (!found) unplaced++
   }
-  return taken
+  return Object.assign(taken, { unplaced })
 }
 
 // The places of the Hebrew sentence that are the card's own word (as the card marks them).
@@ -60,13 +76,14 @@ export function targetPlaces(sentence: string, mark: string) {
   return places
 }
 
-export type Help = { kind: 'hebrew'; places: number[]; hebrew: string } | { kind: 'none' } | { kind: 'target' }
+export type Help = { kind: 'hebrew'; places: number[]; hebrew: string } | { kind: 'none' } | { kind: 'unknown' } | { kind: 'target' }
 // What holding the English word at `index` gives: the Hebrew words that say it, as written in the
-// sentence; "part of the word you're recalling" when they are the card's own; or no word of its
-// own in Hebrew (a copula left out, "the" in a prefix) when none says it.
-export function helpFor(index: number, aligned: Map<number, number[]>, sentence: string, target: Set<number>): Help {
+// sentence; "part of the word you're recalling" when they are the card's own; no word of its own
+// in Hebrew (a copula left out, "the" in a prefix) when every Hebrew word was found in the English
+// and none says it; and, when some weren't, not found, rather than a claim that there is none.
+export function helpFor(index: number, aligned: Map<number, number[]> & { unplaced?: number }, sentence: string, target: Set<number>): Help {
   const places = aligned.get(index)
-  if (!places?.length) return { kind: 'none' }
+  if (!places?.length) return aligned.unplaced ? { kind: 'unknown' } : { kind: 'none' }
   if (places.some(place => target.has(place))) return { kind: 'target' }
   const words = sentence.split(/\s+/).filter(Boolean)
   return { kind: 'hebrew', places, hebrew: places.map(place => bareWord(words[place] ?? '')).filter(Boolean).join(' ') }

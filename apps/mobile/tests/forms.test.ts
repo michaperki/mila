@@ -394,6 +394,8 @@ test('a card shows its own sentence or a new one written later, with its own key
   assert.equal(shown.sentence, 'הוא פותח את הדלת')
   assert.equal(shown.key, 'present:m.sg')
   assert.deepEqual(shown.results, [true])
+  // Its glosses are its own: none, rather than the first sentence's.
+  assert.equal(shownForm({ ...card, glosses: [{ i: 0, lemma: 'הוא', en: 'he', t: 'He' }] }, 1).glosses, undefined)
   assert.equal(writerOf(card, 0), 'base')
   assert.equal(writerOf(card, 1), 'personal-v1')
   assert.equal(personalVariant(card), 1)

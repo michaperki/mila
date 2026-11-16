@@ -477,7 +477,8 @@ function mix<T>(cards: T[], extra: T[], first = 1): T[] {
 // change without the card's progress starting over.
 export const shownForm = (form: FormCard, variant = 0): FormCard => {
   const other = variant > 0 ? form.variants?.[variant - 1] : undefined
-  return other ? { ...form, ...other, key: form.key, stage: form.stage, slot: form.slot } : form
+  // A sentence's glosses are its own: one written without them never takes its card's first one's.
+  return other ? { ...form, ...other, glosses: other.glosses, key: form.key, stage: form.stage, slot: form.slot } : form
 }
 // Which sentence a card is shown in, and why (logged with it, as `sentence`), from how it has
 // gone (its results, and which sentence each was given on, `on`, `seen`):
