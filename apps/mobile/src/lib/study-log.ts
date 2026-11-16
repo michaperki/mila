@@ -7,14 +7,15 @@ import { request } from './api'
 // been shown before), and a round ending. Reading is kept the same way: a passage opened, each
 // sentence selected (and whether its English showed), and in both, each word looked up (where,
 // and whether it was saved already; on a card's question side, before answering, a `hint`, whose
-// places the answer lists as `hints`), its explanation arriving, and saves made or undone. They
+// places the answer lists as `hints`; on an English one, first its Hebrew sentence shown with the
+// word left blank, `context`), its explanation arriving, and saves made or undone. They
 // are observations, not conclusions: a word looked up on a card that was then missed may or may
 // not be why it was missed, and a word not hinted may or may not be known. They are for looking back at what Study chose, how
 // often things came round and what was remembered (apps/web/scripts/study-events.mjs), and are
 // sent to apps/web/netlify/functions/study-events.ts. Until the server has them they wait in a
 // file on the phone, so a lost connection or a closed app loses nothing; each has its own id, so
 // one sent twice is kept once. Each is kept with whose it is, and only sent as that account.
-export type StudyEventType = 'start' | 'show' | 'reveal' | 'answer' | 'end' | 'read' | 'select' | 'lookup' | 'explained' | 'save' | 'unsave'
+export type StudyEventType = 'start' | 'show' | 'reveal' | 'context' | 'answer' | 'end' | 'read' | 'select' | 'lookup' | 'explained' | 'save' | 'unsave'
 export type LogEvent = (type: StudyEventType, fields?: Record<string, unknown>) => string
 export type StudyEvent = { id: string; session: string; seq: number; at: number; type: StudyEventType; owner: string } & Record<string, unknown>
 

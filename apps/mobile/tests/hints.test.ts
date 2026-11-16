@@ -19,5 +19,5 @@ test('a hint comes from the card, then a saved word, and never gives the target 
 
 test('a hint is logged as a lookup on the card\'s question side', () => {
   assert.deepEqual(hintEvent({ at: 3, word: 'בשמחה', en: 'joy', lemma: 'שמחה', from: 'saved' }, { key: 'native-צעק:past:3sg', position: 7 }, true),
-    { key: 'native-צעק:past:3sg', position: 7, word: 'בשמחה', place: 3, hint: true, own: false, saved: true, glossed: false, from: 'saved', lemma: 'שמחה' })
+    { key: 'native-צעק:past:3sg', position: 7, word: 'בשמחה', place: 3, hint: true, own: false, saved: true, front: 'he', glossed: false, from: 'saved', lemma: 'שמחה' })
 })

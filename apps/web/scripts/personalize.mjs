@@ -298,6 +298,8 @@ async function outcomes() {
     const laterOf = answer => events.find(other => other.type === 'answer' && other.key === answer.key && other.at - answer.at > 12 * 3_600_000)
     if (hintedAnswers.length) {
       console.log(`\nHints: ${hints.length} on ${new Set(hints.map(h => `${h.session}:${h.position}`)).size} cards (${hints.filter(h => h.from === 'quick').length} from quick meanings); of saved words ${hints.filter(h => h.saved).length}`)
+      const english = hintedAnswers.filter(a => a.front === 'en'), shown = english.filter(a => a.context)
+      console.log(`  English first: Hebrew sentence shown on ${shown.length} of ${english.length}; right with it ${pct(right(shown), shown.length)}, without ${pct(right(english.filter(a => !a.context)), english.length - shown.length)}`)
       console.log(`  answered with hints ${pct(right(withHints), withHints.length)}, without ${pct(right(withoutHints), withoutHints.length)}; next answer a later day after hints ${pct(right(withHints.map(laterOf).filter(Boolean)), withHints.map(laterOf).filter(Boolean).length)}`)
     }
     const choices = events.filter(event => event.type === 'answer' && event.exercise === 'choice')

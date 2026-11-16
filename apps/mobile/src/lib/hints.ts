@@ -3,7 +3,8 @@ import { lemmaKey } from './words.ts'
 
 // Hints on a card's question side: a tap on another word of the sentence shows what it means
 // there, under the sentence, without turning the card over, so a sentence with a few unknown
-// words around the one being studied can still be answered for that word. The meaning comes from
+// words around the one being studied can still be answered for that word. On a card shown in
+// English the Hebrew sentence is shown first, on asking, with the card's own word left blank. The meaning comes from
 // what is already at hand, in order: the card's own gloss for that place (written with the card),
 // the learner's saved word spelled that way, and only then the sentence's quick meanings (one
 // request a sentence, kept for everyone; cards written before glosses).
@@ -30,8 +31,10 @@ export function hintFor(form: Pick<FormCard, 'glosses'>, target: Pick<VocabEntry
 }
 
 // What a hint is logged as: a lookup on the card, on its question side (`hint`), with the word's
-// dictionary form when known and whether it is one of the learner's saved words.
-export const hintEvent = (hint: Hint, card: { key: string; position: number }, saved: boolean) => ({
-  key: card.key, position: card.position, word: hint.word, place: hint.at, hint: true, own: false, saved,
+// dictionary form when known, whether it is one of the learner's saved words, and which side the
+// card showed first: on an English one the word was tapped in the Hebrew sentence shown under the
+// English, where a tap may only ask which word is which.
+export const hintEvent = (hint: Hint, card: { key: string; position: number; front?: 'he' | 'en' }, saved: boolean) => ({
+  key: card.key, position: card.position, word: hint.word, place: hint.at, hint: true, own: false, saved, front: card.front ?? 'he',
   glossed: hint.from === 'card', from: hint.from, ...(hint.lemma ? { lemma: hint.lemma } : {}),
 })
