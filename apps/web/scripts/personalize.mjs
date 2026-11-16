@@ -289,19 +289,6 @@ async function outcomes() {
       console.log(`    from the Hebrew ${pct(right(cards.filter(a => a.front === 'he')), cards.filter(a => a.front === 'he').length)}, from the English ${pct(right(cards.filter(a => a.front === 'en')), cards.filter(a => a.front === 'en').length)}`)
       console.log(`  answered again 2+ days after their first answer: ${pct(right(later), later.length)}`)
     }
-    // Hints (mobile lib/hints.ts): words of a card's sentence tapped on its question side before
-    // answering. Cards answered with them apart from those without, and the card's next answer on
-    // a later day: whether help with the words around it left the word itself learned.
-    const hints = events.filter(event => event.type === 'lookup' && event.hint)
-    const hintedAnswers = events.filter(event => event.type === 'answer' && !event.revised && Array.isArray(event.hints))
-    const withHints = hintedAnswers.filter(a => a.hints.length), withoutHints = hintedAnswers.filter(a => !a.hints.length)
-    const laterOf = answer => events.find(other => other.type === 'answer' && other.key === answer.key && other.at - answer.at > 12 * 3_600_000)
-    if (hintedAnswers.length) {
-      console.log(`\nHints: ${hints.length} on ${new Set(hints.map(h => `${h.session}:${h.position}`)).size} cards (${hints.filter(h => h.from === 'quick').length} from quick meanings); of saved words ${hints.filter(h => h.saved).length}`)
-      const english = hintedAnswers.filter(a => a.front === 'en'), shown = english.filter(a => a.context)
-      console.log(`  English first: Hebrew sentence shown on ${shown.length} of ${english.length}; right with it ${pct(right(shown), shown.length)}, without ${pct(right(english.filter(a => !a.context)), english.length - shown.length)}`)
-      console.log(`  answered with hints ${pct(right(withHints), withHints.length)}, without ${pct(right(withoutHints), withoutHints.length)}; next answer a later day after hints ${pct(right(withHints.map(laterOf).filter(Boolean)), withHints.map(laterOf).filter(Boolean).length)}`)
-    }
     const choices = events.filter(event => event.type === 'answer' && event.exercise === 'choice')
     console.log(`\nFill in the blank: ${pct(right(choices), choices.length)} right; the word ${pct(right(choices.filter(c => c.tests === 'word')), choices.filter(c => c.tests === 'word').length)}, its form ${pct(right(choices.filter(c => c.tests === 'form')), choices.filter(c => c.tests === 'form').length)}`)
     for (const choice of choices.filter(c => !c.knew).slice(-8)) console.log(`  chose ${choice.chosen} for ${choice.answer} (${choice.lemma}, ${choice.tests})`)

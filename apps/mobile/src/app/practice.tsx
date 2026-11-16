@@ -19,9 +19,7 @@ import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
 import { noteActivity } from '../lib/tree'
 import type { FormCard, Results, Session, VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
-import { bothForms, constructionsOf, lemmaKey, savedByLemma, savedBySurface } from '../lib/words'
-import { type Hint, hintEvent, hintFor } from '../lib/hints'
-import { quickMeanings } from '../lib/recognition'
+import { bothForms, constructionsOf } from '../lib/words'
 import { Constructions } from '../components/Constructions'
 import { useWordLookup, WordDrawer, type WordLookup } from '../components/WordDrawer'
 import { ensureForms, freshSentences } from '../lib/word-forms'
@@ -170,36 +168,6 @@ export default function Practice() {
   // A word of a card's sentence looked up on its answer side, in the reader's drawer over the
   // card: saving it keeps it for later study and leaves this round as it is.
   const lookup = useWordLookup(session, { onLostError: setError, log: (type, fields) => study.current?.log(type, fields) ?? '' })
-  // Hints on the question side (lib/hints.ts), by position: the words of its sentence tapped for
-  // their meaning before answering, kept while the round goes on so going back shows them again.
-  const [hinted, setHinted] = useState<Record<number, Hint[]>>({})
-  // On an English question side, the Hebrew sentence shown under it with the card's own word left
-  // blank, by position: the first hint, after which its words can be tapped as on a Hebrew one.
-  const [context, setContext] = useState<Record<number, boolean>>({})
-  const showContext = (card: Card) => {
-    if (context[position]) return
-    feel('tick')
-    setContext(current => ({ ...current, [position]: true }))
-    study.current?.log('context', { key: cardKey(card), position })
-  }
-  const giveHint = (card: Card, entry: VocabEntry, form: FormCard, word: string, at: number, front: 'he' | 'en') => {
-    if (!session || (hinted[position] ?? []).some(item => item.at === at)) return
-    const saved = cachedVocab(session) ?? []
-    const found = hintFor(form, entry, word, at, { byLemma: savedByLemma(saved), bySurface: savedBySurface(saved) })
-    // The card's own word gives the answer: that tap turns the card over, as any other does.
-    if (found === 'own') { if (tapped()) { feel('reveal'); turnOver() } return }
-    feel('select')
-    const hint: Hint = found ?? { at, word, en: '', from: 'quick' }
-    const here = position
-    setHinted(current => ({ ...current, [here]: [...(current[here] ?? []), hint] }))
-    const isSaved = !!(hint.lemma ? savedByLemma(saved).get(lemmaKey(hint.lemma)) : savedBySurface(saved).get(lemmaKey(word)))
-    study.current?.log('lookup', hintEvent(hint, { key: cardKey(card), position: here, front }, isSaved))
-    if (found) return
-    // A card written before glosses: the sentence's quick meanings, asked once for the sentence.
-    const words = form.sentence.split(/\s+/).filter(Boolean).map(bareWord)
-    const fill = (en: string) => setHinted(current => ({ ...current, [here]: (current[here] ?? []).map(item => (item.at === at ? { ...item, en } : item)) }))
-    void quickMeanings(form.sentence, words, session.token).then(meanings => fill(meanings[at] || 'no meaning found'), () => fill('couldn’t be looked up'))
-  }
   // How a card is put to the learner: which of its sentences and why (lib/forms.ts sentenceFor),
   // settled from its record before this visit's answer and kept for its place in the round, so
   // neither answering nor a sentence arriving meanwhile changes it; and how it is asked and why
@@ -505,10 +473,6 @@ export default function Practice() {
       ...(choices ? { tests: !form || form.stage === 'meanings' ? 'word' : 'form', options: choices, chosen: chosen ?? null, answer: quiz!.answer } : {}),
       ...presented(shownAs),
       ms: shown ? now - shown.at : null, turnedOver: revealed.current.has(position),
-      // The words of its sentence hinted before answering, by place (lib/hints.ts).
-      hints: (hinted[position] ?? []).map(item => item.at),
-      // On an English question side: whether its Hebrew sentence was shown before answering.
-      ...(englishFirst && !choices ? { context: !!context[position] } : {}),
     })
     // A choice is kept as not unaided, like a primed answer (lib/forms.ts ProgressRules): choosing
     // right can't make a card familiar alone. The event keeps whether it was primed as such.
@@ -561,15 +525,9 @@ export default function Practice() {
 
   // A noun for a person with both forms is heard as both (מַזְכִּיר, מַזְכִּירָה).
   const listen = checkpoint ? undefined : form ? form.sentence : entry.feminine ? `${entry.lemma}, ${entry.feminine}` : entry.lemma
-  // A hint asked for on this card's question side (giveHint).
-  const hintHere = (word: string, at: number) => { if (form) giveHint(card, entry, form, word, at, englishFirst && !choices ? 'en' : 'he') }
-  const contextHere = () => showContext(card)
   const side = (english: boolean, answerSide: boolean) => <ScriptContext.Provider value={answerSide ? 'answers' : 'print'}>
     {form
-      ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={answerSide ? vAnswer : vQuestion} lookup={answerSide ? lookup : undefined}
-        hints={hinted[position] ?? []} tip={Object.keys(answers).length < 3 && !Object.keys(hinted).length}
-        context={!!context[position]} onContext={answerSide || !english || !!choices ? undefined : contextHere}
-        onHint={answerSide || (english && !context[position]) || (!!choices && picked !== null) ? undefined : hintHere} />
+      ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={answerSide ? vAnswer : vQuestion} lookup={answerSide ? lookup : undefined} />
       : <WordSide entry={entry} english={english} answer={answerSide} v={answerSide ? vAnswer : vQuestion} />}
   </ScriptContext.Provider>
   const hint = checkpoint
@@ -781,16 +739,8 @@ const heardOf = (form: FormCard) => form.said || (form.stage === 'meanings' ? fo
 // alone to listen to), the form with the constructions the word is used in, and the translation.
 // On the answer side each word of the sentence can be tapped to look it up (`lookup`); the
 // question side is only turned over by a tap, so a lookup never gives the answer away.
-// On the Hebrew question side, a tap on another word gives a hint (`onHint`, lib/hints.ts): its
-// meaning here, listed under the sentence in the sentence's order, the word underlined; a tap
-// anywhere else, or on the card's own word, turns the card over. The words hinted stay underlined
-// on the answer side, where a tap opens them in the drawer to save. On an English question side
-// the first hint is the Hebrew sentence itself (`onContext`), under the English with the card's
-// own word left blank as in fill in the blank, so the word is still to be recalled; its other
-// words can then be tapped the same way.
-function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, lookup, hints, tip, context, onContext, onHint }: {
+function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, lookup }: {
   entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; hideMark: boolean; v: (text: string) => string; lookup?: WordLookup
-  hints: Hint[]; tip: boolean; context: boolean; onContext?: () => void; onHint?: (word: string, at: number) => void
 }) {
   const he = useHebrew()
   // A word tapped at its place among the sentence's words (`at`): what the card says it means
@@ -803,24 +753,9 @@ function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, l
     void lookup.open({ text: word, sentence: form.sentence, translation: form.translation, card: { meaning: gloss?.en, lemma: gloss?.lemma || undefined, words, at }, context: { key: `${entry.id}:${form.key}`, own } })
   })
   const looked = lookup?.tap?.sentence === form.sentence ? lookup.tap.card?.at : undefined
-  const hinting = onHint && ((word: string, at: number, own: boolean) => { if (!own) onHint(word, at) })
-  const hebrew = <Text style={[practice.sentence, he]}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} onWord={onWord ?? hinting} looked={looked} hinted={hints.map(item => item.at)} /></Text>
+  const hebrew = <Text style={[practice.sentence, he]}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} onWord={onWord} looked={looked} /></Text>
   if (!answerSide) return <>
     {english ? <Text style={practice.english}><Marked text={cuedTranslation(form)} mark={form.enMark} /></Text> : hebrew}
-    {english && context && <View style={practice.context}>
-      <Text style={[practice.sentence, he]}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank onWord={hinting} hinted={hints.map(item => item.at)} /></Text>
-    </View>}
-    {english && !context && !!onContext && <Pressy moment={null} depth={0.95} accessibilityRole="button" accessibilityLabel="Show the Hebrew sentence, with the word left out" onPress={onContext} hitSlop={8} style={practice.contextButton}>
-      <Ionicons name="eye-outline" size={17} color={colors.green} />
-      <Text style={practice.contextLabel}>Hebrew sentence</Text>
-    </Pressy>}
-    {hints.length > 0 && <View style={practice.hints} accessibilityLiveRegion="polite">
-      {[...hints].sort((a, b) => a.at - b.at).map(item => <Text key={item.at} style={practice.hintLine}>
-        <Text style={[practice.hintWord, he]}>{v(item.word)}</Text>  {item.en || '…'}
-      </Text>)}
-    </View>}
-    {/* Said on the first cards of a round until a hint is used. */}
-    {!hints.length && !!onHint && tip && <Text style={practice.hintTip}>Tap another word for its meaning</Text>}
     {/* Fill in the blank: what the whole sentence says, so the choice is the Hebrew that says it
         here. Its English is kept for a word too: with it left out, a related distractor can fit
         the sentence as well (ללטף, לנשק: "began to ___ her hand"), and the question is unfair. */}
@@ -844,8 +779,8 @@ function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, l
 // With `onWord`, a tap on a word looks it up (as written, without its punctuation, with its place
 // among the sentence's words and whether it is the card's own), and the word looked up (by its
 // place, `looked`, so only that one of a word written twice) is shown as selected.
-function MarkedHebrew({ sentence, mark, form, blank, onWord, looked, hinted = [] }: {
-  sentence: string; mark: string; form: string; blank: boolean; onWord?: (word: string, at: number, own: boolean) => void; looked?: number; hinted?: number[]
+function MarkedHebrew({ sentence, mark, form, blank, onWord, looked }: {
+  sentence: string; mark: string; form: string; blank: boolean; onWord?: (word: string, at: number, own: boolean) => void; looked?: number
 }) {
   const formWords = form.split(/\s+/)
   let k = 0
@@ -855,7 +790,7 @@ function MarkedHebrew({ sentence, mark, form, blank, onWord, looked, hinted = []
     if (piece.text && !/^\s+$/.test(piece.text)) at++
     const place = at
     const tap = onWord && word ? { onPress: () => onWord(word, place, piece.marked), suppressHighlighting: true } : {}
-    const selected = !!word && looked === place ? practice.looked : !!word && hinted.includes(place) ? practice.hinted : undefined
+    const selected = !!word && looked === place && practice.looked
     if (!piece.marked) return <Text key={i} {...tap} style={selected}>{piece.text}</Text>
     const own = formWords[k++] ?? ''
     if (blank) return <Text key={i}>{prefixOf(piece.text, own)}<Text style={practice.blank}>{BLANK}</Text></Text>
@@ -999,14 +934,6 @@ const practice = StyleSheet.create({
   blank: { color: colors.green, fontWeight: '700' },
   // A word of the sentence looked up on the answer side.
   looked: { color: colors.green, textDecorationLine: 'underline', textDecorationColor: colors.green },
-  hinted: { textDecorationLine: 'underline', textDecorationStyle: 'dotted', textDecorationColor: colors.muted },
-  hints: { alignSelf: 'stretch', gap: 2, marginTop: 4 },
-  hintLine: { fontSize: 15, lineHeight: 22, color: colors.muted, textAlign: 'center' },
-  hintWord: { fontSize: 17, color: colors.ink },
-  hintTip: { fontSize: 13, color: colors.muted, textAlign: 'center', marginTop: 4 },
-  context: { alignSelf: 'stretch', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, paddingTop: 10, marginTop: 4 },
-  contextButton: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: colors.line, marginTop: 4 },
-  contextLabel: { fontSize: 14, fontWeight: '600', color: colors.green },
   hint: { fontSize: 15, color: colors.muted, textAlign: 'center' },
   option: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   optionRight: { borderColor: colors.green, backgroundColor: colors.lime },
