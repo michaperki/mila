@@ -2,7 +2,7 @@ import type { Handler } from '@netlify/functions'
 import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
 import { getDb } from './lib/mongo'
-import { type Change, exportRows, planImport, TASKS, type TaskEntry, updateFor } from './lib/data-tasks'
+import { type Change, exportBatch, planImport, TASKS, type TaskEntry, updateFor } from './lib/data-tasks'
 import { relevanceOf } from './lib/relevance'
 import { CATEGORIES, LEVELS, REGISTERS, TAXONOMY_VERSION } from './lib/taxonomy'
 
@@ -42,9 +42,10 @@ export const handler: Handler = async (event) => {
       if (!task) return reply(400, { message: 'Choose what to export.' })
       // Rank (for frequency level), worked out as the app's fetch does.
       const entries = relevanceOf((await words()) as never, []) as TaskEntry[]
-      const rows = exportRows(task, entries)
+      // `waiting`: all the words the task works on, of which `rows` is one file's worth.
+      const { rows, waiting } = exportBatch(task, entries)
       return reply(200, {
-        format: 'mila-task', task: query.export, title: task.title, instructions: task.instructions, rows,
+        format: 'mila-task', task: query.export, title: task.title, instructions: task.instructions, rows, waiting,
         ...(query.export === 'classify-v1' ? { taxonomy: { version: TAXONOMY_VERSION, categories: CATEGORIES, registers: REGISTERS, levels: LEVELS } } : {}),
       })
     }

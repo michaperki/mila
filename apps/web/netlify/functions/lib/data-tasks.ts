@@ -1,5 +1,5 @@
 import { lemmaKeyOf, plainOf } from './lemma'
-import { CATEGORIES, LEVELS, REGISTERS, TAXONOMY_VERSION, levelOf } from './taxonomy'
+import { CATEGORY_IDS, LEVELS, REGISTERS, TAXONOMY_VERSION, levelOf, taxonomyGuide } from './taxonomy'
 
 // Export and import of saved words (DATA-1). A task says which words go out, which of their
 // fields go with them (to read), which fields may come back (to change) and how each is checked;
@@ -14,8 +14,11 @@ export type TaskEntry = {
 type Check = (value: unknown) => string | null
 type Task = {
   title: string
-  // Which words go out (all of them, unless the task says).
+  // Which words go out (all of them, unless the task says), and at most how many in one file:
+  // a chat AI answers a few hundred rows reliably, not a thousand, and the next export takes the
+  // words still waiting.
   picks?: (entry: TaskEntry) => boolean
+  batch?: number
   // What goes out for each word, to read.
   row: (entry: TaskEntry) => Record<string, unknown>
   // What may come back, each with what is wrong with a value (null: nothing).
@@ -27,29 +30,34 @@ const example = (entry: TaskEntry) => (entry.encounters || []).map(item => item.
 const hebrew = /[א-ת]/
 const oneOf = (values: readonly string[]): Check => value => (value === null || (typeof value === 'string' && values.includes(value)) ? null : `must be one of ${values.join(', ')}`)
 const PARTS = ['verb', 'noun', 'adjective', 'adverb', 'expression', 'preposition', 'pronoun', 'conjunction', 'interjection', 'name', 'number']
-const categoryIds = Object.keys(CATEGORIES)
+const categoryIds: readonly string[] = CATEGORY_IDS
 
 export const TASKS: Record<string, Task> = {
   'classify-v1': {
     title: 'Organise words by theme, register and level',
+    // The words not yet organised with this version of the taxonomy (new, or classified under an
+    // older one); a word saved since it came gets its themes from its explanation.
+    picks: entry => !entry.archived && entry.taxonomy !== TAXONOMY_VERSION,
+    batch: 150,
     row: entry => ({
       id: entry.id, word: entry.lemma, meaning: entry.gloss, partOfSpeech: entry.partOfSpeech,
       ...(levelOf(entry.rank) ? { frequencyLevel: levelOf(entry.rank) } : {}), example: example(entry),
       ...(entry.categories ? { categories: entry.categories } : {}), ...(entry.register ? { register: entry.register } : {}),
     }),
     fields: {
-      categories: value => (value === null || (Array.isArray(value) && value.length <= 3 && value.every(item => categoryIds.includes(item as string)))
-        ? null : `must be up to three of ${categoryIds.join(', ')}`),
+      categories: value => (value === null || (Array.isArray(value) && value.length <= 3 && new Set(value).size === value.length && value.every(item => categoryIds.includes(item as string)))
+        ? null : `must be up to three different themes of ${categoryIds.join(', ')}`),
       register: oneOf(Object.keys(REGISTERS)),
       level: oneOf(LEVELS),
     },
     instructions: [
-      'These are Hebrew words a learner has saved while reading, each with its meaning, part of speech and an example sentence.',
+      'These are Hebrew words a learner has saved while reading, each with its meaning, part of speech and an example sentence. Some are expressions or patterns ("liable to [verb]") rather than single words.',
       'For each word, return its id and:',
-      `- "categories": one to three of these themes, the ones it most belongs to, or [] if none fits well (don't force one): ${Object.entries(CATEGORIES).map(([id, about]) => `${id} (${about})`).join('; ')}.`,
-      `- "register": one of ${Object.entries(REGISTERS).map(([id, about]) => `${id} (${about})`).join('; ')}.`,
+      '- "categories": the themes it belongs to by meaning, one to three, the main one first, or [] if none fits well (don\'t force one). A verb or an abstract word goes where its meaning does (to whisper: speech; to cope: doing; pride: feelings); grammar is only for words and constructions that work inside a sentence (connectives, quantities, prefixes, patterns).',
+      '- "register": how the word is mostly used.',
       `- "level": only for a word without a frequencyLevel: one of ${LEVELS.join(', ')} (how common it is in Hebrew today).`,
-      'Leave out a field you are unsure of rather than guess. Return only a JSON array: [{"id": "...", "categories": [...], "register": "...", "level": "..."}].',
+      taxonomyGuide(),
+      'Leave out a field you are unsure of rather than guess. Return every word, and only a JSON array: [{"id": "...", "categories": [...], "register": "...", "level": "..."}].',
     ].join('\n'),
   },
   'normalize-v1': {
@@ -75,6 +83,12 @@ export const TASKS: Record<string, Task> = {
 
 // The words a task sends out, as rows to read.
 export const exportRows = (task: Task, entries: TaskEntry[]) => entries.filter(entry => task.picks?.(entry) ?? !entry.archived).map(task.row)
+
+// One file's worth of them, and how many there are in all.
+export function exportBatch(task: Task, entries: TaskEntry[]) {
+  const rows = exportRows(task, entries)
+  return { rows: task.batch ? rows.slice(0, task.batch) : rows, waiting: rows.length }
+}
 
 export type Change = { id: string; lemma: string; field: string; from: unknown; to: unknown }
 export type Plan = { task: string; rows: number; changes: Change[]; unchanged: number; rejected: { id: string; reason: string }[] }
@@ -130,7 +144,8 @@ export function updateFor(changes: Change[]) {
     if (to === null) unset[field] = ''
     else set[field] = to
     if (field === 'lemma') { set.lemmaPlain = plainOf(to as string); set.lemmaKey = lemmaKeyOf(to as string) }
-    if (field === 'categories' && to !== null) set.taxonomy = TAXONOMY_VERSION
+    // Themes say which taxonomy they come from; taking them away takes that too.
+    if (field === 'categories') { if (to === null) unset.taxonomy = ''; else set.taxonomy = TAXONOMY_VERSION }
   }
   return { set, unset }
 }

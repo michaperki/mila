@@ -3,6 +3,7 @@ import { getDb } from './lib/mongo'
 import { verifyAuth } from './lib/auth'
 import type { LearnerEvent } from './lib/learner'
 import { relevanceOf } from './lib/relevance'
+import { organisationOf } from './lib/taxonomy'
 import { lemmaKeyOf } from './lib/lemma'
 
 const handler: Handler = async (event) => {
@@ -42,7 +43,10 @@ const handler: Handler = async (event) => {
       // `encounters` (one per sentence, newest last) instead of replacing the entry's context,
       // so meeting a word again in another book keeps one entry and one practice history.
       // `rank` and `lookedUp` are worked out on every fetch (relevanceOf), never kept.
-      const { encounter, createdAt: _sent, rank: _rank, lookedUp: _lookedUp, ...fields } = payload
+      // Themes and register come from the save's explanation (VOCAB-2) and are kept only where the
+      // word has none yet: an import's, or an earlier save's, stay.
+      const { encounter, createdAt: _sent, rank: _rank, lookedUp: _lookedUp, categories, register, taxonomy: _taxonomy, level: _level, ...fields } = payload
+      const organised = organisationOf({ categories, register })
       if (encounter !== undefined && !(encounter && typeof encounter === 'object' && typeof encounter.context === 'string')) {
         return { statusCode: 400, body: JSON.stringify({ message: 'Invalid encounter' }) }
       }
@@ -72,6 +76,7 @@ const handler: Handler = async (event) => {
         } as never,
         { upsert: true },
       )
+      if (organised) await vocab.updateOne({ userId: auth.userId, id: target, taxonomy: { $exists: false } }, { $set: organised })
       return {
         statusCode: 200,
         body: JSON.stringify({ item: normalizeItem({ ...doc, createdAt }) }),

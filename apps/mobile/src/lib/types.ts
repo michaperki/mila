@@ -28,6 +28,8 @@ export type WordAnalysis = {
   word: string; vocalized: string; meaning: string; parts: { text: string; meaning: string }[]
   lemma: string; lemmaPlain?: string; lemmaMeaning: string; root: string; partOfSpeech: string; gender?: string; feminine?: string; binyan: string; form: string; note: string
   readAs?: string; constructions?: Construction[]; governs?: Governed[]; phrase?: Phrase; excerpt?: { text: string; meaning: string }
+  // The lemma's themes and register among saved words (VOCAB-2; lib/taxonomy.ts), kept with it when it is saved.
+  categories?: string[]; register?: string
 }
 // One way a verb or adjective is built with what follows it, and what it means that way, learned
 // with the word rather than as an expression of its own: `pattern` in full (לְהַזְכִּיר לְמִישֶׁהוּ
@@ -49,7 +51,7 @@ export type Governed = { preposition: string; meaning: string }
 // A fixed expression whose meaning doesn't plainly follow from its words also says how it is
 // built: `literal` what it says word for word ("for the sake of the truth"), `built` its words in
 // dictionary form with what each means in it, and `literalNote` how that comes to mean what it does.
-export type Phrase = { text: string; meaning: string; textMeaning?: string; kind?: string; pattern?: string; examples?: { text: string; meaning: string }[]; words?: string[]; lemma?: string; lemmaPlain?: string; head?: string; headPlain?: string; partOfSpeech?: string; binyan?: string } & Built
+export type Phrase = { text: string; meaning: string; textMeaning?: string; kind?: string; pattern?: string; examples?: { text: string; meaning: string }[]; words?: string[]; lemma?: string; lemmaPlain?: string; head?: string; headPlain?: string; partOfSpeech?: string; binyan?: string; categories?: string[]; register?: string } & Built
 export type Built = { literal?: string; built?: BuiltPart[]; literalNote?: string }
 export type BuiltPart = { lemma: string; lemmaPlain?: string; meaning: string }
 // A saved word is its dictionary form (להדביק, not the הדביק that was tapped): `lemma`, `gloss`
@@ -86,8 +88,9 @@ export type VocabEntry = StarredItem & Built & {
   // common the word is in Hebrew (1 = the most common; none for a word or expression not ranked),
   // and how often it was looked up again after it was saved, and when last.
   rank?: number; lookedUp?: { count: number; last: number }
-  // How it is organised (VOCAB-2), set by an import (functions/lib/data-tasks.ts): up to three
-  // themes, its register, a level where frequency can't place it, and the taxonomy version used.
+  // How it is organised (VOCAB-2, lib/taxonomy.ts): up to three themes, the main one first, its
+  // register, a level where frequency can't place it, and the taxonomy version used. Set by the
+  // explanation it was saved with, or by an import (functions/lib/data-tasks.ts).
   categories?: string[]; register?: string; level?: string; taxonomy?: string
   vocalized?: string; context?: string; contextTranslation?: string; surface?: string
   senses?: string; form?: string; excerpt?: string; excerptTranslation?: string

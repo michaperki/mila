@@ -5,6 +5,7 @@ import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles, TextBut
 import { request } from '../lib/api'
 import type { TaskName } from '../lib/data-export'
 import { rowsIn } from '../lib/import-rows'
+import { CATEGORY_LABELS } from '../lib/taxonomy'
 import { useSession } from '../state/session'
 import { loadVocab } from '../state/vocab'
 
@@ -17,7 +18,8 @@ type Plan = { rows: number; changes: Change[]; unchanged: number; rejected: { id
 type Done = { id: string; task: string; at: number; changes: number; undone: boolean }
 const TASKS: Record<TaskName, string> = { 'classify-v1': 'Organise by theme', 'normalize-v1': 'Fix entries' }
 const FIELDS: Record<string, string> = { categories: 'themes', register: 'register', level: 'level', lemma: 'dictionary form', gloss: 'meaning', partOfSpeech: 'part of speech', archived: 'archived' }
-const shown = (value: unknown) => (value === null || value === undefined ? '—' : Array.isArray(value) ? value.join(', ') || '—' : String(value))
+const shown = (value: unknown) => (value === null || value === undefined ? '—'
+  : Array.isArray(value) ? value.map(item => CATEGORY_LABELS[item as keyof typeof CATEGORY_LABELS] || item).join(', ') || 'none' : String(value))
 
 export default function Import() {
   const { session } = useSession()
@@ -75,6 +77,7 @@ export default function Import() {
         <Text style={{ fontWeight: '600' }}>{change.lemma}</Text> · {FIELDS[change.field] || change.field}: {shown(change.from)} → {shown(change.to)}
       </Text>)}
       {plan.changes.length > 200 && <Text style={styles.copy}>…and {plan.changes.length - 200} more.</Text>}
+      {!!plan.applied && task === 'classify-v1' && <Text style={styles.copy}>To organise the words still waiting, share Words to organise by theme again from Account.</Text>}
       {plan.rejected.map((row, i) => <Text key={`r${i}`} style={[styles.copy, { fontSize: 14, lineHeight: 21, color: colors.red }]}>{row.id}: {row.reason}</Text>)}
       {!plan.applied && plan.changes.length > 0 && <Button title={`Apply ${plan.changes.length} ${plan.changes.length === 1 ? 'change' : 'changes'}`} busy={busy} onPress={() => void send(true)} />}
     </View>}

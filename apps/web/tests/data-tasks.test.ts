@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { exportRows, planImport, TASKS, type TaskEntry, updateFor } from '../netlify/functions/lib/data-tasks'
-import { levelOf, TAXONOMY_VERSION } from '../netlify/functions/lib/taxonomy'
+import { exportBatch, exportRows, planImport, TASKS, type TaskEntry, updateFor } from '../netlify/functions/lib/data-tasks'
+import { levelOf, organisationOf, TAXONOMY_VERSION } from '../netlify/functions/lib/taxonomy'
 
 const words: TaskEntry[] = [
   { id: 'owl', lemma: 'יַנְשׁוּף', lemmaPlain: 'ינשוף', gloss: 'owl', partOfSpeech: 'noun', rank: 9000, encounters: [{ context: 'ינשוף עף' }] },
@@ -16,6 +16,18 @@ describe('export', () => {
     expect(classify[0]).toEqual({ id: 'owl', word: 'יַנְשׁוּף', meaning: 'owl', partOfSpeech: 'noun', frequencyLevel: 'uncommon', example: 'ינשוף עף' })
     expect(exportRows(TASKS['normalize-v1'], words).map(row => row.id)).toEqual(['husband', 'stared'])
     expect(exportRows(TASKS['normalize-v1'], [{ ...words[1], archived: true }])).toEqual([])
+  })
+  it('offers for organising only the words not yet organised with this taxonomy, a file at a time', () => {
+    const organised = [{ ...words[0], categories: ['nature'], taxonomy: TAXONOMY_VERSION }, { ...words[3], categories: ['mind'], taxonomy: 'draft-1' }, { ...words[1], archived: true }]
+    expect(exportRows(TASKS['classify-v1'], organised).map(row => row.id)).toEqual(['stare'])
+    const many = Array.from({ length: 160 }, (_, i) => ({ id: `w${i}`, lemma: 'x' }))
+    expect(exportBatch(TASKS['classify-v1'], many)).toMatchObject({ waiting: 160, rows: { length: 150 } })
+    expect(exportBatch(TASKS['normalize-v1'], words).waiting).toBe(2)
+  })
+  it('keeps only the taxonomy\'s own themes and register', () => {
+    expect(organisationOf({ categories: ['doing', 'bogus', 'doing', 'mind', 'time', 'place'], register: 'formal' })).toEqual({ categories: ['doing', 'mind', 'time'], register: 'formal', taxonomy: TAXONOMY_VERSION })
+    expect(organisationOf({ categories: [], register: '' })).toEqual({ categories: [], taxonomy: TAXONOMY_VERSION })
+    expect(organisationOf({ register: 'formal' })).toBeUndefined()
   })
   it('works out level from frequency', () => {
     expect([levelOf(500), levelOf(2000), levelOf(9000), levelOf(20000), levelOf(undefined)]).toEqual(['core', 'common', 'uncommon', 'rare', undefined])
@@ -41,12 +53,13 @@ describe('import', () => {
     const plan = planImport('classify-v1', [
       { id: 'owl', categories: ['nature'], results: [true, true] },
       { id: 'stare', categories: ['nature', 'mind', 'body', 'feelings'] },
+      { id: 'stared', categories: ['mind', 'mind'] },
       { id: 'stare-x', categories: ['mind'] },
       { id: 'husband', register: 'posh' },
     ], words)
     if ('error' in plan) throw new Error(plan.error)
     expect(plan.changes).toEqual([])
-    expect(plan.rejected.map(row => row.id)).toEqual(['owl', 'stare', 'stare-x', 'husband'])
+    expect(plan.rejected.map(row => row.id)).toEqual(['owl', 'stare', 'stared', 'stare-x', 'husband'])
     expect(plan.rejected[0].reason).toContain("results can't be changed")
     expect(planImport('normalize-v1', [{ id: 'owl', gloss: 'owl', forms: [] }], words)).toMatchObject({ rejected: [{ id: 'owl' }] })
   })
@@ -64,6 +77,7 @@ describe('import', () => {
     expect(updateFor([{ id: 'stared', lemma: '', field: 'lemma', from: 'בהתה חזרה', to: 'לִבְהוֹת חֲזָרָה' }]).set).toEqual({ lemma: 'לִבְהוֹת חֲזָרָה', lemmaPlain: 'לבהות חזרה', lemmaKey: 'לבהות חזרה' })
     expect(updateFor([{ id: 'owl', lemma: '', field: 'categories', from: null, to: ['nature'] }]).set).toEqual({ categories: ['nature'], taxonomy: TAXONOMY_VERSION })
     expect(updateFor([{ id: 'owl', lemma: '', field: 'register', from: 'everyday', to: null }]).unset).toEqual({ register: '' })
+    expect(updateFor([{ id: 'owl', lemma: '', field: 'categories', from: ['nature'], to: null }]).unset).toEqual({ categories: '', taxonomy: '' })
     expect(planImport('classify-v1', {}, words)).toHaveProperty('error')
     expect(planImport('rename-everything', [{ id: 'owl' }], words)).toHaveProperty('error')
   })

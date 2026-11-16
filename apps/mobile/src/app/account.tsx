@@ -71,7 +71,15 @@ export default function Account() {
   const exportData = async (what: 'backup' | TaskName) => {
     if (!session || exporting) return
     setExporting(what); setError(null)
-    try { if (what === 'backup') await shareBackup(session); else await shareTask(session, what) }
+    setVocabStatus(null)
+    try {
+      if (what === 'backup') await shareBackup(session)
+      else {
+        const { sent, waiting } = await shareTask(session, what)
+        setVocabStatus(!sent ? (what === 'classify-v1' ? 'Every word is organised. New words are organised as you save them.' : 'No words need fixing.')
+          : sent < waiting ? `The file has ${sent} of the ${waiting} words waiting. Import the answer, then share again for the next ${Math.min(waiting - sent, sent)}.` : null)
+      }
+    }
     catch (failure) { setError((failure as Error).message) }
     finally { setExporting(null) }
   }
@@ -177,7 +185,7 @@ export default function Account() {
       <Text style={styles.copy}>A backup is everything Mila keeps for you: your words with their cards and practice history, your passages and your study log.</Text>
       <Button secondary title="Back up my data" busy={exporting === 'backup'} onPress={() => void exportData('backup')} />
       <Text style={styles.copy}>To organise or fix your words with ChatGPT or Claude, share a file with them, then paste their answer into Import changes. You see every change before it is made, and nothing you have learned is touched.</Text>
-      <Button secondary title="Words to organise by theme" detail="Draft themes, for trying out" busy={exporting === 'classify-v1'} onPress={() => void exportData('classify-v1')} />
+      <Button secondary title="Words to organise by theme" detail="Those not organised yet, up to 150 at a time" busy={exporting === 'classify-v1'} onPress={() => void exportData('classify-v1')} />
       <Button secondary title="Words saved in the wrong form" busy={exporting === 'normalize-v1'} onPress={() => void exportData('normalize-v1')} />
       <Button secondary title="Import changes" onPress={() => router.push('/import')} />
       {!!vocabStatus && <Text style={styles.copy}>{vocabStatus}</Text>}

@@ -5,7 +5,7 @@ each thing forward. Detailed research lives in the linked docs and commits; this
 to it. Read it before starting product work; update it in the same commit as the work (see
 [Keeping this up to date](#keeping-this-up-to-date)).
 
-Last reviewed: 2026-11-15 (results sync ARCH-3, export/import DATA-1, draft taxonomy VOCAB-2).
+Last reviewed: 2026-11-16 (vocabulary organisation VOCAB-2: taxonomy v1, themes in the word list, themes on save; VOCAB-1 proposals revised).
 
 **Status words**
 - **Done**: shipped and on the phone.
@@ -60,16 +60,14 @@ Learner evidence feeds all three, but they stay separate decisions.
    the automatic behaviour, not as a feature (Mike, 2026-11-15).
 
 **Next** (Mike's order, 2026-11-15)
-3. **Mike reviews** the [12 malformed entries](#vocab-1-the-12-malformed-phrase-entries)
-   proposals and the [draft taxonomy](#vocab-2-categories-level-and-register). Both are ready on
-   the phone (Import changes, Account → Saved words). Nothing is applied without him.
-4. [VOCAB-2](#vocab-2-categories-level-and-register):
-   - revise the taxonomy from the review;
-   - classify the existing words with one export/import in a chat AI (no Claude Code bulk run,
-     no new spend);
-   - then new saves get themes from the explanation they already wait for.
-5. [STUDY-3](#study-3-choosing-which-new-words-come-in) Smarter intake: frequency, reading
-   exposure, learner knowledge and themes (spacing similar words, related clusters).
+3. **Mike reviews and applies** the [12 malformed entries](#vocab-1-the-12-malformed-phrase-entries)
+   proposals (revised 2026-11-16) in Import changes → Fix entries. Nothing is applied without him.
+4. **Mike organises the existing words** ([VOCAB-2](#vocab-2-categories-level-and-register)):
+   share "Words to organise by theme" (150 at a time) with ChatGPT or Claude, preview and import
+   the answer, repeat until none wait (about 4 rounds for 477 words). No Mila AI spend. New saves
+   are organised already.
+5. [STUDY-3](#study-3-choosing-which-new-words-come-in) Smarter intake, starting with spacing
+   themes among a round's new words, once most words are organised.
 6. [LM-5](#lm-5-fsrs-in-shadow-mode) FSRS in shadow mode (approved), then
    [STUDY-2](#study-2-review-intervals-that-grow) review intervals that grow.
 
@@ -282,12 +280,18 @@ being learned come back (STUDY-2), and how their cards are written (LM-4).
   out by the server on each fetch (lib/relevance.ts), never stored. The three queues (met again,
   recent, the rest) still take turns, and 3 new words a round is unchanged. Study's reason line
   says "common word · saved …" or "looked up again".
+- **What VOCAB-2 gives it** (2026-11-16): every organised word has its themes (main first),
+  register and level, read on the phone through `lib/taxonomy.ts` (`themesOf`, `levelOf`).
+  Organisation describes words and never decides by itself; intake reads it as one signal beside
+  frequency, reading exposure and what is known. Proposed first use, small and reversible: no two
+  of a round's new words share a main theme (less interference, more variety), then words of a
+  theme the learner is reading a lot of come a little sooner. Not before most words are organised.
 - Remaining, **exploratory**:
-  - usefulness beyond frequency: register and level (needs VOCAB-2), and spoken vs written
+  - usefulness beyond frequency: register and level (VOCAB-2 has them now), and spoken vs written
     Hebrew (the frequency list is from subtitles);
   - reading relevance: words common in Mike's own reading (lib/exposure.ts counts it) but rare in
     general;
-  - variety: one new word per category per round (needs VOCAB-2);
+  - variety: one new word per category per round (VOCAB-2 has them now; the first use above);
   - related words together (a root family once one is known);
   - a per-word Study soon / Normal / Later / Never control;
   - common words Mike keeps missing in reading, not saved (the profile's "shaky" list): offer
@@ -319,55 +323,67 @@ it's proposed.
 ## Vocabulary
 
 ### VOCAB-1 The 12 malformed phrase entries
-**Ready for Mike's review** (2026-11-15).
+**Ready for Mike to apply** (proposals 2026-11-15, revised 2026-11-16).
 - Proposals, each with its reason, are in [vocab-1-proposals.md](vocab-1-proposals.md):
-  - 7 archived: clauses, and words that only stand together;
-  - 5 corrected to dictionary forms or relabelled.
+  - 6 worth learning, corrected to dictionary forms: fixed pairs and idioms, collocations Mike
+    selected, the conjunction בזמן ש ("while", from the clause בזמן שעמד, archived in the first
+    draft), and קישטא relabelled as an interjection;
+  - 5 malformed (clauses, words that only stand together), archived; each one's useful word is
+    saved on its own.
 
-  Paste them into Import changes (Fix entries) to preview. Nothing is applied until Mike does.
+  Paste the JSON into Import changes (Fix entries) to preview. Nothing is applied until Mike does,
+  and an import can be undone.
 - Studied entries keep their progress, and their stages don't change (phrase and expression
   without a head word study the same).
 
-Earlier: blocked on DATA-1 (the `normalize-v1` import task). Proposed fixes per entry are in the
-2026-11-13 plan. Mike's decisions: archive rather than delete; review each correction before it's
-applied. The dashboard flags them.
+Earlier: blocked on DATA-1 (the `normalize-v1` import task). Mike's decisions: archive rather than
+delete; review each correction before it's applied.
 
 ### VOCAB-2 Categories, level and register
-**Planned, P2.** Agreed direction 2026-11-13; taxonomy to be reviewed before anything is
-classified.
-- Proposal: a two-level taxonomy in code (about 10 domains, with a Language domain for connectives
-  and function words), 1–3 categories per word, level (core, common, uncommon, rare), register
-  (everyday, formal, literary, slang, technical). Stored on each vocab entry.
-- New saves: extra fields in the word explanation (about $0.001 each). Existing words: via DATA-1
-  in a browser AI, not Claude Code.
-- Frequency rank now exists (lib/frequency.ts) and can stand in for level where it's reliable.
-- How it fits (architecture review, 2026-11-15):
-  - Categories and register are stored fields, written for existing words by the DATA-1 import
-    (`classify-v1`) and for new saves by the explanation that saving already waits for, so no new
-    call is added.
-  - Level is computed from `rank` on read, where rank is reliable.
-  - Teaching decisions read these as entry fields (`intakeOrder` spacing categories, VOCAB-3
-    clusters); the writer can be told them through `profileBlock`.
-- **Draft taxonomy, for Mike's review** (2026-11-15, `lib/taxonomy.ts`, version `draft-1`):
-  - drawn from the 477 saved words (mostly from a novel);
-  - 14 broad themes: people, body, appearance, feelings, character, mind (thinking and
-    perceiving), speech (and sounds), movement, home, town (work and getting around), nature
-    (and weather), time, magic (and storytelling), structure (connectives and function words);
-  - 1–3 per word, or none rather than a forced one;
+**Done, first version** (2026-11-16). Existing words wait for Mike to organise them through the
+export/import (no Mila spend); new saves are organised as they are saved.
+- **Taxonomy v1** (`lib/taxonomy.ts`, server; names on the phone in `lib/taxonomy.ts`, checked
+  equal by a test). Revised from draft-1 against the 477 saved words (185 verbs, 133 nouns, 80
+  adjectives, 37 expressions):
+  - 17 broad themes: people, body (and health), feelings, character (and how people treat each
+    other), mind, senses (seeing and light), speech (and sounds), movement, doing (acting,
+    trying, causing, happening), appearance (clothes and looks), home, town (and work), nature,
+    place (position and direction), time, magic (and stories), grammar;
+  - added: `doing`, for the general verbs that had nowhere to go (to cause, to manage, to cope),
+    `senses`, one of the novel's biggest groups (to stare, gleaming, dim, golden), and `place`;
+    `structure` became `grammar`, for connectives, quantities and constructions (liable to
+    [verb], half [X] half [Y]);
+  - themes are topics by meaning, so verbs and abstract words belong where their meaning does; a
+    word takes one to three, the main one first, or none; part of speech still says what kind of
+    word it is (an expression, a pattern);
   - registers: everyday, formal, literary, informal, technical;
-  - level computed from frequency (core ≤1,000, common ≤3,000, uncommon ≤10,000, rare), and set
-    by enrichment only where frequency can't place a word.
+  - level: from frequency rank (core ≤1,000, common ≤3,000, uncommon ≤10,000, rare), set by an
+    import only for words frequency can't place.
+- **Revising it later:** an entry keeps the version that classified it (`taxonomy`). A revision
+  gets a new version, and "Words to organise by theme" then offers the words classified under the
+  older one again. Ids are never renamed once used. No migration.
+- **In the app:**
+  - the word list has a second row of theme pills once words are organised, most words first,
+    with "Not organised" last; it combines with the status pills and search;
+  - a row says "rare" for a rare word, and nothing more, to keep the list quiet;
+  - the word page shows themes, register and level.
+- **Existing words** (Account → Saved words → Words to organise by theme): the words not yet
+  organised with this version, 150 to a file, with instructions and the taxonomy for ChatGPT or
+  Claude; their answer goes into Import changes, which checks every theme against the taxonomy
+  (at most three, no repeats, known ids), previews and applies, and can undo. After each import
+  the next share has the words still waiting.
+- **New saves:** the word explanation the save already waits for also gives the lemma's themes
+  and register (and the expression's, when an expression is saved), so no call is added. The
+  server keeps them only where the word has none yet, so an import's or an earlier save's stay.
+  Cost: about 25 more output tokens and 500 more cached prompt tokens a call, about $0.0006, so
+  about $0.50 a month at today's 800 explanations. The explanation cache moved to v12 (its hit
+  rate is near zero, so nothing is lost).
+- **Not done:** editing a word's themes by hand; level for unranked words from the save (only an
+  import sets it); themes in Study (that is STUDY-3, which reads them as one signal).
 
-  Stored on the entry with the taxonomy version, so a revision reclassifies without a migration.
-  The word page shows themes and register once set.
-- **Next after review:**
-  - revise the draft;
-  - export "Words to organise by theme", run it through a chat AI, and preview and import (a
-    sample first);
-  - then add the fields to the word explanation's schema, so new saves get them with no extra
-    call (a small output increase and a cache-version bump);
-  - then STUDY-3 can space and cluster by theme.
-- Earlier next action: draft the taxonomy for Mike's review.
+Agreed direction (2026-11-13): a taxonomy in code, 1–3 categories per word, level and register
+stored on each entry; new saves through the explanation, existing words through DATA-1 in a
+browser AI, not Claude Code.
 
 ### VOCAB-3 Explore related words
 **Exploratory → planned after VOCAB-2, P3.** Extend the root explorer (`root.tsx`,

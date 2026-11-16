@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
 import { checkDailySpend, recordCacheHit, recordClaude } from './lib/ai-usage'
 import { cachedAnswer, rememberAnswer } from './lib/ai-cache'
+import { CATEGORY_IDS, REGISTERS, taxonomyGuide } from './lib/taxonomy'
 
 // Explains one tapped Hebrew word *in its sentence*: contextual meaning, prefix/suffix
 // breakdown, lemma, root, binyan. Word-by-word machine translation can't do this
@@ -25,8 +26,11 @@ export type WordAnalysis = {
   note: string
   readAs: string
   constructions: Construction[]
-  phrase: { text: string; meaning: string; textMeaning: string; kind: string; pattern: string; examples: { text: string; meaning: string }[]; words: string[]; lemma: string; lemmaPlain: string; head: string; headPlain: string; partOfSpeech: string; binyan: string; literal: string; built: { lemma: string; lemmaPlain: string; meaning: string }[]; literalNote: string }
+  phrase: { text: string; meaning: string; textMeaning: string; categories: string[]; register: string; kind: string; pattern: string; examples: { text: string; meaning: string }[]; words: string[]; lemma: string; lemmaPlain: string; head: string; headPlain: string; partOfSpeech: string; binyan: string; literal: string; built: { lemma: string; lemmaPlain: string; meaning: string }[]; literalNote: string }
   excerpt: { text: string; meaning: string }
+  // How the lemma is organised among saved words (VOCAB-2), so a save brings it with no call of its own.
+  categories: string[]
+  register: string
 }
 
 // One way a verb or adjective is built with what follows it, and what it means that way:
@@ -34,10 +38,14 @@ export type WordAnalysis = {
 // grammatical words (לְ־ … אֶת) and `preposition` whether one is required, optional or none (את only).
 export type Construction = { pattern: string; chip: string; preposition: 'required' | 'optional' | 'none'; meaning: string; short: string; example: string; exampleMeaning: string }
 
+// Themes and register (lib/taxonomy.ts), only the taxonomy's own.
+const categories = { type: 'array', items: { type: 'string', enum: CATEGORY_IDS } } as const
+const register = { type: 'string', enum: ['', ...Object.keys(REGISTERS)] } as const
+
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['word', 'vocalized', 'meaning', 'parts', 'lemma', 'lemmaPlain', 'lemmaMeaning', 'root', 'partOfSpeech', 'gender', 'feminine', 'binyan', 'form', 'note', 'readAs', 'constructions', 'phrase', 'excerpt'],
+  required: ['word', 'vocalized', 'meaning', 'parts', 'lemma', 'lemmaPlain', 'lemmaMeaning', 'root', 'partOfSpeech', 'gender', 'feminine', 'binyan', 'form', 'note', 'readAs', 'constructions', 'phrase', 'excerpt', 'categories', 'register'],
   properties: {
     word: { type: 'string', description: 'The word exactly as given.' },
     vocalized: { type: 'string', description: 'The word with full niqqud as read in this sentence.' },
@@ -81,7 +89,7 @@ const schema = {
       },
     },
     phrase: {
-      type: 'object', additionalProperties: false, required: ['text', 'meaning', 'textMeaning', 'kind', 'pattern', 'examples', 'words', 'lemma', 'lemmaPlain', 'head', 'headPlain', 'partOfSpeech', 'binyan', 'literal', 'built', 'literalNote'],
+      type: 'object', additionalProperties: false, required: ['text', 'meaning', 'textMeaning', 'kind', 'pattern', 'examples', 'words', 'lemma', 'lemmaPlain', 'head', 'headPlain', 'partOfSpeech', 'binyan', 'literal', 'built', 'literalNote', 'categories', 'register'],
       description: 'If the word belongs to a unit in this sentence that a learner has to learn as a unit, that unit; otherwise every field empty. Most words belong to none: when unsure, leave it empty. There are two kinds. Fixed: an idiom or fixed expression whose words all belong to it and whose meaning is more than its words (להעמיד פנים, לשבור את הראש, בסופו של דבר, אין לי מושג), a multi-word name, or a construct chain (סמיכות) with a meaning of its own (בית ספר, עורך דין, ארוחת בוקר). A pattern: a word that, in this use, opens a frame with a place other words fill, and that a learner has to learn together with that frame, because its meaning or its grammar here depends on it: נטול + a noun ("free of"), חסר + a noun ("lacking"), בעל + a noun ("having"), כדי + an infinitive ("in order to"), a verb whose meaning with one preposition is not its meaning otherwise (לעמוד על, "to insist on"; לעבור על, "to go over, to violate"). Not a unit: words that only combine as usual, whatever their grammar: an adjective with its noun (ילד גדול, שמלה אדומה), a construct chain whose meaning adds up its words (ספר המורה, מבחן בחשבון), a verb with an ordinary object or place, and a verb with a preposition it takes in its usual meaning (השתמשתי במחשב, חיכיתי לך, חשבתי על זה): that construction is in "constructions" and the word stays a word.',
       properties: {
         text: { type: 'string', description: 'The stretch of the sentence from the unit\'s first word to its last, exactly as written.' },
@@ -106,6 +114,8 @@ const schema = {
           items: { type: 'object', additionalProperties: false, required: ['lemma', 'lemmaPlain', 'meaning'], properties: { lemma: { type: 'string' }, lemmaPlain: { type: 'string', description: 'Without niqqud, in full spelling.' }, meaning: { type: 'string', description: '1 to 4 English words.' } } },
         },
         literalNote: { type: 'string', description: 'Whenever "literal" is given and only if it helps: one short sentence on how the literal reading comes to mean what the unit means or how it is used ("Introduces an honest admission."). Only what you are certain of; never a guessed history of the expression. Usually empty.' },
+        categories: { ...categories, description: 'As "categories" at the top, for this unit; empty when there is no unit.' },
+        register: { ...register, description: 'As "register" at the top, for this unit; empty when there is no unit.' },
       },
     },
     excerpt: {
@@ -113,12 +123,17 @@ const schema = {
       description: 'For a flashcard: the shortest stretch of the sentence, copied exactly and containing the word, that still shows what the word means here (usually its clause, about 4 to 10 words), and a natural English translation of that stretch. Never cut a phrase the word depends on. Both empty if the sentence is already that short.',
       properties: { text: { type: 'string' }, meaning: { type: 'string' } },
     },
+    categories: { ...categories, description: 'The lemma\'s themes among a learner\'s saved words, by its meaning (see the themes below): one to three, the main one first, or empty if none fits well.' },
+    register: { ...register, description: 'How the lemma is mostly used (see the registers below).' },
   },
 } as const
 
 const SYSTEM = `You are a Hebrew tutor inside a reading app for English-speaking learners. The learner tapped one word in a sentence they photographed. Analyze that word as it is used in that sentence. Text comes from OCR and may have recognition errors or missing niqqud. If the tapped word is misread, say what you read it as in readAs and analyze that word. Grammar claims must be ones you are certain of; leave a field empty rather than guess. Keep every English field short and write it in plain English; quote a Hebrew word only when the point is about that word, and never translate the same thing twice across fields. If the tapped text is not Hebrew, return it unchanged with your best short meaning and empty grammar fields.
 
-The learner may select several words instead of one. Then explain them as one unit: "meaning" is what the words mean together here; "parts" lists each word (with its prefixes) and its meaning here; "lemma" and "lemmaMeaning" are the expression's dictionary form and senses only if it is a fixed expression, otherwise empty; root, binyan and form apply only if one word carries the meaning, otherwise empty; "partOfSpeech" is "phrase"; "readAs" is empty; "phrase" is the unit the selected words make or belong to, as for one word, and here a collocation the learner chose to select also counts as a unit: words Israelis habitually say together that are worth learning as one chunk (לְהַבִּיט שֵׁנִית, לִבְהוֹת חֲזָרָה), given with kind "fixed". Its lemma is its dictionary form as for one word, never the selection as written: a verb as the infinitive, an adjective, participle or noun in the masculine singular, without the prefixes ו, ה, ב, ל, מ, ש, כ unless they are part of the unit, and a possessive that agrees with the subject in the masculine third person (לַעֲלוֹת עַל דַּעְתּוֹ for עלתה על דעתה); its text and words are as written. "phrase" is empty when the selected words don't make a unit: a whole clause, a noun with its ordinary adjectives or possessor, or words that only stand next to each other (ובעלה הכלומניק, איזו אופנה טיפשית חדשה). "excerpt" is as for one word. If the words don't form a unit, still give their combined meaning and say so in "note".`
+The learner may select several words instead of one. Then explain them as one unit: "meaning" is what the words mean together here; "parts" lists each word (with its prefixes) and its meaning here; "lemma" and "lemmaMeaning" are the expression's dictionary form and senses only if it is a fixed expression, otherwise empty; root, binyan and form apply only if one word carries the meaning, otherwise empty; "partOfSpeech" is "phrase"; "readAs" is empty; "phrase" is the unit the selected words make or belong to, as for one word, and here a collocation the learner chose to select also counts as a unit: words Israelis habitually say together that are worth learning as one chunk (לְהַבִּיט שֵׁנִית, לִבְהוֹת חֲזָרָה), given with kind "fixed". Its lemma is its dictionary form as for one word, never the selection as written: a verb as the infinitive, an adjective, participle or noun in the masculine singular, without the prefixes ו, ה, ב, ל, מ, ש, כ unless they are part of the unit, and a possessive that agrees with the subject in the masculine third person (לַעֲלוֹת עַל דַּעְתּוֹ for עלתה על דעתה); its text and words are as written. "phrase" is empty when the selected words don't make a unit: a whole clause, a noun with its ordinary adjectives or possessor, or words that only stand next to each other (ובעלה הכלומניק, איזו אופנה טיפשית חדשה). "excerpt" is as for one word. If the words don't form a unit, still give their combined meaning and say so in "note".
+
+"categories" and "register" organise the learner's saved words: themes are topics to browse by, so a verb or an abstract word goes where its meaning does (to whisper: speech; to cope: doing; pride: feelings), and grammar is only for words and constructions that work inside a sentence.
+${taxonomyGuide()}`
 
 // The model request for one tapped word (or selected words) in its sentence; also used by the
 // phrase evaluation (tests/eval/phrases.eval.ts), so it measures exactly what the app asks.
@@ -158,7 +173,7 @@ export const trustedConstructions = (analysis: WordAnalysis): WordAnalysis => {
 }
 
 // The cache name for this prompt and schema: bump the version when either changes.
-const CACHE_KIND = 'word-analysis-v11'
+const CACHE_KIND = 'word-analysis-v12'
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const cache = new Map<string, WordAnalysis>()
 let client: Anthropic | null = null

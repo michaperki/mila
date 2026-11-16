@@ -16,6 +16,7 @@ import { hasRoot, hasTable, rootOf } from '../lib/explore'
 import { formsIn, isFamiliar, isKnownWord, kindLabel, missingStages, slotLabel, stagesOf, stageState, type StageState, statusOf } from '../lib/forms'
 import { stripNiqqud } from '../lib/ocr-cleanup'
 import type { FormCard, TextDoc } from '../lib/types'
+import { organisationLine } from '../lib/taxonomy'
 import { withVowels } from '../lib/vowels'
 import { ensureForms } from '../lib/word-forms'
 import { bothForms, constructionsOf, encountersOf, expressionsWith, headOf, partsOf, patternLabel, sameId } from '../lib/words'
@@ -116,8 +117,8 @@ export default function Word() {
       {constructions.length > 0 && <View style={{ marginBottom: 4 }}><Constructions items={constructions} v={v} size={17} align="end" /></View>}
       <Text style={word.gloss}>{isolateHebrew(v(entry.gloss))}</Text>
       {!!grammar && <Text style={word.meta}>{isolateHebrew(grammar)}</Text>}
-      {/* Its themes and register, once an import has organised it (VOCAB-2). */}
-      {!!(entry.categories?.length || entry.register) && <Text style={word.meta}>{[...(entry.categories || []), entry.register].filter(Boolean).join(' · ')}</Text>}
+      {/* Its themes, register and how common it is (VOCAB-2, lib/taxonomy.ts). */}
+      {!!organisationLine(entry) && <Text style={word.meta}>{organisationLine(entry)}</Text>}
     </View>
     <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
       <Text style={[word.pill, wordKnown && word.pillDone]}>

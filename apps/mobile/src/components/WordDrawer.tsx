@@ -233,8 +233,12 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
         ...(tapped.source?.() ? { sourceRef: tapped.source() } : {}),
         ...(!asPhrase && found ? { analysis: found } : {}),
       }
+      // Its themes and register, from the explanation already here (VOCAB-2): the server keeps
+      // them only where the word has none yet.
+      const organised = asPhrase ? unit : found
       const entry: VocabEntry & { encounter: Encounter } = {
         id, createdAt: now(), frequency: 1, encounter,
+        ...(Array.isArray(organised?.categories) ? { categories: organised.categories, ...(organised.register ? { register: organised.register } : {}) } : {}),
         ...(asPhrase ? expressionEntry(unit!, found) : {
             lemma: lemmaNow, gloss: found?.lemmaMeaning || meaning,
             ...(found?.lemmaPlain ? { lemmaPlain: found.lemmaPlain } : {}),
@@ -259,7 +263,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       const fields = { ...rest, id: savedId }
       const existing = cachedVocab(session)?.find(item => item.id === savedId)
       const stored: VocabEntry = existing
-        ? { ...existing, ...fields, encounters: [...encountersOf(existing).filter(item => item.context !== encounter.context).reverse(), encounter].slice(-20) }
+        ? { ...existing, ...fields, ...(existing.taxonomy ? { categories: existing.categories, register: existing.register } : {}), encounters: [...encountersOf(existing).filter(item => item.context !== encounter.context).reverse(), encounter].slice(-20) }
         : { ...fields, createdAt: entry.createdAt, encounters: [encounter] }
       // Its practice cards are written when Study is about to bring it in (practice.tsx), or
       // when its page is opened, not on saving: most saved words wait a while to be studied.

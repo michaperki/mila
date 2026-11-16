@@ -10,7 +10,7 @@ import type { Session } from './types'
 // or straight into ChatGPT or Claude. The server makes it (functions/data.ts); the phone adds
 // what hasn't reached the server yet. Nothing here calls an AI.
 export type TaskName = 'classify-v1' | 'normalize-v1'
-type TaskExport = { title: string; instructions: string; rows: unknown[]; taxonomy?: unknown }
+type TaskExport = { title: string; instructions: string; rows: unknown[]; waiting?: number; taxonomy?: unknown }
 
 const day = () => new Date().toISOString().slice(0, 10)
 async function share(name: string, text: string, title: string) {
@@ -29,10 +29,14 @@ export async function shareBackup(session: Session) {
 }
 
 // The words a task works on, with its instructions first: one file to give an AI, whose answer
-// comes back through Import changes. Returns how many words went.
+// comes back through Import changes. A long list goes a file at a time (the server says how many
+// wait in all); the next file has the words still waiting once an answer is imported. Returns how
+// many went, and how many wait.
 export async function shareTask(session: Session, task: TaskName) {
   const found = await request<TaskExport>(`data?export=${task}`, { token: session.token, timeoutMs: 60000 })
+  const waiting = found.waiting ?? found.rows.length
+  if (!found.rows.length) return { sent: 0, waiting }
   const text = `${found.instructions}\n\nThe words (JSON):\n${JSON.stringify(found.rows, null, 1)}\n`
   await share(`mila-${task}-${day()}.txt`, text, found.title)
-  return found.rows.length
+  return { sent: found.rows.length, waiting }
 }

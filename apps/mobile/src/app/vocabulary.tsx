@@ -4,6 +4,7 @@ import { router } from 'expo-router'
 import { AccountGate, Button, colors, ErrorNotice, Loading, Page, Pill, Pressy, styles } from '../components/ui'
 import { countsOf, formsIn, isFamiliar, openStages, statusOf, type Status, studyPool } from '../lib/forms'
 import type { VocabEntry } from '../lib/types'
+import { CATEGORY_LABELS, type Category, inTheme, LEVEL_LABELS, levelOf, themeCounts } from '../lib/taxonomy'
 import { withVowels } from '../lib/vowels'
 import { bothForms, matches } from '../lib/words'
 import { useSession } from '../state/session'
@@ -19,17 +20,21 @@ const FILTERS: { key: Filter; label: string }[] = [
 
 // Your words (opened from Home, under Study): a way into studying, and a compact, searchable list of
 // saved words. A row opens the word's own screen (its forms, progress and where it was met).
+// Once words are organised (VOCAB-2), a second row of pills narrows the list to one theme, the
+// themes with the most words first, and the words not organised yet last.
 export default function Vocabulary() {
   const { session } = useSession()
   // What is already loaded shows at once; every visit refreshes it in the background.
   const { entries, loaded, error, reload } = useVocab(session)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
+  const [theme, setTheme] = useState<Category | 'unsorted' | null>(null)
   const [showVowels] = useVowels()
   const counts = useMemo(() => countsOf(entries), [entries])
   // Where the learner is in their words: those Study has started and those not started yet (lib/forms.ts studyPool).
   const pool = useMemo(() => studyPool(entries), [entries])
-  const visible = useMemo(() => entries.filter(entry => matches(entry, query) && (filter === 'all' || statusOf(entry) === filter)), [entries, query, filter])
+  const themes = useMemo(() => themeCounts(entries), [entries])
+  const visible = useMemo(() => entries.filter(entry => matches(entry, query) && (filter === 'all' || statusOf(entry) === filter) && (!theme || inTheme(entry, theme))), [entries, query, filter, theme])
 
   const empty = !session || (loaded && !error && entries.length === 0)
   return <Page onRefresh={reload}>
@@ -48,6 +53,12 @@ export default function Vocabulary() {
           {FILTERS.map(item => <Pill key={item.key} label={item.label} active={filter === item.key} onPress={() => setFilter(item.key)}
             leading={item.key !== 'all' ? <StatusDot status={item.key} /> : undefined} />)}
         </ScrollView>
+        {themes.themes.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -22, flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 22 }}>
+          <Pill label="All themes" active={!theme} onPress={() => setTheme(null)} />
+          {themes.themes.map(item => <Pill key={item.theme} label={`${CATEGORY_LABELS[item.theme]} ${item.count}`} accessibilityLabel={`${CATEGORY_LABELS[item.theme]}, ${item.count} words`}
+            active={theme === item.theme} onPress={() => setTheme(theme === item.theme ? null : item.theme)} />)}
+          {themes.unsorted > 0 && <Pill label={`Not organised ${themes.unsorted}`} accessibilityLabel={`Not organised yet, ${themes.unsorted} words`} active={theme === 'unsorted'} onPress={() => setTheme(theme === 'unsorted' ? null : 'unsorted')} />}
+        </ScrollView>}
         <View style={[styles.card, { padding: 0, gap: 0, overflow: 'hidden' }]}>
           {visible.length === 0 && <Text style={[styles.copy, { padding: 16 }]}>No words match.</Text>}
           {visible.map((entry, i) => <WordRow key={entry.id} entry={entry} showVowels={showVowels} first={i === 0}
@@ -65,11 +76,13 @@ function WordRow({ entry, showVowels, first, onOpen }: { entry: VocabEntry; show
   const stage = openStages(entry).at(-1)!
   const forms = formsIn(entry, stage.key)
   const progress = forms.length ? `${stage.label} · ${forms.filter(isFamiliar).length} of ${forms.length}` : stage.label
+  // How common it is, only when it is a rare one: the one fact about it worth a glance in a list.
+  const level = levelOf(entry)
   return <Pressy moment={null} depth={0.985} accessibilityRole="button" accessibilityLabel={`${entry.lemma}, ${entry.gloss}`} onPress={onOpen} style={[vocab.row, vocab.rowMain, !first && vocab.divider]}>
     <StatusDot status={statusOf(entry)} />
     <View style={{ flex: 1, gap: 2 }}>
       <Text style={vocab.meaning} numberOfLines={1}>{v(entry.gloss)}</Text>
-      <Text style={vocab.meta} numberOfLines={1}>{[entry.partOfSpeech, progress].filter(Boolean).join(' · ')}</Text>
+      <Text style={vocab.meta} numberOfLines={1}>{[entry.partOfSpeech, level === 'rare' && LEVEL_LABELS.rare, progress].filter(Boolean).join(' · ')}</Text>
     </View>
     <Text style={[vocab.hebrew, he]} numberOfLines={1}>{v(bothForms(entry))}</Text>
   </Pressy>

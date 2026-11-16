@@ -86,6 +86,18 @@ describe('saving a word', () => {
     expect(update.$setOnInsert).toEqual({ createdAt: 5 })
     expect(upsert[2]).toEqual({ upsert: true })
   })
+  it('keeps the explanation\'s themes only where the word has none, and only the taxonomy\'s own', async () => {
+    const encounter = { surface: 'ינשוף', context: 'ינשוף עף', at: 1 }
+    await post({ id: 'native-owl', lemma: 'יַנְשׁוּף', gloss: 'owl', encounter, categories: ['nature', 'nowhere', 'nature'], register: 'posh', taxonomy: 'v0', level: 'rare' })
+    const [, upsert, organise] = updateOne.mock.calls
+    expect(upsert[1].$set).not.toHaveProperty('categories')
+    expect(upsert[1].$set).not.toHaveProperty('level')
+    expect(organise[0]).toEqual({ userId: 'user', id: 'native-owl', taxonomy: { $exists: false } })
+    expect(organise[1]).toEqual({ $set: { categories: ['nature'], taxonomy: 'v1' } })
+    vi.clearAllMocks()
+    await post({ id: 'native-owl', lemma: 'יַנְשׁוּף', gloss: 'owl', encounter })
+    expect(updateOne).toHaveBeenCalledTimes(2)
+  })
   it('rejects a malformed encounter', async () => {
     expect((await post({ id: 'native-x', lemma: 'x', gloss: 'y', encounter: { surface: 'x' } })).statusCode).toBe(400)
     expect(updateOne).not.toHaveBeenCalled()

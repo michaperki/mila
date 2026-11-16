@@ -32,7 +32,7 @@ update it in the same commit. Numbers were measured on 2026-11-15 with `apps/web
 | **Select a sentence** | highlight, English shown | `sentence-glosses`: quick meanings for its words (≈2.7 s, $0.006). Cached for every learner by sentence (`aiCache`): 30% of requests are hits. The next sentence's are fetched once this one's arrive. | No: meanings fill in. |
 | **Tap a word (Reader)** | drawer opens with the quick meaning | `word-analysis`: the full explanation (≈4.4 s, $0.014). Cached by word + sentence, on the phone and in `aiCache`, but almost never repeated (5 hits in 802). **Half of all AI spend.** | Details wait; the quick meaning doesn't. |
 | **Tap a word (Study card)** | the card's own gloss at once | nothing, unless More or Save asks for the explanation | No |
-| **Save a word** | "Saved ✓" at once | waits for the explanation (shared with the tap), then `vocab` POST adds the encounter, with its explanation, to the entry | No (it finishes even if the drawer closes) |
+| **Save a word** | "Saved ✓" at once | waits for the explanation (shared with the tap), then `vocab` POST adds the encounter, with its explanation, to the entry. The explanation also gives the word's themes and register, kept only where the word has none yet | No (it finishes even if the drawer closes) |
 | **Open Study** | the cached words, the saved round, or a new deck (`deckOf`) | `vocab` GET only if nothing is cached. Then, in the background, `word-forms` for the round's words and those coming up next that lack cards (`upcoming`: about 18 started and 6 new), and new sentences (`varyAhead`). | Only when no card is ready at all |
 | **Answer a card** | result recorded locally, next card | the card's whole record goes into the result outbox (`lib/results.ts`, a file on the phone) and is sent at once: `vocab` PATCH, kept by the server only if no older than what it has. A stage it opens has its cards written. Study events are queued on the phone and sent on end, leave or background. | No |
 | **Back up, export for an AI, import** (Account → Saved words) | share sheet; Import changes screen | `data`: a backup of everything kept for the account, or a task's words with instructions (no AI call); an import is checked row by row, previewed, applied, and can be undone (`imports`) | Only for the file or preview |
@@ -43,7 +43,7 @@ update it in the same commit. Numbers were measured on 2026-11-15 with `apps/web
 
 | Feature | Model | Trigger | Calls | Cost | p50 / p90 | Cached how |
 |---|---|---|---|---|---|---|
-| `word` explanation | Opus 5.5, low effort | Reader tap; More/Save on a card | 797 | $11.06 | 4.4 / 6.1 s | prompt cache (system); `aiCache` by word + sentence |
+| `word` explanation | Opus 5.5, low effort | Reader tap; More/Save on a card | 797 | $11.06 | 4.4 / 6.1 s | prompt cache (system); `aiCache` by word + sentence. Since 2026-11-16 it also gives themes and register (about $0.0006 more a call) |
 | `forms` cards | Opus 5.5, low effort | Study writing ahead, a stage opened, word page | 769 | $7.48 | 3.9 / 6.7 s | prompt cache; stored on the word, written once per stage |
 | `glosses` | Opus 5.5 | sentence selected | 317 + 136 hits | $1.91 | 2.7 / 4.1 s | `aiCache` by sentence |
 | `page` | Opus 5.5 | photo | 17 | $0.98 | 16 / 19 s | none (each page is new) |
@@ -63,7 +63,7 @@ update it in the same commit. Numbers were measured on 2026-11-15 with `apps/web
 | Glosses, tables, roots | `aiCache` | yes | as above |
 | Speech clips | the phone's cache directory | no | the clip is missing |
 | Page reads | `texts` | no | never |
-| Organisation (themes, register, level) | on the learner's word (`categories`, `register`, `level`, `taxonomy`), set by an import | no | a new import; `taxonomy` says which version classified it |
+| Organisation (themes, register, level) | on the learner's word (`categories`, `register`, `level`, `taxonomy`), set by the save's explanation or an import; level otherwise from `rank` on the phone | no | an import, or a new taxonomy version (the classify export offers those words again) |
 
 ## Background work: failures, leaving, overlap
 
@@ -105,10 +105,11 @@ update it in the same commit. Numbers were measured on 2026-11-15 with `apps/web
 ## Data in and out
 
 - **Backup:** `data?export=backup` returns everything account deletion would clear (`vocab`, `texts`, `studyEvents`). The phone adds its unsent answers, unsent events and the round in progress.
-- **Task exports:** `data?export=<task>` returns a task's words, with only the fields it reads plus instructions for an AI. Two tasks: `classify-v1` (themes, register, level; taxonomy in `lib/taxonomy.ts`, a draft) and `normalize-v1` (dictionary form, meaning, part of speech, archive). The phone shares it as a file; nothing calls an AI.
+- **Task exports:** `data?export=<task>` returns a task's words, with only the fields it reads plus instructions for an AI. Two tasks: `classify-v1` (themes, register, level; taxonomy v1 in `lib/taxonomy.ts`; only the words not organised with this version, 150 to a file, with `waiting` saying how many in all) and `normalize-v1` (dictionary form, meaning, part of speech, archive). The phone shares it as a file; nothing calls an AI.
 - **Import:** `lib/data-tasks.ts planImport` checks every row once, for both preview and apply. It accepts only the task's fields, with valid values. It ignores read-only fields echoed back. It refuses a whole row that names anything else (results, cards, encounters, checkpoints can never be written), an unknown id, a repeat, or a new dictionary form saved already.
 - **Apply and undo:** applying keeps each field's old value in `imports`. Undo restores a field only where it still holds what the import put there.
 - **Archived words** stay in the database and the backup, but leave the word list and Study. Saving one again from reading brings it back.
+- **Organisation** (VOCAB-2): the taxonomy is defined once on the server (`lib/taxonomy.ts`) and named on the phone (`lib/taxonomy.ts`, checked equal by a test). It describes words; it never decides. The word list filters by it, and teaching decisions that use it (intake, STUDY-3) read it through `themesOf` and `levelOf` as one signal among others.
 
 ## Developer tools
 
