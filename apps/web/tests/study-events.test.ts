@@ -28,11 +28,17 @@ describe('study events', () => {
     insertMany.mockRejectedValueOnce(Object.assign(new Error('down'), { code: 'ECONN' }))
     expect((await post({ events: [event(0)] })).statusCode).toBe(503)
   })
-  it('rejects anything that is not a study event', async () => {
-    expect((await post({ events: [{ ...event(0), type: 'other' }] })).statusCode).toBe(400)
-    expect((await post({ events: [{ ...event(0), seq: -1 }] })).statusCode).toBe(400)
-    expect((await post({ events: [event(0, { note: 'x'.repeat(5000) })] })).statusCode).toBe(400)
+  it('keeps the rest of a batch when an event can\'t be kept, setting that one apart with why', async () => {
+    const response = await post({ events: [event(0), { ...event(1), type: 'other' }, { ...event(2), seq: -1 }, event(3, { note: 'x'.repeat(20_000) }), event(4, { note: 'x'.repeat(5000) })] })
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toEqual({ kept: 2, refused: 3 })
+    const [apart] = insertMany.mock.calls[0]
+    expect(apart.map((item: { problem: string }) => item.problem)).toEqual(['type other', 'seq', expect.stringMatching(/^size /)])
+    expect(insertMany.mock.calls[1][0].map((item: { id: string }) => item.id)).toEqual(['s:0', 's:4'])
+  })
+  it('refuses what isn\'t a batch of events', async () => {
     expect((await post({ events: Array.from({ length: 201 }, (_, i) => event(i)) })).statusCode).toBe(400)
+    expect((await post({ nothing: true })).statusCode).toBe(400)
     expect(insertMany).not.toHaveBeenCalled()
   })
 })
