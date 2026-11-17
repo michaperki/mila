@@ -17,7 +17,7 @@ const handler: Handler = async (event) => {
       const [docs, events, texts] = await Promise.all([
         // Archived words (an import set them aside, DATA-1) stay saved but leave Study and the list.
         vocab.find({ userId: auth.userId, archived: { $ne: true } }).sort({ createdAt: -1 }).toArray(),
-        db.collection('studyEvents').find({ userId: auth.userId, type: { $in: ['lookup', 'answer'] } }).project<LearnerEvent>({ _id: 0, userId: 0, options: 0, results: 0, primed: 0, wordShown: 0, cardShown: 0 }).toArray().catch(() => []),
+        db.collection('studyEvents').find({ userId: auth.userId, type: { $in: ['lookup', 'answer'] } }).project<LearnerEvent>({ _id: 0, userId: 0, options: 0, results: 0, wordShown: 0, cardShown: 0 }).toArray().catch(() => []),
         // The saved passages, for how often each word comes up in what was read (relevanceOf).
         db.collection('texts').find({ userId: auth.userId }).project<TextDoc>({ _id: 0, id: 1, textId: 1, 'chunks.text': 1, furthestSegment: 1, lastSegment: 1 }).toArray().catch(() => []),
       ])
