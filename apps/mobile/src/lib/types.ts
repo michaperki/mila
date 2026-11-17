@@ -92,6 +92,8 @@ export type VocabEntry = StarredItem & Built & {
   // answered in Study (none for words first studied before answers were recorded, 2026-11-05), and
   // how often it comes up in the part of the saved passages read so far, and in how many.
   firstStudied?: number; reading?: { read: number; texts: number }
+  // The word card's memory (lib/memory.ts), worked out by the server from every answer on fetch.
+  memory?: CardMemory
   // How it is organised (VOCAB-2, lib/taxonomy.ts): up to three themes, the main one first, its
   // register, a level where frequency can't place it, and the taxonomy version used. Set by the
   // explanation it was saved with, or by an import (functions/lib/data-tasks.ts).
@@ -115,6 +117,8 @@ export type Encounter = {
 // heard on their own.
 export type FormCard = {
   key: string; stage: string; slot: string; he: string; en: string; sentence: string; mark: string; translation: string
+  // Its memory (lib/memory.ts), worked out by the server from its answers on fetch, never stored.
+  memory?: CardMemory
   // The words of `translation` that render the card's word, marked on English → Hebrew cards.
   enMark?: string; said?: string
   // Who the form is for when its English doesn't say and the Hebrew depends on it (👨 👩 👦 👧
@@ -152,3 +156,8 @@ export type FormVariant = Pick<FormCard, 'he' | 'en' | 'sentence' | 'mark' | 'sa
 // each of those answers was given on (0 its own, n its variant n; -1 not known, before this was
 // kept) and `seen` every sentence it has been answered on (lib/forms.ts sentenceFor).
 export type Results = { results?: boolean[]; primed?: boolean[]; last?: number; on?: number[]; seen?: number[] }
+
+// A card's memory as the server works it out from its answers (FSRS: lib/memory.ts), never stored:
+// stability in days, difficulty 1 to 10, its last answer, how many answers, misses, and how many of
+// those were older results whose time wasn't kept.
+export type CardMemory = { s: number; d: number; last: number; reviews: number; lapses: number; undated: number }

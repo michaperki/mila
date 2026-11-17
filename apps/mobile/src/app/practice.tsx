@@ -27,7 +27,7 @@ import { cardWords, ensureForms, freshSentences } from '../lib/word-forms'
 import { askBeforeResuming, resumeRound, roundToSave } from '../lib/rounds'
 import { clearRound, loadRound, saveRound } from '../lib/saved-round'
 import { fingerprint, sendStudyLog, studySession } from '../lib/study-log'
-import { shadowLog, shadowRanking } from '../lib/scoring'
+import { shadowLog, shadowRanking, unifiedRanking } from '../lib/scoring'
 import { saveResult, sendResults } from '../lib/results'
 import type { ResultBody } from '../lib/result-queue'
 import { appInfo } from '../lib/app-info'
@@ -185,7 +185,7 @@ export default function Practice() {
   // which never changes the round): Learning Insights. Its cards from `from` in the deck.
   const planned = (plan: Plan, from: number, entries: VocabEntry[], include: Include) => {
     let shadow: ReturnType<typeof shadowLog> | null = null
-    try { shadow = shadowLog(shadowRanking(plan, entries, include)) } catch { /* the score is only looked at, never needed */ }
+    try { shadow = shadowLog(shadowRanking(plan, entries, include), unifiedRanking(plan, entries, include)) } catch { /* the score is only looked at, never needed */ }
     study.current?.log('plan', { from, budget: plan.budget, cards: plan.considered.filter(item => item.chosen).map(({ key, slot, rank }) => ({ key, slot, rank })), left: plan.considered.filter(item => !item.chosen).length, ...(shadow ? { shadow } : {}) })
     return plan.cards
   }

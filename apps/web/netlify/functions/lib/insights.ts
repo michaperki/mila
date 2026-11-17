@@ -1,5 +1,6 @@
 import { rankOf } from './frequency.ts'
 import { studyState } from './calibration.ts'
+import { type Memory, retrievability } from './memory.ts'
 import { cardsOfEntry, lemmaKeyOf, parseCardKey, savedFormMatcher, type Evidence, type LearnerEntry, type LearnerEvent, type LearnerState } from './learner.ts'
 
 // Learning Insights (admin only, the app's Account → Learning Insights): what Mila observed of a
@@ -539,7 +540,7 @@ function estimatesChanged(before: LearnerState, after: LearnerState, list: Ev[])
 // One word: what Mila thinks it knows (with every piece of evidence and where it came from), how
 // important the word seems, and what Study's own rules say about when it comes up: three things,
 // kept apart.
-export function wordTrace(id: string, ctx: Context, extra: { exposure?: { read: number; texts: number }; lookedUp?: { count: number; last: number }; predictions: Prediction[] }) {
+export function wordTrace(id: string, ctx: Context, extra: { exposure?: { read: number; texts: number }; lookedUp?: { count: number; last: number }; predictions: Prediction[]; memories?: Map<string, Memory> }) {
   const look = lookups(ctx)
   const entry = look.byId.get(id) ?? look.entryOf(id)
   const state = ctx.stateAt(ctx.now)
@@ -562,7 +563,13 @@ export function wordTrace(id: string, ctx: Context, extra: { exposure?: { read: 
       themes: entry?.categories ?? [], register: entry?.register, level: entry?.level,
     },
     scheduling: entry ? {
-      cards: cardsOfEntry(entry as LearnerEntry).map(card => ({ key: card.key, label: cardLabel(card.key), state: studyState(card.results.results ?? [], card.results.primed ?? []), results: card.results.results ?? [], last: card.results.last ?? null })),
+      cards: cardsOfEntry(entry as LearnerEntry).map(card => {
+        const memory = extra.memories?.get(card.key)
+        return {
+          key: card.key, label: cardLabel(card.key), state: studyState(card.results.results ?? [], card.results.primed ?? []), results: card.results.results ?? [], last: card.results.last ?? null,
+          ...(memory ? { memory: { recall: Math.round(100 * retrievability((ctx.now - memory.last) / 86_400_000, memory.s)) / 100, stability: Math.round(memory.s * 10) / 10, reviews: memory.reviews, undated: memory.undated } } : {}),
+        }
+      }),
       known: entry.known ?? [],
       lastShown: (() => { const shown = [...ctx.events].reverse().find(event => event.type === 'show' && typeof event.key === 'string' && parseCardKey(event.key).wordId === entry.id); return shown ? { at: shown.at, why: shown.why ? plainWhy(shown.why) : null } : null })(),
     } : null,
@@ -576,7 +583,9 @@ export function wordTrace(id: string, ctx: Context, extra: { exposure?: { read: 
 // what happened, range by range and by direction; its confident misses; and where the data itself
 // is unsure.
 const RANGES: [number, number][] = [[0, 0.1], [0.1, 0.25], [0.25, 0.5], [0.5, 0.75], [0.75, 1.01]]
-export function modelChecks(predictions: Prediction[], events: Ev[], entries: InsightEntry[], unpredicted: number) {
+// `memory`: the memory model's expected recall before each answer (lib/memory.ts, FSRS), by answer
+// id, with the days since the card's previous answer.
+export function modelChecks(predictions: Prediction[], events: Ev[], entries: InsightEntry[], unpredicted: number, memory: Map<string, { r: number; days: number; guessed: boolean }> = new Map()) {
   const loss = (p: number, knew: boolean) => -Math.log(Math.min(0.99, Math.max(0.01, knew ? p : 1 - p)))
   const mean = (values: number[]) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0)
   const round = (x: number, by = 1000) => Math.round(x * by) / by
@@ -588,8 +597,26 @@ export function modelChecks(predictions: Prediction[], events: Ev[], entries: In
     const inside = predictions.filter(item => item.channel === channel && item.p >= low && item.p < high)
     return inside.length ? { channel, range: `${Math.round(low * 100)}–${Math.min(100, Math.round(high * 100))}%`, n: inside.length, predicted: round(mean(inside.map(item => item.p)), 100), actual: round(inside.filter(item => item.knew).length / inside.length, 100), card: round(mean(inside.map(item => item.cardSoFar)), 100) } : null
   }).filter((item): item is NonNullable<typeof item> => !!item))
+  // The three on the same answers: those a day or more after the card's previous answer, which is
+  // what the memory model is a model of (same-day repeats it expects to be all but certain), and
+  // only where that previous answer's time was recorded (an older result's date is a guess).
+  const withMemory = predictions.filter(item => (memory.get(item.answer)?.days ?? 0) >= 1 && !memory.get(item.answer)!.guessed)
+  const sameDay = predictions.filter(item => memory.has(item.answer) && memory.get(item.answer)!.days < 1).length
+  const guessed = predictions.filter(item => memory.has(item.answer) && memory.get(item.answer)!.days >= 1 && memory.get(item.answer)!.guessed).length
+  const rOf = (item: Prediction) => memory.get(item.answer)!.r
+  const lossOn = (list: Prediction[], p: (item: Prediction) => number) => (list.length ? round(mean(list.map(item => loss(p(item), item.knew)))) : null)
+  const memoryCalibration = RANGES.map(([low, high]) => {
+    const inside = withMemory.filter(item => rOf(item) >= low && rOf(item) < high)
+    return inside.length ? { range: `${Math.round(low * 100)}–${Math.min(100, Math.round(high * 100))}%`, n: inside.length, predicted: round(mean(inside.map(rOf)), 100), actual: round(inside.filter(item => item.knew).length / inside.length, 100) } : null
+  }).filter((item): item is NonNullable<typeof item> => !!item)
   return {
     shadow: shadowChecks(events),
+    memory: {
+      answers: withMemory.length, sameDay, guessed,
+      loss: { memory: lossOn(withMemory, rOf), model: lossOn(withMemory, item => item.p), card: lossOn(withMemory, item => item.cardSoFar) },
+      calibration: memoryCalibration,
+    },
+    retention: retentionOf(events),
     answers: predictions.length, unpredicted,
     right: predictions.filter(item => item.knew).length,
     expected: round(mean(predictions.map(item => item.p)), 100),
@@ -606,6 +633,28 @@ export function modelChecks(predictions: Prediction[], events: Ev[], entries: In
       { label: 'Study sessions with no recorded end', value: new Set(events.filter(event => event.type === 'start').map(event => event.session)).size - new Set(events.filter(event => event.type === 'end').map(event => event.session)).size },
     ],
   }
+}
+
+// Recall on a later day: unprimed answers on a card answered on an earlier day, by how long since
+// that earlier answer. A baseline for the current scheduler, before any change, to compare with
+// later; not a measure of a scheduler on its own (it chooses when cards come back).
+export function retentionOf(events: Ev[]) {
+  const answers = [...finalAnswers(events)].sort((a, b) => a.at - b.at)
+  const dayOf = (at: number) => Math.floor(at / 86_400_000)
+  const buckets: [string, number, number][] = [['next day', 1, 1], ['2 to 6 days', 2, 6], ['7 days or more', 7, Infinity]]
+  const found = buckets.map(([label]) => ({ label, n: 0, right: 0 }))
+  const byCard = new Map<string, Ev[]>()
+  for (const answer of answers) {
+    const before = byCard.get(answer.key as string) ?? []
+    const earlier = [...before].reverse().find(other => dayOf(other.at) < dayOf(answer.at))
+    if (earlier && !answer.primed) {
+      const gap = dayOf(answer.at) - dayOf(earlier.at)
+      const i = buckets.findIndex(([, low, high]) => gap >= low && gap <= high)
+      if (i >= 0) { found[i].n++; if (answer.knew) found[i].right++ }
+    }
+    byCard.set(answer.key as string, [...before, answer])
+  }
+  return found.map(item => ({ ...item, rate: item.n ? Math.round(100 * item.right / item.n) / 100 : null }))
 }
 
 // The shadow score (mobile lib/scoring.ts) set against what happened after each round was planned:

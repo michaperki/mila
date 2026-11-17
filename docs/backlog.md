@@ -224,7 +224,8 @@ by the app.
     Hebrew. The profile gets more useful as Study history grows.
 
 ### LM-5 FSRS in shadow mode
-**Planned, P2.** Approved as part of Phase 1 (2026-11-14), kept separate from personalization.
+**Started 2026-11-17** (see STUDY-2, Stage 1): FSRS-5 defaults, replayed per card on fetch, in
+Model checks beside the learner model and card history. Before that: **planned, P2.** Approved as part of Phase 1 (2026-11-14), kept separate from personalization.
 Replay the study log through ts-fsrs at default settings and compare its predictions with the
 card-history baseline. No scheduling change. Feeds STUDY-2.
 
@@ -311,6 +312,23 @@ better.
   `firstStudied` (only where every answer was recorded) and `reading` (times met in what was read).
   **Next:** after about a week, review the disagreements; if they look right, order reviews by
   the score (the first behaviour change), keeping the parts of a round and the follow-ups.
+- **Stage 1 of the transition, live 2026-11-17 (shadow only):**
+  - **Memory model** (`lib/memory.ts`, FSRS-5 with its published defaults): every card's answers
+    replayed on each fetch, nothing stored, so a later one-time recalculation has nothing to
+    migrate. Older results without a time are placed before answers were recorded. It is a model
+    of recall over days: compared only on answers a day or more after a recorded answer.
+  - **Unified ranking** (`unifiedRanking`, unified-v0): reviews, reinforcement of words first
+    studied in the last 4 days, familiar checks and new words on one list by value now: usefulness
+    × what practising now adds to recall 30 days on, per card; new words on an assumed path (about
+    6 cards from 20% to 60%). Knowledge, confidence and value are kept apart. Logged with each plan.
+  - Insights: Upcoming → Candidates → Unified; each card's memory on a word's page; Model checks →
+    Memory model (beside the learner model and card history) and Recall on a later day (the
+    baseline before any change).
+  - **First reading** (17/11): on 84 answers including guessed gaps, log loss memory 0.59, learner
+    model 0.70, card history 0.54; its defaults expect more recall than Mike shows (למען 85% vs his
+    31% right). Too few answers after recorded gaps to judge it yet.
+  - **Stage 2 agreed:** 2–3 probe cards a day, in ordinary rounds, replacing cards rather than
+    adding them, to measure recall independently of the scheduler. After reviewing Stage 1.
 - **Later** (from the research): a memory model per card in shadow (LM-5) shown in Upcoming beside
   the due rule; usefulness inside each part of the round; an exploration slot; probe cards at set
   delays and a split by word to judge a new scheduler on later-day recall and lookups in reading,

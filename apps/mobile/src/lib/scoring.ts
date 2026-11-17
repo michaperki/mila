@@ -1,5 +1,6 @@
-import { COMMON_RANK, dueOf, type Include, type Plan, ProgressRules, studyPool } from './forms.ts'
-import type { Results, VocabEntry } from './types'
+import { COMMON_RANK, dueOf, type Include, isKnownWord, type Plan, ProgressRules, stateOf, studyPool } from './forms.ts'
+import { HORIZON, MEMORY_VERSION, practiceNow } from './memory.ts'
+import type { CardMemory, Results, VocabEntry } from './types'
 
 // Study's shadow score (2026-11-17): what a proposed way of prioritizing would put first in each
 // part of a round, beside what Study actually chose (lib/forms.ts planRound), so the two can be
@@ -119,8 +120,96 @@ export function shadowRanking(plan: Plan, entries: VocabEntry[], include: Includ
 
 // What a round's plan logs of the shadow score: the words either would take, and the next few by
 // score, compactly (practice.tsx; read back by insights.ts to set against what happened after).
-export const shadowLog = (candidates: Candidate[]) => ({
+export const shadowLog = (candidates: Candidate[], unified?: Unified) => ({
   v: SCORE_VERSION,
+  ...(unified ? { u: unified.activities.filter(item => item.would || item.rank <= 30).map(item => ({ id: item.wordId, k: item.kind, v: item.value, r: item.knowledge.recall, w: item.would })) } : {}),
   words: candidates.filter(item => item.study.chosen || item.scoreWould || item.scoreRank <= (candidates.filter(other => other.part === item.part && other.study.chosen).length + 5))
     .map(item => ({ id: item.wordId, p: item.part, s: item.score, n: item.parts.need, sr: item.scoreRank, r: item.study.rank, c: item.study.chosen, w: item.scoreWould })),
 })
+
+// The unified shadow ranking (2026-11-17, unified-v0): instead of fixed parts of a round, every
+// thing Study could do next as one list, by its value now. Three things kept apart for each:
+// - knowledge: how likely the word is recalled now (its memory, FSRS: lib/memory.ts; for a word
+//   not started, assumed low: it was saved after being looked up), beside its own answers' rate;
+// - confidence: how much that rests on (answers kept, and how many of them have no time);
+// - value: what practising it now would add to recall a month on (practiceNow), times how useful
+//   the word is, per card it takes.
+// Activities: a review; reinforcing a word first studied in the last few days (the same formula:
+// a new memory gains most from being met again, which is why the word → sentence sequence works);
+// a familiar check (a word whose answered cards are all familiar); a new word, which takes about
+// three cards as it comes in, and is valued by an assumed path: about six cards to bring it from
+// unknown to recalled half the time a month on. The round is filled by value to ProgressRules.
+// roundSize cards, one activity a word, with at least one new word for variety. Study still
+// chooses; this is set beside it.
+export const UNIFIED_VERSION = 'unified-v0'
+const NEW_KNOWN = 0.2 // a saved word not studied yet: likely not known (it was looked up)
+const NEW_LEARNED = 0.6 // ...and where about NEW_CARDS cards of studying bring it, a month on
+const NEW_CARDS = 6
+const NEW_TAKES = 3 // cards a new word takes as it comes in (word card, meaning, present)
+export type ActivityKind = 'review' | 'reinforce' | 'new' | 'check'
+export type Activity = {
+  wordId: string; lemma: string; kind: ActivityKind; card: string; value: number; cards: number; rank: number; would: boolean
+  knowledge: { recall: number; source: 'memory' | 'assumed'; history: number | null; stability: number | null }
+  confidence: { label: 'low' | 'some' | 'good'; answers: number; undated: number }
+  worth: { usefulness: number; reading: number; gain: number }
+  notes: string[]
+  study: { taken: boolean; part: Part | null; why: string | null }
+}
+export type Unified = { activities: Activity[]; would: Record<ActivityKind, number>; study: Record<ActivityKind, number>; cards: number; version: string; memory: string; horizon: number }
+const RECENT_FOR = RECENT_DAYS * DAY
+
+export function unifiedRanking(plan: Plan, entries: VocabEntry[], include: Include, now = Date.now()): Unified {
+  const { unstarted } = studyPool(entries, include, now)
+  const studyOf = new Map<string, { part: Part; why: string; taken: boolean }>()
+  for (const item of plan.considered) {
+    if (item.slot === 'checkpoint' || item.slot === 'shuffled') continue
+    const was = studyOf.get(item.wordId)
+    if (!was || (item.chosen && !was.taken)) studyOf.set(item.wordId, { part: item.slot, why: item.why, taken: item.chosen })
+  }
+  const activities: Omit<Activity, 'rank' | 'would'>[] = []
+  for (const entry of entries) {
+    if (isKnownWord(entry)) continue
+    const cards: { name: string; memory: CardMemory; results: Results }[] = [
+      ...(entry.memory ? [{ name: 'word card', memory: entry.memory, results: entry as Results }] : []),
+      ...(entry.forms || []).filter(form => form.memory).map(form => ({ name: form.stage === 'meanings' ? `meaning ${form.slot.replace('sense', '')}` : `${form.stage}, ${form.slot}`, memory: form.memory!, results: form as Results })),
+    ]
+    const usefulness = usefulnessOf(entry), reading = readingOf(entry)
+    const evidence = evidenceOf(entry)
+    const study = studyOf.get(entry.id)
+    const base = { wordId: entry.id, lemma: entry.lemmaPlain || entry.lemma, study: { taken: !!study?.taken, part: study?.part ?? null, why: study?.why ?? null } }
+    const usefulNotes = [entry.rank ? `${entry.rank <= COMMON_RANK ? 'common' : entry.rank <= 10000 ? 'less common' : 'rare'} #${entry.rank}` : 'not ranked', ...(entry.reading?.read ? [`read ${entry.reading.read}×`] : [])]
+    if (!cards.length) {
+      if (!unstarted.some(item => item.entry.id === entry.id)) continue
+      const gain = (NEW_LEARNED - NEW_KNOWN) / NEW_CARDS
+      activities.push({ ...base, kind: 'new', card: 'word card, then its sentences', value: round2((usefulness + reading) * gain), cards: NEW_TAKES,
+        knowledge: { recall: NEW_KNOWN, source: 'assumed', history: null, stability: null }, confidence: { label: 'low', answers: 0, undated: 0 },
+        worth: { usefulness: round2(usefulness), reading: round2(reading), gain: round2(gain) }, notes: [...usefulNotes, 'not started'] })
+      continue
+    }
+    // The card practising would help most, and what it would add.
+    const best = cards.map(card => ({ ...card, ...practiceNow(card.memory, now) })).sort((a, b) => b.gain - a.gain)[0]
+    const allFamiliar = cards.every(card => !card.results.results?.length || stateOf(card.results) === 'familiar')
+    const kind: ActivityKind = entry.firstStudied && now - entry.firstStudied < RECENT_FOR ? 'reinforce' : allFamiliar ? 'check' : 'review'
+    const undated = cards.reduce((sum, card) => sum + card.memory.undated, 0)
+    const label = evidence.answers < 3 || undated * 2 > evidence.answers ? 'low' : evidence.answers >= 6 ? 'good' : 'some'
+    activities.push({ ...base, kind, card: best.name, value: round2((usefulness + reading) * best.gain), cards: 1,
+      knowledge: { recall: round2(best.r), source: 'memory', history: round2(1 - evidence.need), stability: round2(best.memory.s) },
+      confidence: { label, answers: evidence.answers, undated },
+      worth: { usefulness: round2(usefulness), reading: round2(reading), gain: round2(best.gain) },
+      notes: [...usefulNotes, `recall now ${Math.round(best.r * 100)}%`, `holds ${best.memory.s < 1 ? 'under a day' : `${Math.round(best.memory.s)} days`} at 90%`, `${evidence.right} of ${evidence.answers} right`] })
+  }
+  const ranked = activities.sort((a, b) => b.value - a.value)
+  // Fill a round by value, one activity a word, at least one new word.
+  const budget = ProgressRules.roundSize
+  let used = 0
+  const would = new Set<string>()
+  for (const item of ranked) if (used + item.cards <= budget) { would.add(item.wordId); used += item.cards }
+  if (!ranked.some(item => item.kind === 'new' && would.has(item.wordId))) {
+    const firstNew = ranked.find(item => item.kind === 'new')
+    const lastTaken = [...ranked].reverse().filter(item => would.has(item.wordId) && item.kind !== 'new')
+    if (firstNew) { let freed = 0; for (const item of lastTaken) { if (freed >= firstNew.cards) break; would.delete(item.wordId); freed += item.cards } would.add(firstNew.wordId) }
+  }
+  const out = ranked.map((item, i) => ({ ...item, rank: i + 1, would: would.has(item.wordId) }))
+  const count = (test: (item: Activity) => boolean) => ({ review: 0, reinforce: 0, new: 0, check: 0, ...Object.fromEntries((['review', 'reinforce', 'new', 'check'] as ActivityKind[]).map(kind => [kind, out.filter(item => item.kind === kind && test(item)).length])) }) as Record<ActivityKind, number>
+  return { activities: out, would: count(item => item.would), study: count(item => item.study.taken), cards: out.filter(item => item.would).reduce((sum, item) => sum + item.cards, 0), version: UNIFIED_VERSION, memory: MEMORY_VERSION, horizon: HORIZON }
+}

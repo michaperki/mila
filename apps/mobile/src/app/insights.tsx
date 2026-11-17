@@ -10,7 +10,7 @@ import { ago, type Card, cardName, type Considered, type Include, type Order, ty
 import { getPref } from '../lib/prefs'
 import { loadRound } from '../lib/saved-round'
 import { askBeforeResuming, resumeRound } from '../lib/rounds'
-import { type Candidate, type Part, SCORE_VERSION, shadowRanking } from '../lib/scoring'
+import { type Activity, type ActivityKind, type Candidate, type Part, SCORE_VERSION, shadowRanking, type Unified, unifiedRanking } from '../lib/scoring'
 import { useSession } from '../state/session'
 import { vocabFor } from '../state/vocab'
 
@@ -34,12 +34,13 @@ type Trace = {
   version: string; word: { id?: string; lemma: string; gloss?: string; partOfSpeech?: string; saved: boolean }
   knowledge: { recognition: Estimate; production: Estimate; prior: { recognition: number; production: number }; band: string; answers: number; evidence: (EvidenceLine & { channel: string; sessions: string[] })[] } | null
   importance: { rankText: string; saves: number; lookedUpAgain: number; readTimes: number; readTexts: number; themes: string[]; register?: string; level?: string }
-  scheduling: { cards: { key: string; label: string; state: string; results: boolean[]; last: number | null }[]; known: string[]; lastShown: { at: number; why: string | null } | null } | null
+  scheduling: { cards: { key: string; label: string; state: string; results: boolean[]; last: number | null; memory?: { recall: number; stability: number; reviews: number; undated: number } }[]; known: string[]; lastShown: { at: number; why: string | null } | null } | null
   surprises: Prediction[]; related: { id: string; lemma: string; why: string }[]
 }
 type Calibration = { channel: string; range: string; n: number; predicted: number; actual: number; card: number }
 type ShadowChecks = { version: string; plans: number; words: number; pending: number; need: { label: string; n: number; need: number | null; answered: number; missed: number | null }[]; groups: { label: string; n: number; shown: number | null; answered: number; missed: number | null }[] }
-type Checks = { shadow?: ShadowChecks; version: string; days: number; answers: number; unpredicted: number; right: number; expected: number; rate: number; loss: { model: number; card: number; base: number }; calibration: Calibration[]; surprises: Prediction[]; data: { label: string; value: number; of?: number }[] }
+type MemoryChecks = { answers: number; sameDay?: number; guessed?: number; loss: { memory: number | null; model: number | null; card: number | null }; calibration: { range: string; n: number; predicted: number; actual: number }[] }
+type Checks = { shadow?: ShadowChecks; memory?: MemoryChecks; memoryVersion?: string; retention?: { label: string; n: number; right: number; rate: number | null }[]; version: string; days: number; answers: number; unpredicted: number; right: number; expected: number; rate: number; loss: { model: number; card: number; base: number }; calibration: Calibration[]; surprises: Prediction[]; data: { label: string; value: number; of?: number }[] }
 
 const ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
   play: 'play-outline', plan: 'list-outline', card: 'albums-outline', flip: 'sync-outline', hold: 'hand-left-outline', lookup: 'search-outline', right: 'checkmark-circle-outline', wrong: 'close-circle-outline',
@@ -237,7 +238,10 @@ function WordView({ id }: { id: string }) {
     </View>
     {scheduling && <View style={styles.card}>
       <Text style={styles.heading}>When Study brings it</Text>
-      {scheduling.cards.map(card => <Text key={card.key} style={styles.copy}>{card.label}: {card.state}{card.results.length ? ` · ${card.results.map(knew => (knew ? '✓' : '✗')).join(' ')}` : ''}{card.last ? ` · ${when(card.last)}` : ''}</Text>)}
+      {scheduling.cards.map(card => <View key={card.key} style={{ gap: 1 }}>
+        <Text style={styles.copy}>{card.label}: {card.state}{card.results.length ? ` · ${card.results.map(knew => (knew ? '✓' : '✗')).join(' ')}` : ''}{card.last ? ` · ${when(card.last)}` : ''}</Text>
+        {card.memory && <Text style={small}>Memory model: recall now {pct(card.memory.recall)}, holds {card.memory.stability < 1 ? 'under a day' : `${Math.round(card.memory.stability)} days`} at 90%, from {card.memory.reviews} answers{card.memory.undated ? `, ${card.memory.undated} with a date only` : ''}</Text>}
+      </View>)}
       {scheduling.known.length > 0 && <Text style={styles.copy}>Marked known: {scheduling.known.join(', ')}</Text>}
       <Text style={small}>{scheduling.lastShown ? `Last shown ${when(scheduling.lastShown.at)}: ${scheduling.lastShown.why ?? 'reason not recorded'}` : 'Not shown in Study yet'}. Study’s own rules decide this from the last answers on each card, not the estimates above.</Text>
     </View>}
@@ -283,6 +287,8 @@ function ModelChecks() {
       <Text style={small}>The overall rate is taken from these same answers, so it has a small head start.</Text>
       {data.unpredicted > 0 && <Text style={small}>{data.unpredicted} answers still being worked out: pull to refresh.</Text>}
     </View>
+    {data.memory && <MemoryCard memory={data.memory} version={data.memoryVersion} />}
+    {data.retention && <RetentionCard retention={data.retention} />}
     {data.shadow && <ShadowCard shadow={data.shadow} />}
     <View style={styles.card}>
       <Text style={styles.heading}>Predicted and actual</Text>
@@ -357,7 +363,7 @@ function Upcoming() {
   // from where it was left, as Study rebuilds them (lib/rounds.ts resumeRound), and whether Study
   // will first ask (left over ASK_AFTER ago).
   const [mode, setMode] = useState<'plan' | 'candidates'>('plan')
-  const [view, setView] = useState<{ plan: Plan; candidates: Candidate[]; since: { at: number; lines: string[] } | null; round: { at: number; of: number; next: Card[]; ask: boolean; savedAt: number } | null; include: Include; order: Order } | null>(null)
+  const [view, setView] = useState<{ plan: Plan; candidates: Candidate[]; unified: Unified | null; since: { at: number; lines: string[] } | null; round: { at: number; of: number; next: Card[]; ask: boolean; savedAt: number } | null; include: Include; order: Order } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const load = useCallback(async () => {
@@ -370,7 +376,8 @@ function Upcoming() {
       const resumed = resumeRound(saved, entries)
       const round = resumed && saved ? { at: resumed.position + 1, of: resumed.deck.length, next: resumed.deck.slice(resumed.position), ask: askBeforeResuming(saved), savedAt: saved.savedAt } : null
       const candidates = order === 'smart' ? shadowRanking(plan, entries, include) : []
-      setView({ plan, candidates, include, order, since: before ? { at: before.at, lines: [...changesSince(before, plan), ...scoresSince(before, candidates)] } : null, round })
+      const unified = order === 'smart' ? unifiedRanking(plan, entries, include) : null
+      setView({ plan, candidates, unified, include, order, since: before ? { at: before.at, lines: [...changesSince(before, plan), ...scoresSince(before, candidates)] } : null, round })
       keepLook({
         at: Date.now(), cards: plan.considered.filter(item => item.chosen).map(({ key, lemma, card, slot, rank }) => ({ key, lemma, card, slot, rank })),
         scores: Object.fromEntries(candidates.filter(item => item.part !== 'new' || item.scoreRank <= 30).map(item => [`${item.part}:${item.wordId}`, { lemma: item.lemma, score: item.score }])),
@@ -389,7 +396,7 @@ function Upcoming() {
     <Pill label="Plan" active={mode === 'plan'} onPress={() => setMode('plan')} />
     <Pill label="Candidates" active={mode === 'candidates'} onPress={() => setMode('candidates')} />
   </View>
-  if (mode === 'candidates') return <Page onRefresh={load}>{modes}<Candidates candidates={view.candidates} /></Page>
+  if (mode === 'candidates') return <Page onRefresh={load}>{modes}<Candidates candidates={view.candidates} unified={view.unified} /></Page>
   return <Page onRefresh={load}>
     <ErrorNotice message={error} />
     {modes}
@@ -446,12 +453,17 @@ function Upcoming() {
 // round, beside what Study chose. Compact: one row per word, its score and the few facts behind it;
 // a tap shows the score's parts. The score decides nothing yet.
 const PARTS: [Part, string][] = [['review', 'Reviews'], ['early', 'Not due'], ['new', 'New'], ['familiar', 'Familiar']]
-function Candidates({ candidates }: { candidates: Candidate[] }) {
-  const [part, setPart] = useState<Part>('review')
+function Candidates({ candidates, unified }: { candidates: Candidate[]; unified: Unified | null }) {
+  const [part, setPart] = useState<Part | 'unified'>('unified')
   const [only, setOnly] = useState(false)
   const [all, setAll] = useState(false)
   const [opened, setOpened] = useState<string | null>(null)
   if (!candidates.length) return <Text style={styles.copy}>The shadow score ranks smart-order rounds only.</Text>
+  const pills = <View style={[styles.row, { gap: 6 }]}>
+    <Pill label="Unified" active={part === 'unified'} onPress={() => { setPart('unified'); setAll(false) }} />
+    {PARTS.map(([key, label]) => <Pill key={key} label={`${label} ${candidates.filter(item => item.part === key).length}`} active={part === key} onPress={() => { setPart(key); setAll(false) }} />)}
+  </View>
+  if (part === 'unified') return <>{pills}{unified ? <UnifiedList unified={unified} /> : null}</>
   const inPart = candidates.filter(item => item.part === part)
   const listed = inPart.filter(item => !only || item.disagree)
   const shown = all ? listed : listed.slice(0, 20)
@@ -459,9 +471,7 @@ function Candidates({ candidates }: { candidates: Candidate[] }) {
   const agree = inPart.filter(item => item.study.chosen && item.scoreWould).length
   return <>
     <Text style={small}>Shadow score {SCORE_VERSION}: (usefulness + reading) × timing × need, plus a bonus for words first studied in the last few days and a little for few answers. It ranks the same words Study considered; Study doesn’t use it yet.</Text>
-    <View style={[styles.row, { gap: 6 }]}>
-      {PARTS.map(([key, label]) => <Pill key={key} label={`${label} ${candidates.filter(item => item.part === key).length}`} active={part === key} onPress={() => { setPart(key); setAll(false) }} />)}
-    </View>
+    {pills}
     <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
       <Text style={[small, { flex: 1 }]}>{taken ? `Study takes ${taken}; the score would take ${agree} of the same.` : 'Study takes none of these this round.'}</Text>
       <Pill label="Disagreements" active={only} onPress={() => setOnly(value => !value)} />
@@ -510,5 +520,87 @@ function ShadowCard({ shadow }: { shadow: ShadowChecks }) {
       <Text style={[cell, { flex: 1, textAlign: 'left' }]}>{row.label}</Text><Text style={cell}>{row.n}</Text><Text style={cell}>{row.shown === null ? '–' : pct(row.shown)}</Text><Text style={cell}>{row.answered}</Text><Text style={[cell, { fontWeight: '700' }]}>{row.missed === null ? '–' : pct(row.missed)}</Text>
     </View>)}
     <Text style={small}>Words Study takes are answered in the same round, so they are shown more by construction: compare like with like.</Text>
+  </View>
+}
+
+// Unified: every thing Study could do next on one list, by its value now (lib/scoring.ts
+// unifiedRanking), with the word's knowledge, the confidence in it and the value of practising it
+// now kept apart, and what Study does with the word beside it.
+const KINDS: Record<ActivityKind, string> = { review: 'Review', reinforce: 'Reinforce', new: 'New word', check: 'Check' }
+function UnifiedList({ unified }: { unified: Unified }) {
+  const [only, setOnly] = useState<ActivityKind | null>(null)
+  const [all, setAll] = useState(false)
+  const [opened, setOpened] = useState<string | null>(null)
+  const listed = unified.activities.filter(item => !only || item.kind === only)
+  const shown = all ? listed : listed.slice(0, 25)
+  const kinds = Object.keys(KINDS) as ActivityKind[]
+  return <>
+    <Text style={small}>One list of everything Study could do next, by value now: what practising it would add to recall {unified.horizon} days on (the memory model, {unified.memory}), times how useful the word is, per card. Study doesn’t use it yet.</Text>
+    <View style={[styles.card, { padding: 14, gap: 4 }]}>
+      <View style={{ flexDirection: 'row' }}><Text style={[small, { flex: 1 }]}>A round of {unified.cards} cards</Text><Text style={[small, { width: 64, textAlign: 'right' }]}>Unified</Text><Text style={[small, { width: 64, textAlign: 'right' }]}>Study</Text></View>
+      {kinds.map(kind => <View key={kind} style={{ flexDirection: 'row' }}>
+        <Text style={{ flex: 1, fontSize: 14, color: colors.ink }}>{KINDS[kind]}{kind === 'new' ? ' (3 cards each)' : ''}</Text>
+        <Text style={{ width: 64, textAlign: 'right', fontSize: 14, fontWeight: '700', color: colors.ink }}>{unified.would[kind]}</Text>
+        <Text style={{ width: 64, textAlign: 'right', fontSize: 14, color: colors.ink }}>{unified.study[kind]}</Text>
+      </View>)}
+      <Text style={small}>Words, not cards. Study’s counts are the words its next new round takes.</Text>
+    </View>
+    <View style={[styles.row, { gap: 6 }]}>
+      {kinds.map(kind => <Pill key={kind} label={KINDS[kind]} active={only === kind} onPress={() => { setOnly(current => (current === kind ? null : kind)); setAll(false) }} />)}
+    </View>
+    <View style={[styles.card, { padding: 14, gap: 12 }]}>
+      {shown.map(item => <ActivityRow key={item.wordId} item={item} open={opened === item.wordId} onPress={() => setOpened(current => (current === item.wordId ? null : item.wordId))} />)}
+    </View>
+    {listed.length > shown.length && <TextButton title={`Show all ${listed.length}`} onPress={() => setAll(true)} />}
+  </>
+}
+function ActivityRow({ item, open, onPress }: { item: Activity; open: boolean; onPress: () => void }) {
+  const differs = item.would !== item.study.taken
+  return <Pressy moment="tick" accessibilityRole="button" onPress={onPress} style={{ gap: 2 }}>
+    <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 8 }]}>
+      <Text style={{ fontSize: 15, color: colors.ink, flexShrink: 1 }} numberOfLines={1}><Text style={{ color: colors.muted }}>#{item.rank} {item.would ? '✓' : '·'} </Text><Text style={{ fontWeight: '700' }}>{item.lemma}</Text><Text style={{ color: colors.muted }}> {KINDS[item.kind].toLowerCase()}</Text></Text>
+      <Text style={{ fontSize: 15, fontWeight: '700', color: differs ? colors.red : colors.green }}>{item.value.toFixed(2)}</Text>
+    </View>
+    <Text style={small} numberOfLines={open ? undefined : 1}>Knows: {pct(item.knowledge.recall)} {item.knowledge.source === 'assumed' ? 'assumed' : 'now'}{item.knowledge.history !== null ? `, own answers ${pct(item.knowledge.history)}` : ''} · Confidence: {item.confidence.label}</Text>
+    <Text style={[small, { color: differs ? colors.red : colors.muted }]} numberOfLines={open ? undefined : 1}>{item.would ? 'Unified would take it' : 'Unified would wait'}; Study {item.study.taken ? 'takes it' : item.study.why ? `doesn’t: ${item.study.why}` : 'doesn’t consider it now'}</Text>
+    {open && <View style={{ gap: 2, marginTop: 4, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: colors.lime }}>
+      <Text style={small}>Knowledge: {item.knowledge.source === 'memory' ? `recall now ${pct(item.knowledge.recall)} on its ${item.card}${item.knowledge.stability !== null ? `, which holds ${item.knowledge.stability < 1 ? 'under a day' : `${Math.round(item.knowledge.stability)} days`} at 90%` : ''}` : `assumed ${pct(item.knowledge.recall)}: saved after looking it up, not studied yet`}</Text>
+      <Text style={small}>Confidence: {item.confidence.label}, from {item.confidence.answers} answers{item.confidence.undated ? `, ${item.confidence.undated} with a date only` : ''}</Text>
+      <Text style={small}>Value: (usefulness {item.worth.usefulness.toFixed(2)} + reading {item.worth.reading.toFixed(2)}) × gain {item.worth.gain.toFixed(2)}{item.kind === 'new' ? ' per card, an assumed path to learning it' : ' in recall a month on, if practised now'} = {item.value.toFixed(2)}</Text>
+      <Text style={small}>{item.notes.join(' · ')}</Text>
+      <TextButton title="The word’s evidence" color={colors.green} onPress={() => router.push({ pathname: '/insights', params: { word: item.wordId } })} />
+    </View>}
+  </Pressy>
+}
+
+function MemoryCard({ memory, version }: { memory: MemoryChecks; version?: string }) {
+  const rows: [string, number | null][] = [['Memory model', memory.loss.memory], ['Learner model', memory.loss.model], ['The card’s own history', memory.loss.card]]
+  const values = rows.map(([, value]) => value).filter((value): value is number => value !== null)
+  const best = values.length ? Math.min(...values) : null
+  const cell = { fontSize: 13, color: colors.ink, width: 60, textAlign: 'right' as const }
+  return <View style={styles.card}>
+    <Text style={styles.heading}>Memory model</Text>
+    <Text style={small}>{version ?? 'FSRS'}: recall expected before each answer from the card’s earlier answers and the days since. Compared on the {memory.answers} answers given a day or more after a recorded answer on the same card{memory.sameDay || memory.guessed ? `; left out: ${[memory.sameDay && `${memory.sameDay} the same day (it’s a model of recall over days)`, memory.guessed && `${memory.guessed} after an older result whose date is a guess`].filter(Boolean).join(', ')}` : ''}. Log loss, lower is better:</Text>
+    {rows.map(([label, value]) => <View key={label} style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
+      <Text style={[styles.copy, { flex: 1, fontSize: 15, color: value === best ? colors.green : colors.muted }]}>{label}</Text>
+      <Text style={[styles.copy, { fontSize: 15, color: value === best ? colors.green : colors.ink, fontWeight: value === best ? '700' : '400' }]}>{value === null ? '–' : value.toFixed(3)}</Text>
+    </View>)}
+    <View style={{ flexDirection: 'row' }}><Text style={[small, { flex: 1 }]}>Expected</Text>{['Answers', 'Model', 'Right'].map(label => <Text key={label} style={[small, { width: 60, textAlign: 'right' }]}>{label}</Text>)}</View>
+    {memory.calibration.map(row => <View key={row.range} style={{ flexDirection: 'row' }}>
+      <Text style={[cell, { flex: 1, textAlign: 'left' }]}>{row.range}</Text><Text style={cell}>{row.n}</Text><Text style={cell}>{pct(row.predicted)}</Text>
+      <Text style={[cell, { fontWeight: '700', color: Math.abs(row.actual - row.predicted) > 0.15 && row.n >= 5 ? colors.red : colors.ink }]}>{pct(row.actual)}</Text>
+    </View>)}
+    <Text style={small}>Its settings are the published defaults, fitted on many learners, not on you, so it may expect more than you recall. It knows forgetting over time, which the learner model doesn’t. Too few answers yet to judge it: this fills in as cards come back on later days.</Text>
+  </View>
+}
+
+function RetentionCard({ retention }: { retention: { label: string; n: number; right: number; rate: number | null }[] }) {
+  return <View style={styles.card}>
+    <Text style={styles.heading}>Recall on a later day</Text>
+    <Text style={small}>Answers on a card answered on an earlier day, not just after seeing the word: the baseline for today’s scheduler, to compare with later. Few so far.</Text>
+    {retention.map(row => <View key={row.label} style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
+      <Text style={[styles.copy, { flex: 1, fontSize: 15 }]}>{row.label}</Text>
+      <Text style={[styles.copy, { fontSize: 15, color: colors.ink }]}>{row.rate === null ? '–' : `${pct(row.rate)} of ${row.n}`}</Text>
+    </View>)}
   </View>
 }

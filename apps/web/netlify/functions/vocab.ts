@@ -48,7 +48,7 @@ const handler: Handler = async (event) => {
       // `rank`, `lookedUp`, `firstStudied` and `reading` are worked out on every fetch (relevanceOf), never kept.
       // Themes and register come from the save's explanation (VOCAB-2) and are kept only where the
       // word has none yet: an import's, or an earlier save's, stay.
-      const { encounter, createdAt: _sent, rank: _rank, lookedUp: _lookedUp, firstStudied: _first, reading: _reading, categories, register, taxonomy: _taxonomy, level: _level, ...fields } = payload
+      const { encounter, createdAt: _sent, rank: _rank, lookedUp: _lookedUp, firstStudied: _first, reading: _reading, memory: _memory, categories, register, taxonomy: _taxonomy, level: _level, ...fields } = payload
       const organised = organisationOf({ categories, register })
       if (encounter !== undefined && !(encounter && typeof encounter === 'object' && typeof encounter.context === 'string')) {
         return { statusCode: 400, body: JSON.stringify({ message: 'Invalid encounter' }) }

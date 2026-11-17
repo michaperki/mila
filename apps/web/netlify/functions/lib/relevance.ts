@@ -1,5 +1,6 @@
 import { rankOf } from './frequency.ts'
 import { readingExposure, type TextDoc } from './exposure.ts'
+import { type Memory, memoriesOf } from './memory.ts'
 import { cardsOfEntry, type LearnerEntry, type LearnerEvent, lemmaKeyOf, parseCardKey, savedFormMatcher } from './learner.ts'
 
 // What Study weighs when choosing which saved words come in next (apps/mobile/src/lib/forms.ts
@@ -10,7 +11,8 @@ import { cardsOfEntry, type LearnerEntry, type LearnerEvent, lemmaKeyOf, parseCa
 // Study's shadow score (mobile lib/scoring.ts), when given: `firstStudied`, when the word was first
 // answered in Study (its first recorded answer; none for a word studied before answers were
 // recorded, on 2026-11-05, which its cards' kept results show), and `reading`, how often it comes up in the part of the saved passages
-// read so far and in how many (lib/exposure.ts), counted only where it does.
+// read so far and in how many (lib/exposure.ts), counted only where it does; and each card's
+// `memory` (lib/memory.ts, FSRS), on the word for its word card and on each form card.
 const SAVED_GRACE = 60_000
 export function relevanceOf<T extends object>(docs: T[], lookups: LearnerEvent[], { answers, texts }: { answers?: LearnerEvent[]; texts?: TextDoc[] } = {}) {
   const entries = docs as unknown as LearnerEntry[]
@@ -38,6 +40,8 @@ export function relevanceOf<T extends object>(docs: T[], lookups: LearnerEvent[]
   // recorded: when its word was first studied isn't known, only that it was earlier.
   const studiedBefore = (entry: LearnerEntry) => cardsOfEntry(entry).some(card => (card.results.results?.length ?? 0) > (recorded.get(card.key) ?? 0))
   const exposure = texts?.length ? readingExposure(texts, entries).words : null
+  const memories = answers ? memoriesOf(entries, answers).memories : null
+  const round = (memory?: Memory) => (memory ? { memory: { s: Math.round(memory.s * 100) / 100, d: Math.round(memory.d * 100) / 100, last: memory.last, reviews: memory.reviews, lapses: memory.lapses, undated: memory.undated } } : {})
   return docs.map((doc, i) => {
     const entry = entries[i]
     const rank = rankOf(entry.lemmaPlain || entry.lemma, ...(entry.encounters || []).map(met => met.surface))
@@ -46,6 +50,8 @@ export function relevanceOf<T extends object>(docs: T[], lookups: LearnerEvent[]
     return {
       ...doc, ...(rank ? { rank } : {}), ...(again ? { lookedUp: { count: again.places.size, last: again.last } } : {}),
       ...(first.has(entry.id) && !studiedBefore(entry) ? { firstStudied: first.get(entry.id) } : {}), ...(read?.read ? { reading: { read: read.read, texts: read.texts } } : {}),
+      ...(memories ? round(memories.get(`${entry.id}:word`)) : {}),
+      ...(memories && entry.forms ? { forms: (doc as { forms?: object[] }).forms?.map((form, j) => ({ ...form, ...round(memories.get(`${entry.id}:${entry.forms![j].key}`)) })) } : {}),
     }
   })
 }

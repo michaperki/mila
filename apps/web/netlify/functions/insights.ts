@@ -5,6 +5,7 @@ import { getDb } from './lib/mongo'
 import { isAdmin } from './lib/ai-usage'
 import { earlierResults, learnerState, lemmaKeyOf, levelFromSaves, MODEL_VERSION, type LearnerEntry, type LearnerState } from './lib/learner'
 import { readingExposure } from './lib/exposure'
+import { MEMORY_VERSION, memoriesOf } from './lib/memory'
 import { relevanceOf } from './lib/relevance'
 import { finalAnswers, INSIGHTS_VERSION, modelChecks, predictionFor, sessionsOf, sessionStory, wordTrace, type Context, type Ev, type InsightEntry, type Prediction, type TextDoc } from './lib/insights'
 
@@ -117,14 +118,16 @@ export const handler: Handler = async (event) => {
       const key = lemmaKeyOf(entry ? entry.lemmaPlain || entry.lemma : id)
       const exposure = readingExposure(texts as never, learnerEntries).words.get(key)
       const lookedUp = entry ? (relevanceOf([entry], events.filter(item => item.type === 'lookup' || item.type === 'explained')) as { lookedUp?: { count: number; last: number } }[])[0]?.lookedUp : undefined
-      const trace = wordTrace(id, ctx, { exposure, lookedUp, predictions: [...kept.values()].filter((item): item is Prediction => !!item) })
+      const trace = wordTrace(id, ctx, { exposure, lookedUp, predictions: [...kept.values()].filter((item): item is Prediction => !!item), memories: memoriesOf(learnerEntries, events).memories })
       return trace ? reply(200, { version: VERSION, ...trace }) : reply(404, { message: 'No such word.' })
     }
     const days = Math.min(365, Number(query.days) || 30)
     const recent = ordered.filter(answer => answer.at > now - days * DAY)
     const { kept, missing } = await predictions(recent)
     const made = recent.map(answer => kept.get(answer.id)).filter((item): item is Prediction => !!item)
-    return reply(200, { version: VERSION, days, ...modelChecks(made, events, entries, missing) })
+    // The memory model's expected recall before each answer (FSRS), from every answer and kept result.
+    const memory = memoriesOf(learnerEntries, events).expected
+    return reply(200, { version: VERSION, memoryVersion: MEMORY_VERSION, days, ...modelChecks(made, events, entries, missing, memory) })
   } catch (error) {
     const status = (error as { statusCode?: number }).statusCode
     if (status === 401) return reply(401, { message: 'Your session has expired. Please sign in again.', requestId })
