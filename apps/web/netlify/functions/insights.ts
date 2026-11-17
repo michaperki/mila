@@ -94,7 +94,9 @@ export const handler: Handler = async (event) => {
     }
 
     if (query.session) {
-      const mine = ordered.filter(answer => answer.session === query.session)
+      // One session, or reading sessions on the same passage told as one (ids joined by +).
+      const ids = new Set(query.session.split('+'))
+      const mine = ordered.filter(answer => ids.has(answer.session))
       const { kept } = await predictions(mine)
       const ctx: Context = { events, entries, texts: textsById, now, stateAt, predict: answer => kept.get(answer.id) ?? null }
       const story = sessionStory(query.session, ctx)

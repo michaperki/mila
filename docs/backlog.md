@@ -125,6 +125,17 @@ told event by event, one word, model checks. Read-only; nothing in it changes St
   `common-save` (a saved word in the 3,000 most common: what Study did about it),
   `help-gap` (help with a common word not saved), `met-in-reading` (saved words in the sentences
   read, kept as exposure, never as knowing).
+- **insights-v0.2** (2026-11-17, after Mike's review): plain words for Study's codes and card slots;
+  every lookup, hint or answer the model didn't count says why; one word chip per card; a card's
+  times from one rounding (question side + answer side = time on the card); card history as
+  "33% from 1 answer" or "no answers yet, 50% by default"; late arrival said once per session, red
+  only when a Study session started without the events; "hints asked"; reading sessions on the
+  same passage within 10 minutes told as one visit; how a round ended in words; a constant
+  baseline and a calibration table by direction in Model checks; evidence with its side said once
+  and "date only, no time" for older results.
+- **Sync stall found and fixed** (2026-11-17): three `context` events left on the phone by the
+  reverted hint version (16/11) made the server refuse every batch from 16/11 06:27 UTC. Batches
+  now keep valid events and set the rest apart (`studyEventsRefused`).
 - **Not yet:** reading exposure from `view` in the model or insights beyond counting; pages linked
   into books; what Study considered and didn't choose; the UX candidates (a swipe for the card's
   word only, expression units, "missed" marks), to decide from this data.
