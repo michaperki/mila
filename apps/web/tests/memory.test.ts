@@ -26,4 +26,16 @@ describe('memory model (FSRS-5, default parameters)', () => {
     // Older results come from before the first recorded answer: a day or more before it, not minutes.
     expect(expected.get('s:0')!.days).toBeGreaterThanOrEqual(1)
   })
+  it('takes a right answer just after seeing the word as an exposure, not a recall', () => {
+    const primedFirst = replay([{ at: t, knew: true, primed: true }]).memory!
+    const recalledFirst = replay([{ at: t, knew: true }]).memory!
+    expect(primedFirst.s).toBe(W[0])
+    expect(recalledFirst.s).toBe(W[2])
+    const after = replay([{ at: t, knew: true }, { at: t + 60_000, knew: true, primed: true }]).memory!
+    expect(after.s).toBe(recalledFirst.s)
+    expect(after.last).toBe(t)
+    expect(after.primed).toBe(1)
+    // A miss just after seeing the word is a lapse like any other.
+    expect(replay([{ at: t, knew: true }, { at: t + 3 * DAY, knew: false, primed: true }]).memory!.s).toBeLessThan(recalledFirst.s)
+  })
 })

@@ -86,3 +86,23 @@ test('the unified ranking puts every activity on one list by value, knowledge an
   assert.ok(unified.activities.some(item => item.kind === 'new' && item.would))
   assert.ok(unified.cards <= 18)
 })
+
+test('a unified round: its cards in play, a new word early, one card a word, said so in each card’s reason', async () => {
+  const { planUnified } = await import('../src/lib/scoring.ts')
+  const { cardKey } = await import('../src/lib/forms.ts')
+  const mem = (s: number, daysAgo: number) => ({ s, d: 5, last: now - daysAgo * DAY, reviews: 3, lapses: 1, undated: 0 })
+  const learning = Array.from({ length: 20 }, (_, i) => word(`w${i}`, { rank: 300 + i * 500, results: [true, false], last: at(2 + i % 5), memory: mem(1 + i % 4, 2 + i % 5),
+    forms: [form('meanings:sense1', { results: [false], last: at(2), memory: mem(1, 2) }), form('meanings:sense2')] }))
+  const fresh = Array.from({ length: 4 }, (_, i) => word(`n${i}`, { createdAt: 100 + i, rank: 200 + i }))
+  const entries = [...learning, ...fresh]
+  const plan = planUnified(entries, { include: 'both' }, now)
+  const keys = plan.cards.map(cardKey)
+  assert.equal(new Set(plan.cards.filter(card => !card.checkpoint).map(card => card.entry.id)).size, plan.cards.filter(card => !card.checkpoint).length)
+  assert.ok(plan.cards.every(card => card.why?.startsWith('unified') || card.checkpoint))
+  const firstNew = plan.cards.findIndex(card => card.entry.id.startsWith('n'))
+  assert.ok(firstNew >= 0 && firstNew < plan.cards.length / 2)
+  // A met word whose best card is its word card is practised in a sentence not yet answered.
+  assert.ok(keys.some(key => key.endsWith(':meanings:sense2')) || keys.some(key => key.endsWith(':meanings:sense1')))
+  assert.ok(plan.budget[0].startsWith('Unified order (experimental)'))
+  assert.ok(plan.considered.some(item => !item.chosen))
+})

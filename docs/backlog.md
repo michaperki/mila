@@ -327,6 +327,15 @@ better.
   - **First reading** (17/11): on 84 answers including guessed gaps, log loss memory 0.59, learner
     model 0.70, card history 0.54; its defaults expect more recall than Mike shows (למען 85% vs his
     31% right). Too few answers after recorded gaps to judge it yet.
+  - **Priming in the memory model** (2026-11-17): a right answer just after seeing the word is an
+    exposure, not a recall (it no longer starts a meaning card at three days); a primed miss is a
+    lapse. On the 7 fair answers so far, log loss went from 0.59 to 0.53 (learner model 0.56, card
+    history 0.45). The due rule of standard Study still counts primed answers as before.
+  - **Unified order as an opt-in experiment** (2026-11-17): Study → Settings → Try → Plan rounds
+    by: Standard / Unified (`planUnified`). Unified takes the unified ranking's activities by value,
+    one card each (a met word's word card becomes a sentence not yet answered), new words early,
+    and keeps the word → sentence sequence, spacing, checkpoints and how cards are asked. Each
+    plan logs its `planner`; Upcoming plans by the chosen one. Standard stays the default.
   - **Stage 2 agreed:** 2–3 probe cards a day, in ordinary rounds, replacing cards rather than
     adding them, to measure recall independently of the scheduler. After reviewing Stage 1.
 - **Later** (from the research): a memory model per card in shadow (LM-5) shown in Upcoming beside

@@ -7,10 +7,11 @@ import { colors, ErrorNotice, Loading, Page, Pill, Pressy, styles, TextButton } 
 import { request } from '../lib/api'
 import { sendingState, sendStudyLog } from '../lib/study-log'
 import { ago, type Card, cardName, type Considered, type Include, type Order, type Plan, planRound, type Slot } from '../lib/forms'
+import type { Planner } from '../lib/prefs'
 import { getPref } from '../lib/prefs'
 import { loadRound } from '../lib/saved-round'
 import { askBeforeResuming, resumeRound } from '../lib/rounds'
-import { type Activity, type ActivityKind, type Candidate, type Part, SCORE_VERSION, shadowRanking, type Unified, unifiedRanking } from '../lib/scoring'
+import { type Activity, type ActivityKind, type Candidate, type Part, planUnified, SCORE_VERSION, shadowRanking, type Unified, unifiedRanking } from '../lib/scoring'
 import { useSession } from '../state/session'
 import { vocabFor } from '../state/vocab'
 
@@ -363,21 +364,24 @@ function Upcoming() {
   // from where it was left, as Study rebuilds them (lib/rounds.ts resumeRound), and whether Study
   // will first ask (left over ASK_AFTER ago).
   const [mode, setMode] = useState<'plan' | 'candidates'>('plan')
-  const [view, setView] = useState<{ plan: Plan; candidates: Candidate[]; unified: Unified | null; since: { at: number; lines: string[] } | null; round: { at: number; of: number; next: Card[]; ask: boolean; savedAt: number } | null; include: Include; order: Order } | null>(null)
+  const [view, setView] = useState<{ plan: Plan; planner: Planner; candidates: Candidate[]; unified: Unified | null; since: { at: number; lines: string[] } | null; round: { at: number; of: number; next: Card[]; ask: boolean; savedAt: number } | null; include: Include; order: Order } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const load = useCallback(async () => {
     if (!session) return
     try {
-      const [entries, include, order] = await Promise.all([vocabFor(session), getPref('studyCards'), getPref('studyOrder')])
-      const plan = planRound(entries, { include, order })
+      const [entries, include, order, planner] = await Promise.all([vocabFor(session), getPref('studyCards'), getPref('studyOrder'), getPref('studyPlanner')])
+      // The round as Study would plan it now, by the planner chosen in Study's settings; the shadow
+      // rankings are always set beside Study's standard plan.
+      const standard = planRound(entries, { include, order })
+      const plan = order === 'smart' && planner === 'unified' ? planUnified(entries, { include }) : standard
       const before = readLook()
       const saved = loadRound(session.user.id)
       const resumed = resumeRound(saved, entries)
       const round = resumed && saved ? { at: resumed.position + 1, of: resumed.deck.length, next: resumed.deck.slice(resumed.position), ask: askBeforeResuming(saved), savedAt: saved.savedAt } : null
-      const candidates = order === 'smart' ? shadowRanking(plan, entries, include) : []
-      const unified = order === 'smart' ? unifiedRanking(plan, entries, include) : null
-      setView({ plan, candidates, unified, include, order, since: before ? { at: before.at, lines: [...changesSince(before, plan), ...scoresSince(before, candidates)] } : null, round })
+      const candidates = order === 'smart' ? shadowRanking(standard, entries, include) : []
+      const unified = order === 'smart' ? unifiedRanking(standard, entries, include) : null
+      setView({ plan, planner, candidates, unified, include, order, since: before ? { at: before.at, lines: [...changesSince(before, plan), ...scoresSince(before, candidates)] } : null, round })
       keepLook({
         at: Date.now(), cards: plan.considered.filter(item => item.chosen).map(({ key, lemma, card, slot, rank }) => ({ key, lemma, card, slot, rank })),
         scores: Object.fromEntries(candidates.filter(item => item.part !== 'new' || item.scoreRank <= 30).map(item => [`${item.part}:${item.wordId}`, { lemma: item.lemma, score: item.score }])),
@@ -411,7 +415,7 @@ function Upcoming() {
       </Pressy>)}
       {view.round.next.length > 12 && <Text style={small}>…and {view.round.next.length - 12} more. Answers can bring a word’s next cards in behind it.</Text>}
     </View> : <Text style={small}>No round in progress: Study starts with the round below.</Text>}
-    <Text style={small}>{view.round ? 'After that, a' : 'A'} new round, as Study would plan it now ({view.order === 'smart' ? 'smart order' : 'shuffled'}, {view.include === 'both' ? 'words and sentences' : view.include}), by the same planner Study uses.</Text>
+    <Text style={small}>{view.round ? 'After that, a' : 'A'} new round, as Study would plan it now ({view.order === 'shuffle' ? 'shuffled' : view.planner === 'unified' ? 'Unified order, the experiment chosen in Study’s settings' : 'smart order'}, {view.include === 'both' ? 'words and sentences' : view.include}), by the same planner Study uses.</Text>
     <View style={styles.card}>
       <Text style={styles.heading}>{view.round ? 'The next new round: how it’s divided' : 'How the round is divided'}</Text>
       {plan.budget.map((line, i) => <Text key={i} style={[styles.copy, { fontSize: 15, lineHeight: 22 }]}>{line}</Text>)}

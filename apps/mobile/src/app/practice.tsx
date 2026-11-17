@@ -15,7 +15,7 @@ import { tableFor } from '../lib/explore-requests'
 import { ago, assess, type Card, planRound, type Plan, cardKey, type ChoiceMode, checkpointGroup, exerciseOf, freshCards, freshPicks, freshRound, justAfterItsWord, onSentence, type Sentence, sentenceFor, shownForm, wantsSentence, writerOf, checkpointRecord, cuedTranslation, exposureOf, firstSense, followUps, type Include, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
-import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
+import { type Front, getPref, noteStudyDay, type Planner, setPref } from '../lib/prefs'
 import { noteActivity } from '../lib/tree'
 import type { FormCard, Results, Session, VocabEntry } from '../lib/types'
 import { withVowels } from '../lib/vowels'
@@ -27,7 +27,7 @@ import { cardWords, ensureForms, freshSentences } from '../lib/word-forms'
 import { askBeforeResuming, resumeRound, roundToSave } from '../lib/rounds'
 import { clearRound, loadRound, saveRound } from '../lib/saved-round'
 import { fingerprint, sendStudyLog, studySession } from '../lib/study-log'
-import { shadowLog, shadowRanking, unifiedRanking } from '../lib/scoring'
+import { planUnified, shadowLog, shadowRanking, unifiedRanking } from '../lib/scoring'
 import { saveResult, sendResults } from '../lib/results'
 import type { ResultBody } from '../lib/result-queue'
 import { appInfo } from '../lib/app-info'
@@ -37,7 +37,7 @@ import { useVowels } from '../state/vowels'
 import { ScriptContext, useCursive, useHebrew } from '../state/script'
 
 const bare = (text: string) => stripNiqqud(bareWord(text))
-type Settings = { front: Front; order: Order; include: Include; choices: ChoiceMode }
+type Settings = { front: Front; order: Order; include: Include; choices: ChoiceMode; planner: Planner }
 const CHOICES: Record<ChoiceMode, string> = { some: 'Sometimes', all: 'Always', off: 'Off' }
 // How long a filled-in blank stays to show how it went before the next card: enough to see the
 // right answer, longer beside a wrong one.
@@ -52,6 +52,11 @@ const wrongPause = (form: FormCard | null) => Math.min(5000, 2500 + 25 * ((form?
 const FRONTS: Record<Front, string> = { he: 'Hebrew first', en: 'English first', mixed: 'Mixed' }
 const INCLUDES: Record<Include, string> = { both: 'Words & sentences', words: 'Words', sentences: 'Sentences' }
 const ORDERS: Record<Order, string> = { smart: 'Smart', shuffle: 'Shuffled' }
+const PLANNERS: Record<Planner, string> = { standard: 'Standard', unified: 'Unified' }
+// A round as the chosen planner makes it: smart order by Study's standard rules or, as an experiment,
+// by the unified ranking (lib/scoring.ts planUnified); shuffled is always shuffled.
+const planFor = (entries: VocabEntry[], settings: Settings, now = Date.now(), seed = String(now)) =>
+  (settings.order === 'smart' && settings.planner === 'unified' ? planUnified(entries, settings, now) : planRound(entries, settings, now, seed))
 const SHOW_FIRST: Record<Front, string> = { he: 'Hebrew', en: 'English', mixed: 'Mixed' }
 // A word's table of forms for its checkpoints, or why it couldn't be had.
 type Loaded = Table | { error: string }
@@ -183,10 +188,11 @@ export default function Practice() {
   // A round as Mila planned it (lib/forms.ts planRound), logged with how it was divided, each
   // card's part of the round and rank in it, and the shadow score's ranking beside it (lib/scoring.ts,
   // which never changes the round): Learning Insights. Its cards from `from` in the deck.
-  const planned = (plan: Plan, from: number, entries: VocabEntry[], include: Include) => {
+  // `planner`: which planner made the round (Study → Settings → Try), so rounds can be told apart.
+  const planned = (plan: Plan, from: number, entries: VocabEntry[], { include, order, planner }: Settings) => {
     let shadow: ReturnType<typeof shadowLog> | null = null
     try { shadow = shadowLog(shadowRanking(plan, entries, include), unifiedRanking(plan, entries, include)) } catch { /* the score is only looked at, never needed */ }
-    study.current?.log('plan', { from, budget: plan.budget, cards: plan.considered.filter(item => item.chosen).map(({ key, slot, rank }) => ({ key, slot, rank })), left: plan.considered.filter(item => !item.chosen).length, ...(shadow ? { shadow } : {}) })
+    study.current?.log('plan', { from, planner: order === 'smart' ? planner : 'shuffle', budget: plan.budget, cards: plan.considered.filter(item => item.chosen).map(({ key, slot, rank }) => ({ key, slot, rank })), left: plan.considered.filter(item => !item.chosen).length, ...(shadow ? { shadow } : {}) })
     return plan.cards
   }
   const seen = useRef<Seen[]>([])
@@ -307,9 +313,9 @@ export default function Practice() {
     let current = true
     void (async () => {
       try {
-        const [front, order, include, quiz, picked] = await Promise.all([getPref('studyFront'), getPref('studyOrder'), getPref('studyCards'), getPref('studyQuiz'), getPref('studyChoices')])
+        const [front, order, include, quiz, picked, planner] = await Promise.all([getPref('studyFront'), getPref('studyOrder'), getPref('studyCards'), getPref('studyQuiz'), getPref('studyChoices'), getPref('studyPlanner')])
         // Quiz forms switched on before fill in the blank had a setting of its own is Always.
-        const chosen: Settings = { front, order, include, choices: quiz ? 'all' : picked }
+        const chosen: Settings = { front, order, include, choices: quiz ? 'all' : picked, planner }
         // The saved words already loaded if there are any, so studying opens at once.
         const entries = await vocabFor(session)
         if (!current) return
@@ -321,7 +327,7 @@ export default function Practice() {
         // waits for the learner to say whether to go on with it.
         const saved = loadRound(session.user.id)
         const resumed = resumeRound(saved, entries)
-        let cards = resumed ? resumed.deck : planned(planRound(entries, chosen), 0, entries, chosen.include)
+        let cards = resumed ? resumed.deck : planned(planFor(entries, chosen), 0, entries, chosen)
         // Its words, and the next a round will draw on, get the cards of their open stages
         // written now. Studying starts with what is ready; only if nothing is does it wait.
         const preparing = prepareAhead(cards, entries, chosen.include)
@@ -336,7 +342,7 @@ export default function Practice() {
         if (!cards.length && entries.length) {
           const written = new Map((await preparing).map(entry => [entry.id, entry]))
           const latest = entries.map(entry => written.get(entry.id) ?? entry)
-          cards = planned(planRound(latest, chosen), 0, latest, chosen.include)
+          cards = planned(planFor(latest, chosen), 0, latest, chosen)
         }
         if (current) setDeck(cards)
       } catch (failure) { if (current) setError((failure as Error).message) }
@@ -419,7 +425,7 @@ export default function Practice() {
   // Another round, from the latest copy of each word (its order reflects what was just studied).
   const newRound = () => {
     stopAdvancing()
-    const again = planned(planRound(Object.values(words), settings, Date.now(), `${Date.now()}`), deck.length, Object.values(words), settings.include)
+    const again = planned(planFor(Object.values(words), settings, Date.now(), `${Date.now()}`), deck.length, Object.values(words), settings)
     // Don't show the card just studied twice in a row.
     const last = deck[deck.length - 1]
     if (again.length > 1 && last && cardKey(again[0]) === cardKey(last)) again.push(again.shift()!)
@@ -503,15 +509,16 @@ export default function Practice() {
     if (patch.order) setPref('studyOrder', patch.order)
     if (patch.include) setPref('studyCards', patch.include)
     if (patch.choices) { setPref('studyChoices', patch.choices); setPref('studyQuiz', false) }
-    if (patch.order || patch.include) {
+    if (patch.planner) setPref('studyPlanner', patch.planner)
+    if (patch.order || patch.include || patch.planner) {
       const here = deck[position]
-      const rest = planned(planRound(Object.values(words), updated, Date.now(), `${Date.now()}`), position + 1, Object.values(words), updated.include).filter(card => !here || cardKey(card) !== cardKey(here))
+      const rest = planned(planFor(Object.values(words), updated, Date.now(), `${Date.now()}`), position + 1, Object.values(words), updated).filter(card => !here || cardKey(card) !== cardKey(here))
       void prepareAhead(rest, Object.values(words), updated.include)
       setDeck([...deck.slice(0, position + 1), ...rest])
     }
   }
 
-  const summary = freshNow ? `New sentences · ${new Set(deck.slice(roundStart).map(item => item.entry.id)).size} words you’re learning` : [FRONTS[settings.front], settings.order === 'shuffle' ? 'Shuffled' : 'Smart order', INCLUDES[settings.include],
+  const summary = freshNow ? `New sentences · ${new Set(deck.slice(roundStart).map(item => item.entry.id)).size} words you’re learning` : [FRONTS[settings.front], settings.order === 'shuffle' ? 'Shuffled' : settings.planner === 'unified' ? 'Unified order' : 'Smart order', INCLUDES[settings.include],
     settings.choices === 'all' && 'Fill in the blank', cursiveAnswers && 'Answers in כתב יד'].filter(Boolean).join(' · ')
   const sheet = settingsOpen && <SettingsSheet settings={settings} change={change} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)} onClose={() => setSettingsOpen(false)} onFresh={() => void newSentences()} />
 
@@ -772,6 +779,8 @@ function SettingsSheet({ settings, change, cursive, onCursive, onClose, onFresh 
           <Text style={practice.settingDetail}>Mila writes sentences you haven’t seen for up to six words you’re learning, using the words you know and those you’ve looked up lately. Your answers count as usual, and the new sentences come back in ordinary Study.</Text>
         </View>
       </Pressy>
+      <Choice label="Plan rounds by" options={PLANNERS} value={settings.planner} onChange={planner => change({ planner })} />
+      <Text style={practice.settingDetail}>Experimental. Unified picks each round’s words by what practising them now would add to what you remember a month on, times how useful they are, across reviews, words met lately and new words, instead of Study’s fixed parts. The cards and how they’re asked are as usual. Learning Insights → Upcoming shows why.</Text>
       <Text style={practice.group}>Display</Text>
       <Toggle label="Answers in כתב יד" detail="Cursive on the answer side; questions stay in print" value={cursive} onChange={onCursive} />
     </DraggableSheet>

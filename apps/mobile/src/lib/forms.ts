@@ -362,6 +362,16 @@ export function byDue(started: VocabEntry[], now = Date.now()) {
   return { due, early }
 }
 
+// A word's cards in play for a round: its word card (unless studying sentences only), and its form
+// cards already answered and its next new ones (those only once the word is met, unless studying
+// sentences only, when a word not met still shows its meanings).
+export function cardsInPlay(entry: VocabEntry, include: Include): Card[] {
+  const deeper = include === 'sentences' || isMet(entry) ? newCards(entry) : []
+  return [
+    ...(include === 'sentences' ? [] : [{ entry, form: null }]),
+    ...(include === 'words' ? [] : [...activeForms(entry).filter(form => !!form.results?.length), ...deeper].map(form => ({ entry, form }))),
+  ]
+}
 // A card in words: "word card", "meaning 1", "Present, m. singular", "Past checkpoint".
 export const cardName = (card: Card) => (card.checkpoint ? `${stageLabel(card.entry, card.checkpoint)} checkpoint` : card.form ? (card.form.stage === 'meanings' ? slotLabel(card.entry, card.form) : `${stageLabel(card.entry, card.form.stage)}, ${slotLabel(card.entry, card.form)}`) : 'word card')
 // A round as planned, with every card it considered and why it did or didn't take it (Learning
@@ -390,11 +400,7 @@ export const deckOf = (entries: VocabEntry[], settings: { include: Include; orde
   planRound(entries, settings, now, seed).cards
 export function planRound(entries: VocabEntry[], { include, order }: { include: Include; order: Order }, now = Date.now(), seed = String(now)): Plan {
   const studied = entries.filter(entry => !isKnownWord(entry))
-  const deeper = (entry: VocabEntry) => (include === 'sentences' || isMet(entry) ? newCards(entry) : [])
-  const cardsOf = (entry: VocabEntry): Card[] => [
-    ...(include === 'sentences' ? [] : [{ entry, form: null }]),
-    ...(include === 'words' ? [] : [...activeForms(entry).filter(form => !!form.results?.length), ...deeper(entry)].map(form => ({ entry, form }))),
-  ]
+  const cardsOf = (entry: VocabEntry) => cardsInPlay(entry, include)
   const checkpointsOf = (entry: VocabEntry): Card[] => include !== 'both' ? []
     : checkpointStages(entry, now).map(stage => ({ entry, form: null, checkpoint: stage, why: `checkpoint · ${stageLabel(entry, stage)} is familiar, not yet ready` }))
   const considered: Considered[] = []
@@ -575,7 +581,7 @@ export function ago(at: number, now = Date.now()) {
 }
 // `extra` spread evenly through `cards`, the first of them after `first` of the gap between them
 // (1: a whole gap in; 0.5: half, so it comes sooner).
-function mix<T>(cards: T[], extra: T[], first = 1): T[] {
+export function mix<T>(cards: T[], extra: T[], first = 1): T[] {
   if (!extra.length) return cards
   if (!cards.length) return extra
   const out: T[] = []

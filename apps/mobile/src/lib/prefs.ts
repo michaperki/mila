@@ -17,16 +17,19 @@ export type EnglishMode = 'tap' | 'all' | 'off'
 // The bonsai (lib/tree.ts): tree, the tree last shown on Home (JSON, with whose it is);
 // treePending, activity not yet sent (JSON); treeMotion, whether it sways in the wind.
 export type Front = 'he' | 'en' | 'mixed'
+// studyPlanner: how a smart-order round is planned: Study's standard rules, or the unified ranking
+// by value now (lib/scoring.ts planUnified), an experiment chosen in Study → Settings → Try.
+export type Planner = 'standard' | 'unified'
 export const TEXT_SIZES = [0.85, 1, 1.15, 1.3, 1.5]
 type Prefs = {
   livePreview: boolean; english: EnglishMode; showNiqqud: boolean; sounds: boolean; haptics: boolean; voice: 'sarah' | 'charon'; speechRate: string; textSize: string; readerHint: boolean
-  studyFront: Front; studyOrder: Order; studyCards: Include; studyQuiz: boolean; studyChoices: 'some' | 'all' | 'off'; studyWhy: boolean; holdTip: boolean
+  studyFront: Front; studyOrder: Order; studyCards: Include; studyQuiz: boolean; studyChoices: 'some' | 'all' | 'off'; studyWhy: boolean; holdTip: boolean; studyPlanner: Planner
   studyDays: string; lastRead: string; tableEnglish: boolean
   tree: string; treePending: string; treeMotion: boolean; readerCursive: boolean; answerCursive: boolean
 }
 const defaults: Prefs = {
   livePreview: false, english: 'tap', showNiqqud: true, sounds: true, haptics: true, voice: 'sarah', speechRate: '1', textSize: '1', readerHint: true,
-  studyFront: 'he', studyOrder: 'smart', studyCards: 'both', studyQuiz: false, studyChoices: 'some', studyWhy: false, holdTip: true,
+  studyFront: 'he', studyOrder: 'smart', studyCards: 'both', studyQuiz: false, studyChoices: 'some', studyWhy: false, holdTip: true, studyPlanner: 'standard',
   studyDays: '', lastRead: '', tableEnglish: true,
   tree: '', treePending: '', treeMotion: true, readerCursive: false, answerCursive: true,
 }

@@ -6,8 +6,13 @@ import { earlierResults, type LearnerEntry, type LearnerEvent } from './learner.
 // replayed in order: `stability` is how many days until recall would fall to 90% (how slowly the
 // card is forgotten), `difficulty` 1 to 10, and recall now follows from stability and the days
 // since the last answer (retrievability). A right answer is graded Good, a miss Again: a swipe is
-// the learner's own call, so the model sees no shades. Answers just after seeing the word (primed)
-// are same-day reviews, which FSRS-5 gives only a short-term effect.
+// the learner's own call, so the model sees no shades.
+// An answer just after seeing the word (primed: in a learning sequence, or a card of the word shown
+// moments before, lib/forms.ts isPrimed) shows only that it was just seen: right, it is an exposure,
+// not a recall, and leaves the card's memory as it was (a card's first answer, if primed and right,
+// starts it as weakly as a miss would); wrong, it is a lapse like any other (missing a word just
+// seen says a lot). Counted in `primed`. Before 2026-11-17 a primed right answer counted as a full
+// review: a meaning card answered right straight after its word card started out lasting three days.
 //
 // Nothing is stored: it is worked out from the evidence on every fetch (vocab.ts relevanceOf), so a
 // better model, or a recalculation of every card's schedule, runs on the same history with nothing
@@ -29,7 +34,7 @@ const DECAY = -0.5
 const FACTOR = 19 / 81
 const DAY = 86_400_000
 
-export type Memory = { s: number; d: number; last: number; reviews: number; lapses: number; undated: number }
+export type Memory = { s: number; d: number; last: number; reviews: number; lapses: number; undated: number; primed: number }
 export const retrievability = (days: number, stability: number) => (1 + FACTOR * Math.max(0, days) / stability) ** DECAY
 const clampD = (d: number) => Math.min(10, Math.max(1, d))
 const initialD = (grade: number) => clampD(W[4] - Math.exp(W[5] * (grade - 1)) + 1)
@@ -45,7 +50,7 @@ export function review(memory: Pick<Memory, 's' | 'd'> | null, grade: 1 | 3, day
   return { s: s * (Math.exp(W[8]) * (11 - d) * s ** -W[9] * (Math.exp(W[10] * (1 - r)) - 1) + 1), d: next }
 }
 
-type Review = { at: number; knew: boolean; id?: string; undated?: boolean }
+type Review = { at: number; knew: boolean; id?: string; undated?: boolean; primed?: boolean }
 // A card's reviews replayed: its memory after the last, and before each recorded answer what the
 // model expected (recall then), for checking it against what happened.
 export function replay(reviews: Review[]) {
@@ -57,8 +62,13 @@ export function replay(reviews: Review[]) {
     const days = before ? (item.at - before.last) / DAY : 0
     if (before && item.id) expected.push({ id: item.id, at: item.at, r: retrievability(days, before.s), days, guessed: previousUndated })
     previousUndated = !!item.undated
-    const next = review(before, item.knew ? 3 : 1, days)
-    memory = { ...next, last: item.at, reviews: (before?.reviews ?? 0) + 1, lapses: (before?.lapses ?? 0) + (item.knew ? 0 : 1), undated: (before?.undated ?? 0) + (item.undated ? 1 : 0) }
+    const counts = { reviews: (before?.reviews ?? 0) + 1, lapses: (before?.lapses ?? 0) + (item.knew ? 0 : 1), undated: (before?.undated ?? 0) + (item.undated ? 1 : 0), primed: (before?.primed ?? 0) + (item.primed ? 1 : 0) }
+    if (item.primed && item.knew) {
+      // Seen, not recalled: the memory stays as it was (or starts as weakly as a miss would).
+      memory = before ? { ...before, ...counts } : { s: W[0], d: initialD(3), last: item.at, ...counts }
+    } else {
+      memory = { ...review(before, item.knew ? 3 : 1, days), last: item.at, ...counts }
+    }
   }
   return { memory, expected }
 }
@@ -69,7 +79,7 @@ export function memoriesOf(entries: LearnerEntry[], answers: LearnerEvent[]) {
   const final = new Map<string, LearnerEvent>()
   for (const answer of answers) if (answer.type === 'answer' && typeof answer.key === 'string') final.set(`${answer.session}:${answer.position}:${answer.key}`, answer)
   const byKey = new Map<string, Review[]>()
-  for (const answer of final.values()) (byKey.get(answer.key as string) ?? byKey.set(answer.key as string, []).get(answer.key as string)!).push({ at: answer.at, knew: !!answer.knew, id: String(answer.id) })
+  for (const answer of final.values()) (byKey.get(answer.key as string) ?? byKey.set(answer.key as string, []).get(answer.key as string)!).push({ at: answer.at, knew: !!answer.knew, id: String(answer.id), primed: !!answer.primed })
   const recordedAt = new Map([...byKey].map(([key, list]) => [key, list.map(item => item.at)]))
   const firstRecorded = Math.min(...[...final.values()].map(answer => answer.at))
   for (const [key, before] of earlierResults(entries, recordedAt)) {

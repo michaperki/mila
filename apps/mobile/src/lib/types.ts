@@ -158,6 +158,7 @@ export type FormVariant = Pick<FormCard, 'he' | 'en' | 'sentence' | 'mark' | 'sa
 export type Results = { results?: boolean[]; primed?: boolean[]; last?: number; on?: number[]; seen?: number[] }
 
 // A card's memory as the server works it out from its answers (FSRS: lib/memory.ts), never stored:
-// stability in days, difficulty 1 to 10, its last answer, how many answers, misses, and how many of
-// those were older results whose time wasn't kept.
-export type CardMemory = { s: number; d: number; last: number; reviews: number; lapses: number; undated: number }
+// stability in days, difficulty 1 to 10, its last answer, how many answers, misses, how many of
+// those were older results whose time wasn't kept, and how many were just after seeing the word
+// (primed, which a right answer doesn't strengthen).
+export type CardMemory = { s: number; d: number; last: number; reviews: number; lapses: number; undated: number; primed?: number }

@@ -41,7 +41,7 @@ export function relevanceOf<T extends object>(docs: T[], lookups: LearnerEvent[]
   const studiedBefore = (entry: LearnerEntry) => cardsOfEntry(entry).some(card => (card.results.results?.length ?? 0) > (recorded.get(card.key) ?? 0))
   const exposure = texts?.length ? readingExposure(texts, entries).words : null
   const memories = answers ? memoriesOf(entries, answers).memories : null
-  const round = (memory?: Memory) => (memory ? { memory: { s: Math.round(memory.s * 100) / 100, d: Math.round(memory.d * 100) / 100, last: memory.last, reviews: memory.reviews, lapses: memory.lapses, undated: memory.undated } } : {})
+  const round = (memory?: Memory) => (memory ? { memory: { s: Math.round(memory.s * 100) / 100, d: Math.round(memory.d * 100) / 100, last: memory.last, reviews: memory.reviews, lapses: memory.lapses, undated: memory.undated, primed: memory.primed } } : {})
   return docs.map((doc, i) => {
     const entry = entries[i]
     const rank = rankOf(entry.lemmaPlain || entry.lemma, ...(entry.encounters || []).map(met => met.surface))
