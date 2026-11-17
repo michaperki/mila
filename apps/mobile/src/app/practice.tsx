@@ -12,7 +12,7 @@ import { APPEAR, CARD_BACK_IN, CARD_IN, DISAPPEAR } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { ago, assess, type Card, cardKey, type ChoiceMode, checkpointGroup, exerciseOf, freshCards, freshPicks, freshRound, justAfterItsWord, onSentence, type Sentence, sentenceFor, shownForm, wantsSentence, writerOf, checkpointRecord, cuedTranslation, deckOf, exposureOf, firstSense, followUps, type Include, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
+import { ago, assess, type Card, planRound, type Plan, cardKey, type ChoiceMode, checkpointGroup, exerciseOf, freshCards, freshPicks, freshRound, justAfterItsWord, onSentence, type Sentence, sentenceFor, shownForm, wantsSentence, writerOf, checkpointRecord, cuedTranslation, exposureOf, firstSense, followUps, type Include, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, setPref } from '../lib/prefs'
@@ -55,14 +55,14 @@ const SHOW_FIRST: Record<Front, string> = { he: 'Hebrew', en: 'English', mixed: 
 // A word's table of forms for its checkpoints, or why it couldn't be had.
 type Loaded = Table | { error: string }
 
-// The one place to study. A round of cards (lib/forms.ts deckOf): saved words, their forms in
+// The one place to study. A round of cards (lib/forms.ts planRound): saved words, their forms in
 // sentences, and checkpoints on a whole tense. Tap a card to turn it over; swipe it right if you
 // knew it, left if you're still learning (the arrows move on or back without answering). What
 // is answered only shapes what Mila brings in next and what comes round more: nothing is ever
 // due. A round ends calmly and can go round again for as long as you like; Done stops. Hebrew or
 // English first, smart or shuffled order, which cards and quiz mode are chosen on the screen and
 // remembered. New stages' cards are written in the background. A long press on the card count
-// shows why each card is in the round (lib/forms.ts deckOf), to see what Mila is choosing.
+// shows why each card is in the round (lib/forms.ts planRound), to see what Mila is choosing.
 // The round is kept on the phone as it goes (lib/rounds.ts): leaving Study, or Mila, only pauses
 // it, and Study opens again on the same card and side (after hours away, once the learner says
 // to go on with it rather than start a new one). Finishing it, Done or a new round from the top
@@ -179,6 +179,12 @@ export default function Practice() {
   // when it was first shown and what of its word had been shown before it; an answer's primed
   // mark is settled on its first answer, so changing the answer keeps it.
   const study = useRef<ReturnType<typeof studySession> | null>(null)
+  // A round as Mila planned it (lib/forms.ts planRound), logged with how it was divided and each
+  // card's part of the round and rank in it (Learning Insights); its cards from `from` in the deck.
+  const planned = (plan: Plan, from: number) => {
+    study.current?.log('plan', { from, budget: plan.budget, cards: plan.considered.filter(item => item.chosen).map(({ key, slot, rank }) => ({ key, slot, rank })), left: plan.considered.filter(item => !item.chosen).length })
+    return plan.cards
+  }
   const seen = useRef<Seen[]>([])
   const shownAt = useRef<Record<number, { at: number; key: string; wordCardsAgo: number | null; wordMsAgo: number | null }>>({})
   const primedAt = useRef<Record<number, boolean>>({})
@@ -311,7 +317,7 @@ export default function Practice() {
         // waits for the learner to say whether to go on with it.
         const saved = loadRound(session.user.id)
         const resumed = resumeRound(saved, entries)
-        let cards = resumed ? resumed.deck : deckOf(entries, chosen)
+        let cards = resumed ? resumed.deck : planned(planRound(entries, chosen), 0)
         // Its words, and the next a round will draw on, get the cards of their open stages
         // written now. Studying starts with what is ready; only if nothing is does it wait.
         const preparing = prepareAhead(cards, entries, chosen.include)
@@ -325,7 +331,7 @@ export default function Practice() {
         }
         if (!cards.length && entries.length) {
           const written = new Map((await preparing).map(entry => [entry.id, entry]))
-          cards = deckOf(entries.map(entry => written.get(entry.id) ?? entry), chosen)
+          cards = planned(planRound(entries.map(entry => written.get(entry.id) ?? entry), chosen), 0)
         }
         if (current) setDeck(cards)
       } catch (failure) { if (current) setError((failure as Error).message) }
@@ -408,7 +414,7 @@ export default function Practice() {
   // Another round, from the latest copy of each word (its order reflects what was just studied).
   const newRound = () => {
     stopAdvancing()
-    const again = deckOf(Object.values(words), settings, Date.now(), `${Date.now()}`)
+    const again = planned(planRound(Object.values(words), settings, Date.now(), `${Date.now()}`), deck.length)
     // Don't show the card just studied twice in a row.
     const last = deck[deck.length - 1]
     if (again.length > 1 && last && cardKey(again[0]) === cardKey(last)) again.push(again.shift()!)
@@ -494,7 +500,7 @@ export default function Practice() {
     if (patch.choices) { setPref('studyChoices', patch.choices); setPref('studyQuiz', false) }
     if (patch.order || patch.include) {
       const here = deck[position]
-      const rest = deckOf(Object.values(words), updated, Date.now(), `${Date.now()}`).filter(card => !here || cardKey(card) !== cardKey(here))
+      const rest = planned(planRound(Object.values(words), updated, Date.now(), `${Date.now()}`), position + 1).filter(card => !here || cardKey(card) !== cardKey(here))
       void prepareAhead(rest, Object.values(words), updated.include)
       setDeck([...deck.slice(0, position + 1), ...rest])
     }

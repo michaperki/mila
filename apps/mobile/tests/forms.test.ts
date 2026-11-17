@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, apart, asChoice, assess, awaitsRecall, exerciseOf, MAX_SENTENCES, onSentence, sentenceFor, wantsSentence, freshCards, freshPicks, freshRound, justAfterItsWord, personalVariant, shownForm, writerOf, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
+import { ago, apart, byDue, dueOf, planRound, ProgressRules, asChoice, assess, awaitsRecall, exerciseOf, MAX_SENTENCES, onSentence, sentenceFor, wantsSentence, freshCards, freshPicks, freshRound, justAfterItsWord, personalVariant, shownForm, writerOf, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -544,4 +544,38 @@ test('a meaning card written with distractors of its own chooses among them', ()
   const quiz = quizOf([entry, verb([], { id: 'other', lemma: 'לָרוּץ' })], { entry, form: card }, false, 'seed')!
   assert.deepEqual([...quiz.options].sort(), ['לִבְלֹעַ', 'לִלְעֹס', 'לִנְשֹׁם', 'לִירֹק'].sort())
   assert.equal(quiz.answer, 'לִבְלֹעַ')
+})
+
+test('a started word is due a day after a miss and two after a right answer, the least overdue first', () => {
+  const at = (days: number) => new Date(2026, 9, 16 - days, 9).getTime()
+  const missed = verb([form('meanings:sense1', { results: [false], last: at(1) })], { id: 'm', results: [true], last: at(3) })
+  const right = verb([form('meanings:sense1', { results: [true], last: at(1) })], { id: 'r', results: [true], last: at(1) })
+  const old = verb([form('meanings:sense1', { results: [false], last: at(13) })], { id: 'o', results: [true], last: at(14) })
+  assert.equal(dueOf(missed, now).due, true)
+  assert.equal(dueOf(right, now).due, false)
+  assert.equal(dueOf(right, now + DAY).due, true)
+  const { due, early } = byDue([old, right, missed], now)
+  // Met yesterday and missed: today, ahead of the backlog from two weeks ago.
+  assert.deepEqual(due.map(item => item.entry.id), ['m', 'o'])
+  assert.deepEqual(early.map(item => item.entry.id), ['r'])
+})
+
+test('a round says what it considered: reviews by due, fewer new words while reviews wait, and why each card is out', () => {
+  const at = (days: number) => new Date(2026, 9, 16 - days, 9).getTime()
+  const backlog = Array.from({ length: 30 }, (_, i) => verb([form('meanings:sense1', { results: [false], last: at(10 + i) })], { id: `b${i}`, createdAt: 1, results: [true], last: at(10 + i) }))
+  const unseen = Array.from({ length: 10 }, (_, i) => verb([form('meanings:sense1')], { id: `n${i}`, createdAt: 100 + i }))
+  const plan = planRound([...backlog, ...unseen], { include: 'both', order: 'smart' }, now)
+  const ids = plan.cards.map(card => card.entry.id)
+  // 30 words due: the round takes as many as fit, and only one new word while 20 or more wait.
+  assert.equal(ids.filter(id => id.startsWith('n')).length, 1)
+  assert.equal(plan.cards.length, ProgressRules.roundSize)
+  assert.ok(plan.budget[0].startsWith('30 words due for review'))
+  assert.ok(plan.budget.some(line => line.startsWith('1 new word this round instead of 3')))
+  const out = plan.considered.filter(item => !item.chosen)
+  assert.ok(out.some(item => item.slot === 'review' && item.why.startsWith('due, but the round is full')))
+  assert.ok(out.some(item => item.slot === 'new' && item.why.startsWith('waits its turn')))
+  assert.ok(plan.considered.filter(item => item.chosen).every(item => plan.cards.some(card => cardKey(card) === item.key)))
+  // With a small backlog, three new words as before.
+  const few = planRound([...backlog.slice(0, 3), ...unseen], { include: 'both', order: 'smart' }, now)
+  assert.ok(few.cards.filter(card => card.entry.id.startsWith('n')).length >= 3)
 })

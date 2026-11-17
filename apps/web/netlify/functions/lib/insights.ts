@@ -419,6 +419,13 @@ export function sessionStory(id: string, ctx: Context): { summary: SessionSummar
       push(event, { icon: 'sentence', text: `Read sentence ${Number(event.segment) + 1}${event.english === 'all' ? ', with its English showing' : ''}`, detail: sentence ? [sentence] : [] })
     } else if (event.type === 'view') {
       push(event, { icon: 'scroll', text: `Scrolled to about ${pct(Number(event.from) || 0)} to ${pct(Number(event.to) || 0)} of the passage` })
+    } else if (event.type === 'plan') {
+      const cards = Array.isArray(event.cards) ? event.cards as { key: string; slot: string; rank: number }[] : []
+      const count = (slot: string) => cards.filter(card => card.slot === slot).length
+      push(event, {
+        icon: 'plan', text: `Planned ${event.from ? 'another' : 'a'} round: ${plural(cards.length, 'card')}, ${[count('review') && `${count('review')} reviews`, count('early') && `${count('early')} not yet due`, count('new') && `${count('new')} new`, count('familiar') && `${count('familiar')} familiar checks`, count('checkpoint') && `${count('checkpoint')} checkpoints`].filter(Boolean).join(', ')}`,
+        detail: [...(Array.isArray(event.budget) ? event.budget as string[] : []), ...(typeof event.left === 'number' ? [`${event.left} more cards considered and left out, with why, in Upcoming`] : [])],
+      })
     } else if (event.type === 'end') {
       push(event, { icon: 'stop', text: `Ended the round: ${plural(Number(event.answered) || 0, 'card')} answered` })
     }

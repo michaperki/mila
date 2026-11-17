@@ -12,8 +12,8 @@ import { getDb } from './lib/mongo'
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 // Since 2026-11-17 also: the app going to the background and coming back (`app`), how far a passage
 // was scrolled (`view`), a lookup's drawer closing (`closed`, with how long it was open), and a word
-// held on a card shown in English (`hold`, with what it found).
-const TYPES = new Set(['start', 'show', 'reveal', 'answer', 'end', 'read', 'select', 'lookup', 'explained', 'save', 'unsave', 'app', 'view', 'closed', 'hold'])
+// held on a card shown in English (`hold`, with what it found), and a round as planned (`plan`).
+const TYPES = new Set(['start', 'show', 'reveal', 'answer', 'end', 'read', 'select', 'lookup', 'explained', 'save', 'unsave', 'app', 'view', 'closed', 'hold', 'plan'])
 const MAX_EVENTS = 200
 // An event larger than this is kept apart rather than with the others (see below).
 const MAX_EVENT = 16_000

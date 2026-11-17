@@ -15,9 +15,10 @@ import { request } from './api'
 // one sent twice is kept once. Each is kept with whose it is, and only sent as that account.
 // Also kept, since 2026-11-17, for Learning Insights: the app going to the background and coming
 // back (`app`), how far a passage was scrolled (`view`), a lookup's drawer closing (`closed`) and
-// a word held on a card shown in English (`hold`). Waiting events are sent while the app is in use
+// a word held on a card shown in English (`hold`), and each round as planned (`plan`, with how it was
+// divided and each card's part of it and rank: lib/forms.ts planRound). Waiting events are sent while the app is in use
 // too (every SEND_EVERY events or SEND_AFTER), not only when it is left.
-export type StudyEventType = 'start' | 'show' | 'reveal' | 'answer' | 'end' | 'read' | 'select' | 'lookup' | 'explained' | 'save' | 'unsave' | 'app' | 'view' | 'closed' | 'hold'
+export type StudyEventType = 'start' | 'show' | 'reveal' | 'answer' | 'end' | 'read' | 'select' | 'lookup' | 'explained' | 'save' | 'unsave' | 'app' | 'view' | 'closed' | 'hold' | 'plan'
 export type LogEvent = (type: StudyEventType, fields?: Record<string, unknown>) => string
 export type StudyEvent = { id: string; session: string; seq: number; at: number; type: StudyEventType; owner: string } & Record<string, unknown>
 

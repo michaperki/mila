@@ -115,6 +115,10 @@ export const ProgressRules = {
   sequenceLongest: 3, // cards of one word back to back in a learning sequence, at most
   primedCards: 6, // an answer is primed when a card of the same word was shown this few cards
   primedMinutes: 10, // before it, or this many minutes, or the card came in a learning sequence
+  dueAfterMissDays: 1, // a started word is due for review this many days after a missed answer
+  dueAfterRightDays: 2, // ...and this many after a right one (dueOf)
+  backlogFewer: 8, // with this many due words left out of a round, it takes 2 new words
+  backlogFewest: 20, // ...and with this many, 1
 }
 const DAY = 86_400_000
 
@@ -333,21 +337,56 @@ const sourceWhy = ({ entry, source }: Intake, now: number) =>
 // What to study: word cards, sentence cards or both, in smart or shuffled order.
 export type Include = 'words' | 'sentences' | 'both'
 export type Order = 'smart' | 'shuffle'
+// When a started word is next due for review (STUDY-2, first step, 2026-11-17): a day after its
+// latest answer if that was missed, two days if it was right, counted in calendar days. Nothing
+// more is modelled yet (a memory model per card comes later, in shadow first). `overdue`: how far
+// past due, as a share of its interval (1: a whole interval late), which orders the words due.
+export type Due = { at: number; days: number; lastRight: boolean; last: number; due: boolean; overdue: number }
+const dayStart = (at: number, plusDays = 0) => { const date = new Date(at); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() + plusDays); return date.getTime() }
+export function dueOf(entry: VocabEntry, now = Date.now()): Due {
+  const records: Results[] = [entry, ...(entry.forms || []), ...Object.values(entry.checkpoints || {})]
+  const latest = records.filter(record => record.last && record.results?.length).sort((a, b) => (b.last ?? 0) - (a.last ?? 0))[0]
+  const last = latest?.last ?? 0
+  const lastRight = !!latest?.results?.[latest.results.length - 1]
+  const days = lastRight ? ProgressRules.dueAfterRightDays : ProgressRules.dueAfterMissDays
+  const at = dayStart(last, days)
+  return { at, days, lastRight, last, due: now >= at, overdue: Math.max(0, (now - at) / (days * DAY)) }
+}
+// Started words in the order a round takes them: those due first, the least overdue for their
+// interval first (so a word met yesterday is reviewed today, while a backlog is worked through
+// behind it rather than keeping it waiting), then those not due yet, least recently studied first.
+export function byDue(started: VocabEntry[], now = Date.now()) {
+  const with_ = started.map(entry => ({ entry, due: dueOf(entry, now) }))
+  const due = with_.filter(item => item.due.due).sort((a, b) => a.due.overdue - b.due.overdue || a.due.last - b.due.last)
+  const early = with_.filter(item => !item.due.due).sort((a, b) => a.due.last - b.due.last)
+  return { due, early }
+}
+
+// A round as planned, with every card it considered and why it did or didn't take it (Learning
+// Insights → Upcoming): `slot` is the part of the round a card was considered for, `chosen`
+// whether it is in the round, `why` the reason in words (for a card left out, what kept it out),
+// `factors` what the decision rested on. `budget`: how the round was divided, in words.
+export type Slot = 'review' | 'early' | 'new' | 'familiar' | 'checkpoint' | 'shuffled'
+export type Considered = { key: string; wordId: string; lemma: string; card: string; slot: Slot; chosen: boolean; why: string; factors: string[]; rank: number }
+export type Plan = { cards: Card[]; considered: Considered[]; budget: string[] }
 // One round of studying, which the learner can go round again for as long as they like. Smart
-// order takes the started words in turn (studyPool), the one studied least recently first, each
-// a couple of cards further (ProgressRules.perWord): its word card while it is being learned,
-// then its cards still being learned and its next new cards (its meanings, then its forms) in
-// turn, until the round has about ProgressRules.roundSize. A started word not yet met brings
-// only its word card. A few words not yet started come in each round (more when the started ones
-// don't fill it), as their word cards (in sentences only, their first meaning), their next cards
-// following as they are answered (followUps); the first comes early in the round, so a short
-// session meets one too. Mixed in among them, familiar cards now and then: those not seen for a
-// few days (ProgressRules.familiarRestDays), least recently seen first and one per word, so what
-// is known comes back without the same few coming round every time; then checkpoints of the
-// words whose turn it was. Shuffled: everything in play, shuffled. Either way, a word not yet met
-// shows only its word card (in sentences only, its meanings), and two cards of one word aren't
-// back to back where another can go between. Nothing here is ever due.
-export function deckOf(entries: VocabEntry[], { include, order }: { include: Include; order: Order }, now = Date.now(), seed = String(now)): Card[] {
+// order takes the started words due for review (dueOf, byDue), each a couple of cards further
+// (ProgressRules.perWord): its word card while it is being learned, then its cards still being
+// learned and its next new cards (its meanings, then its forms) in turn, until the round has
+// about ProgressRules.roundSize. Words not due yet only fill a round that has room. A started
+// word not yet met brings only its word card. A few words not yet started come in each round,
+// fewer while many words wait for review (ProgressRules.backlogFewer, backlogFewest), more when
+// the started ones don't fill it, as their word cards (in sentences only, their first meaning),
+// their next cards following as they are answered (followUps); the first comes early in the
+// round, so a short session meets one too. Mixed in among them, familiar cards now and then:
+// those not seen for a few days (ProgressRules.familiarRestDays), least recently seen first and
+// one per word, so what is known comes back without the same few coming round every time; then
+// checkpoints of the words whose turn it was. Shuffled: everything in play, shuffled. Either way,
+// a word not yet met shows only its word card (in sentences only, its meanings), and two cards of
+// one word aren't back to back where another can go between.
+export const deckOf = (entries: VocabEntry[], settings: { include: Include; order: Order }, now = Date.now(), seed = String(now)): Card[] =>
+  planRound(entries, settings, now, seed).cards
+export function planRound(entries: VocabEntry[], { include, order }: { include: Include; order: Order }, now = Date.now(), seed = String(now)): Plan {
   const studied = entries.filter(entry => !isKnownWord(entry))
   const deeper = (entry: VocabEntry) => (include === 'sentences' || isMet(entry) ? newCards(entry) : [])
   const cardsOf = (entry: VocabEntry): Card[] => [
@@ -356,49 +395,121 @@ export function deckOf(entries: VocabEntry[], { include, order }: { include: Inc
   ]
   const checkpointsOf = (entry: VocabEntry): Card[] => include !== 'both' ? []
     : checkpointStages(entry, now).map(stage => ({ entry, form: null, checkpoint: stage, why: `checkpoint · ${stageLabel(entry, stage)} is familiar, not yet ready` }))
-  if (order === 'shuffle') return spread(shuffle(studied.flatMap(entry => [...cardsOf(entry), ...checkpointsOf(entry)]), seed).map(card => ({ why: 'shuffled', ...card })))
+  const considered: Considered[] = []
+  const lemmaOf = (entry: VocabEntry) => entry.lemmaPlain || entry.lemma
+  const labelOf = (card: Card) => (card.checkpoint ? `${stageLabel(card.entry, card.checkpoint)} checkpoint` : card.form ? (card.form.stage === 'meanings' ? slotLabel(card.entry, card.form) : `${stageLabel(card.entry, card.form.stage)}, ${slotLabel(card.entry, card.form)}`) : 'word card')
+  const note = (card: Card, slot: Slot, chosen: boolean, why: string, factors: string[], rank: number) =>
+    considered.push({ key: cardKey(card), wordId: card.entry.id, lemma: lemmaOf(card.entry), card: labelOf(card), slot, chosen, why, factors, rank })
+  const usefulness = (entry: VocabEntry) => [
+    entry.rank ? `${entry.rank <= COMMON_RANK ? 'common' : entry.rank <= UNCOMMON_RANK ? 'less common' : 'rare'}, #${entry.rank}` : 'not in the frequency list',
+    ...(entry.lookedUp?.count ? [`looked up again ${entry.lookedUp.count}×`] : []),
+  ]
+  if (order === 'shuffle') {
+    const cards = spread(shuffle(studied.flatMap(entry => [...cardsOf(entry), ...checkpointsOf(entry)]), seed).map(card => ({ why: 'shuffled', ...card })))
+    cards.forEach((card, i) => note(card, 'shuffled', true, 'shuffled', [], i + 1))
+    return { cards, considered, budget: ['Shuffled: every card in play, in random order'] }
+  }
   const rules = ProgressRules
   const state = (card: Card) => stateOf(resultsOf(card))
   const lastOf = (card: Card) => resultsOf(card).last ?? 0
   const explain = (card: Card): Card => ({ ...card, why: state(card) === 'learning' ? `still learning · last seen ${ago(lastOf(card), now)}`
     : `next for this word · ${card.form ? stageLabel(card.entry, card.form.stage) : 'Word'}` })
   const { started, unstarted } = studyPool(entries, include, now)
-  const room = rules.roundSize - rules.newWords
+  const { due, early } = byDue(started, now)
+  const dueText = (item: { due: Due }) => [
+    `last answer ${item.due.lastRight ? 'right' : 'missed'}, ${ago(item.due.last, now)}`,
+    item.due.due ? `due ${ago(item.due.at, now) === 'today' ? 'today' : `since ${ago(item.due.at, now)}`}, reviewed ${plural(item.due.days, 'day')} after an answer like that` : `due ${inDays(item.due.at, now)}`,
+  ]
   const taken: Card[] = []
   const turned: VocabEntry[] = []
-  for (const entry of started) {
-    if (taken.length >= room) break
+  // A word's turn: the cards it brings, and those it could have brought but doesn't this round.
+  const turnOf = (entry: VocabEntry, room: number, slot: Slot, factors: string[], rank: number) => {
     turned.push(entry)
     const cards = cardsOf(entry)
     const word = cards.filter(card => !card.form && state(card) !== 'familiar')
     // Not met: its word card alone, its next cards following as it is answered.
-    if (!isMet(entry) && include !== 'sentences') { taken.push(...word.map(explain)); continue }
+    if (!isMet(entry) && include !== 'sentences') {
+      word.forEach(card => note(card, slot, true, 'not met yet: its word card alone, its sentences following as it is answered', factors, rank))
+      cards.filter(card => card.form).slice(0, 2).forEach(card => note(card, slot, false, 'waits until the word is met: its word card comes first', factors, rank))
+      taken.push(...word.map(explain))
+      return
+    }
     const learning = cards.filter(card => card.form && state(card) === 'learning').sort((a, b) => lastOf(a) - lastOf(b))
     // A new card showing a use other than the card it comes with and the one answered last.
     const fresh = apart(cards.filter(card => card.form && state(card) === 'new'), [learning[0]?.form, lastAnswered(entry)])
     const turn = [...word]
     for (let i = 0; turn.length < rules.perWord && (i < learning.length || i < fresh.length); i++) turn.push(...[learning[i], fresh[i]].filter(Boolean))
-    taken.push(...turn.slice(0, Math.min(rules.perWord, room - taken.length)).map(explain))
+    const chosen = turn.slice(0, Math.min(rules.perWord, room - taken.length))
+    chosen.forEach(card => note(card, slot, true, state(card) === 'learning' ? 'still being learned' : state(card) === 'new' ? 'the word’s next new card' : 'its word card, while the word is being learned', factors, rank))
+    const keys = new Set(chosen.map(cardKey))
+    ;[...learning, ...fresh].filter(card => !keys.has(cardKey(card))).slice(0, 3)
+      .forEach(card => note(card, slot, false, `the word has its ${plural(chosen.length, 'card')} this round`, factors, rank))
+    taken.push(...chosen.map(explain))
   }
-  const wanted = Math.min(rules.newWordsMax, Math.max(rules.newWords, rules.roundSize - taken.length))
+  // Words due for review first, until the round's room for started words is full; fewer new
+  // words while many due words wait (they would only add to what isn't being reviewed in time).
+  let room = rules.roundSize - rules.newWords
+  let next = 0
+  const takeDue = () => { for (; next < due.length && taken.length < room; next++) turnOf(due[next].entry, room, 'review', [...dueText(due[next]), ...usefulness(due[next].entry)], next + 1) }
+  takeDue()
+  const waiting = () => due.length - next
+  const throttled = waiting() >= rules.backlogFewest ? 1 : waiting() >= rules.backlogFewer ? 2 : null
+  if (throttled !== null) { room = rules.roundSize - throttled; takeDue() }
+  due.slice(next).forEach((item, i) => note({ entry: item.entry, form: null }, 'review', false, `due, but the round is full: the ${plural(next, 'word')} least late for their review come first`, [...dueText(item), ...usefulness(item.entry)], next + i + 1))
+  // Words not due yet only fill a round with room left.
+  let filled = 0
+  for (const item of early) {
+    if (taken.length < room) { turnOf(item.entry, room, 'early', dueText(item), ++filled); continue }
+    note({ entry: item.entry, form: null }, 'early', false, `not due yet: ${dueText(item)[1]}`, dueText(item), filled + 1)
+  }
+  const wanted = throttled ?? Math.min(rules.newWordsMax, Math.max(rules.newWords, rules.roundSize - taken.length))
   const incoming: Card[] = []
-  for (const intake of unstarted) {
-    if (incoming.length >= wanted) break
+  const newWhy = throttled ? `${plural(throttled, 'new word')} this round instead of ${rules.newWords}: ${waiting()} words due for review wait` : `${plural(wanted, 'new word')} this round`
+  unstarted.forEach((intake, i) => {
     const { entry } = intake
     const first = include === 'sentences' ? newCards(entry).filter(form => form.stage === 'meanings').slice(0, 1).map(form => ({ entry, form })) : [{ entry, form: null }]
-    incoming.push(...first.map(card => ({ ...card, why: `new word · ${sourceWhy(intake, now)}` })))
-  }
+    const factors = [`from ${intake.source === 'again' ? 'words met again' : intake.source === 'recent' ? 'recent saves' : 'everything else saved, common words first'}`, ...usefulness(entry)]
+    if (incoming.length < wanted) {
+      first.forEach(card => note(card, 'new', true, `new word: ${sourceWhy(intake, now)}`, factors, i + 1))
+      incoming.push(...first.map(card => ({ ...card, why: `new word · ${sourceWhy(intake, now)}` })))
+    } else if (i < wanted + 8) first.forEach(card => note(card, 'new', false, `waits its turn: ${newWhy}`, factors, i + 1))
+  })
   const others = mix(taken, incoming, 0.5)
   const rest = rules.familiarRestDays * DAY
   // A familiar card is a check on what was learned, so only of a word the round doesn't otherwise
   // show: met just after another card of its word, it would only show what that card just primed.
   const inPlay = new Set(others.map(card => card.entry.id))
-  const familiar = studied.flatMap(cardsOf).filter(card => state(card) === 'familiar' && !inPlay.has(card.entry.id)).sort((a, b) => lastOf(a) - lastOf(b))
-  const rested = familiar.filter(card => now - lastOf(card) >= rest).filter((card, i, all) => all.findIndex(other => other.entry.id === card.entry.id) === i)
-  const some = (others.length ? rested.slice(0, Math.ceil(others.length / rules.familiarEvery)) : (rested.length ? rested : familiar).slice(0, rules.roundSize))
+  const familiar = studied.flatMap(cardsOf).filter(card => state(card) === 'familiar').sort((a, b) => lastOf(a) - lastOf(b))
+  const rested = familiar.filter(card => !inPlay.has(card.entry.id) && now - lastOf(card) >= rest).filter((card, i, all) => all.findIndex(other => other.entry.id === card.entry.id) === i)
+  const outside = familiar.filter(card => !inPlay.has(card.entry.id))
+  const some = (others.length ? rested.slice(0, Math.ceil(others.length / rules.familiarEvery)) : (rested.length ? rested : outside).slice(0, rules.roundSize))
     .map(card => ({ ...card, why: `familiar · last seen ${ago(lastOf(card), now)}` }))
-  return spread([...mix(others, some), ...turned.flatMap(checkpointsOf)])
+  const checks = new Set(some.map(cardKey))
+  familiar.slice(0, 40).forEach((card, i) => {
+    const factors = [`familiar: last two answers right`, `last seen ${ago(lastOf(card), now)}`]
+    if (checks.has(cardKey(card))) note(card, 'familiar', true, 'a check on what was learned, rested long enough', factors, i + 1)
+    else if (inPlay.has(card.entry.id)) note(card, 'familiar', false, 'its word is already in this round, so a check now would only show what was just seen', factors, i + 1)
+    else if (now - lastOf(card) < rest) note(card, 'familiar', false, `resting: ${ago(lastOf(card), now)} of ${rules.familiarRestDays} days`, factors, i + 1)
+    else note(card, 'familiar', false, `enough checks this round: one for every ${rules.familiarEvery} other cards, one per word`, factors, i + 1)
+  })
+  const points = turned.flatMap(checkpointsOf)
+  points.forEach((card, i) => note(card, 'checkpoint', true, 'its stage is familiar, not yet ready', [], i + 1))
+  const cards = spread([...mix(others, some), ...points])
+  return {
+    cards, considered,
+    budget: [
+      `${plural(due.length, 'word')} due for review: ${next} in this round${waiting() ? `, ${waiting()} wait` : ''}`,
+      ...(filled ? [`${plural(filled, 'word')} not due yet fill the room left`] : []),
+      throttled ? newWhy : `${plural(incoming.length, 'new word')}${incoming.length > rules.newWords ? ', more since the words started don’t fill the round' : ''}`,
+      `${plural(some.length, 'familiar check')}, about one for every ${rules.familiarEvery} other cards`,
+      ...(points.length ? [`${plural(points.length, 'checkpoint')}`] : []),
+      `Order: the most urgent reviews first, new words spread from early in the round, familiar checks spread through it, and a word’s cards kept ${SPREAD_GAP} apart`,
+    ],
+  }
 }
+const plural = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`
+// "tomorrow" or "in 3 days", for a day still to come.
+const inDays = (at: number, now: number) => { const days = Math.round((dayStart(at) - dayStart(now)) / DAY); return days <= 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days` }
 // Learning sequences, in smart order: a card of a word still being learned can bring the word's
 // next cards in right behind it, whatever the deck's order, so a word is taught in a short run
 // instead of waiting to be known. A word not yet met is followed by its first meaning in a
@@ -426,7 +537,8 @@ export function followUps(round: Card[], at: number, entry: VocabEntry, knew: bo
 // Cards are written for these rather than for every saved word.
 export function upcoming(entries: VocabEntry[], include: Include = 'both', now = Date.now()): VocabEntry[] {
   const { started, unstarted } = studyPool(entries, include, now)
-  return [...started.slice(0, ProgressRules.roundSize), ...unstarted.slice(0, ProgressRules.newWordsMax).map(item => item.entry)]
+  const { due, early } = byDue(started, now)
+  return [...[...due, ...early].slice(0, ProgressRules.roundSize).map(item => item.entry), ...unstarted.slice(0, ProgressRules.newWordsMax).map(item => item.entry)]
 }
 // A stage's cards in the order of its slots (sense1, m.sg).
 const inOrder = (entry: VocabEntry, stage: string) => {

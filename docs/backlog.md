@@ -287,7 +287,26 @@ better.
 - **Exploratory, low**: a list of recent cards from the study log.
 
 ### STUDY-2 Review intervals that grow
-**Planned, P2.** Familiar cards always rest a fixed 3 days, however well known. Mike wants the
+**First step live 2026-11-17** (approved from the scheduler research the same day):
+- A started word is due a day after a missed answer and two days after a right one, in calendar
+  days (`dueOf`). Rounds take due words first, the least late for their interval first, so a word
+  met yesterday is reviewed today while a backlog is worked through behind it (`byDue`). Words
+  not due only fill a round with room.
+- New words slow down while reviews wait: 2 a round with 8 or more due words left out, 1 with 20
+  or more (`backlogFewer`, `backlogFewest`). On 17/11 that meant 49 due, 14 in a round, 1 new word.
+- Kept as they were: the word → meaning → present sequence (`followUps`), spacing a word's cards,
+  familiar checks after 3 days, checkpoints, how each card is asked.
+- `planRound` builds the round in steps (reviews, words not due, new words, familiar checks,
+  order) and returns every card it considered with why it did or didn't take it; `deckOf` is its
+  cards. Each round's plan is logged (`plan` event). **Learning Insights → Upcoming** shows the
+  round Study would plan now, the cards left out with why, and what changed since it was last
+  looked at.
+- **Next** (from the research): a memory model per card in shadow (LM-5) shown in Upcoming beside
+  the due rule; usefulness inside each part of the round; an exploration slot; probe cards at set
+  delays and a split by word to judge a new scheduler on later-day recall and lookups in reading,
+  not on in-round accuracy.
+
+**Before that: planned, P2.** Familiar cards always rest a fixed 3 days, however well known. Mike wants the
 approach investigated with the event data, not a fixed interval sequence.
 - Proposal (2026-11-13): memory state for reviews only; primed answers aren't memory evidence; due
   reviews take a capped share of a round; no overdue pressure.
