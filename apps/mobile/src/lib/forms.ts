@@ -362,6 +362,8 @@ export function byDue(started: VocabEntry[], now = Date.now()) {
   return { due, early }
 }
 
+// A card in words: "word card", "meaning 1", "Present, m. singular", "Past checkpoint".
+export const cardName = (card: Card) => (card.checkpoint ? `${stageLabel(card.entry, card.checkpoint)} checkpoint` : card.form ? (card.form.stage === 'meanings' ? slotLabel(card.entry, card.form) : `${stageLabel(card.entry, card.form.stage)}, ${slotLabel(card.entry, card.form)}`) : 'word card')
 // A round as planned, with every card it considered and why it did or didn't take it (Learning
 // Insights → Upcoming): `slot` is the part of the round a card was considered for, `chosen`
 // whether it is in the round, `why` the reason in words (for a card left out, what kept it out),
@@ -397,7 +399,7 @@ export function planRound(entries: VocabEntry[], { include, order }: { include: 
     : checkpointStages(entry, now).map(stage => ({ entry, form: null, checkpoint: stage, why: `checkpoint · ${stageLabel(entry, stage)} is familiar, not yet ready` }))
   const considered: Considered[] = []
   const lemmaOf = (entry: VocabEntry) => entry.lemmaPlain || entry.lemma
-  const labelOf = (card: Card) => (card.checkpoint ? `${stageLabel(card.entry, card.checkpoint)} checkpoint` : card.form ? (card.form.stage === 'meanings' ? slotLabel(card.entry, card.form) : `${stageLabel(card.entry, card.form.stage)}, ${slotLabel(card.entry, card.form)}`) : 'word card')
+  const labelOf = cardName
   const note = (card: Card, slot: Slot, chosen: boolean, why: string, factors: string[], rank: number) =>
     considered.push({ key: cardKey(card), wordId: card.entry.id, lemma: lemmaOf(card.entry), card: labelOf(card), slot, chosen, why, factors, rank })
   const usefulness = (entry: VocabEntry) => [

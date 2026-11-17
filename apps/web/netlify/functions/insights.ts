@@ -22,6 +22,10 @@ const BUDGET_MS = 4000
 const VERSION = `${MODEL_VERSION}/${INSIGHTS_VERSION}`
 let indexReady: Promise<unknown> | null = null
 
+const decoded = (text: string) => { try { return decodeURIComponent(text) } catch { return text } }
+export const sameId = (a: string, b: string) => a === b || decoded(a) === decoded(b)
+// Reading sessions told as one are joined by + (lib/insights.ts), which a route may turn into a space.
+export const sessionIds = (id: string) => id.split(/[+ ]/).filter(Boolean)
 const createdOf = (entry: LearnerEntry) => {
   const created = typeof entry.createdAt === 'string' ? Date.parse(entry.createdAt) : entry.createdAt
   return Number.isFinite(created) ? created as number : Math.min(...(entry.encounters || []).map(met => met.at ?? Infinity))
@@ -95,16 +99,18 @@ export const handler: Handler = async (event) => {
 
     if (query.session) {
       // One session, or reading sessions on the same passage told as one (ids joined by +).
-      const ids = new Set(query.session.split('+'))
+      const ids = new Set(sessionIds(query.session))
       const mine = ordered.filter(answer => ids.has(answer.session))
       const { kept } = await predictions(mine)
       const ctx: Context = { events, entries, texts: textsById, now, stateAt, predict: answer => kept.get(answer.id) ?? null }
-      const story = sessionStory(query.session, ctx)
+      const story = sessionStory(sessionIds(query.session).join('+'), ctx)
       return story ? reply(200, { version: VERSION, ...story }) : reply(404, { message: 'No such session.' })
     }
     if (query.word) {
-      const id = query.word
-      const entry = entries.find(item => item.id === id)
+      // A word's id as the app passes it: its route decodes it on the way (native-%D7%A6… arrives
+      // as native-צ…), so it is matched decoded too.
+      const entry = entries.find(item => sameId(item.id, query.word!))
+      const id = entry?.id ?? query.word
       const mine = ordered.filter(answer => String(answer.key).split(':')[0] === id)
       const { kept } = await predictions(mine)
       const ctx: Context = { events, entries, texts: textsById, now, stateAt, predict: answer => kept.get(answer.id) ?? null }

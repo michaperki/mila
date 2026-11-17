@@ -6,9 +6,10 @@ import Ionicons from '@expo/vector-icons/Ionicons'
 import { colors, ErrorNotice, Loading, Page, Pill, Pressy, styles, TextButton } from '../components/ui'
 import { request } from '../lib/api'
 import { sendingState, sendStudyLog } from '../lib/study-log'
-import { type Considered, type Include, type Order, type Plan, planRound, type Slot } from '../lib/forms'
+import { ago, type Card, cardName, type Considered, type Include, type Order, type Plan, planRound, type Slot } from '../lib/forms'
 import { getPref } from '../lib/prefs'
 import { loadRound } from '../lib/saved-round'
+import { askBeforeResuming, resumeRound } from '../lib/rounds'
 import { useSession } from '../state/session'
 import { vocabFor } from '../state/vocab'
 
@@ -340,7 +341,10 @@ function changesSince(before: Snapshot, plan: Plan) {
 }
 function Upcoming() {
   const { session } = useSession()
-  const [view, setView] = useState<{ plan: Plan; since: { at: number; lines: string[] } | null; round: { at: number; of: number } | null; include: Include; order: Order } | null>(null)
+  // `round`: the round in progress, which Study goes on with before planning another: its cards
+  // from where it was left, as Study rebuilds them (lib/rounds.ts resumeRound), and whether Study
+  // will first ask (left over ASK_AFTER ago).
+  const [view, setView] = useState<{ plan: Plan; since: { at: number; lines: string[] } | null; round: { at: number; of: number; next: Card[]; ask: boolean; savedAt: number } | null; include: Include; order: Order } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const load = useCallback(async () => {
@@ -350,7 +354,9 @@ function Upcoming() {
       const plan = planRound(entries, { include, order })
       const before = readLook()
       const saved = loadRound(session.user.id)
-      setView({ plan, include, order, since: before ? { at: before.at, lines: changesSince(before, plan) } : null, round: saved?.cards?.length ? { at: saved.position + 1, of: saved.cards.length } : null })
+      const resumed = resumeRound(saved, entries)
+      const round = resumed && saved ? { at: resumed.position + 1, of: resumed.deck.length, next: resumed.deck.slice(resumed.position), ask: askBeforeResuming(saved), savedAt: saved.savedAt } : null
+      setView({ plan, include, order, since: before ? { at: before.at, lines: changesSince(before, plan) } : null, round })
       keepLook({ at: Date.now(), cards: plan.considered.filter(item => item.chosen).map(({ key, lemma, card, slot, rank }) => ({ key, lemma, card, slot, rank })) })
       setError(null)
     } catch (failure) { setError((failure as Error).message) }
@@ -364,9 +370,20 @@ function Upcoming() {
   const groups = [...new Set(left.map(item => item.slot))]
   return <Page onRefresh={load}>
     <ErrorNotice message={error} />
-    <Text style={small}>The round Study would plan if you started a new one now ({view.order === 'smart' ? 'smart order' : 'shuffled'}, {view.include === 'both' ? 'words and sentences' : view.include}), worked out by the same planner Study uses.{view.round ? ` A round is in progress, at card ${view.round.at} of ${view.round.of}: Study goes on with it first.` : ''}</Text>
+    {view.round ? <View style={styles.card}>
+      <Text style={styles.heading}>Next in Study: the round in progress</Text>
+      <Text style={styles.copy}>{view.round.ask
+        ? `You left it ${ago(view.round.savedAt)}, so Study will ask whether to go on with it, at card ${view.round.at} of ${view.round.of}, or start the new round below.`
+        : `Study goes on with it, at card ${view.round.at} of ${view.round.of}. It was planned when it started, by the rules of that time, so it can differ from the new round below. Start a new round from Study’s top bar to switch to it.`}</Text>
+      {view.round.next.slice(0, 12).map((card, i) => <Pressy key={`${i}:${card.entry.id}`} moment="tick" accessibilityRole="button" onPress={() => router.push({ pathname: '/insights', params: { word: card.entry.id } })} style={{ gap: 1 }}>
+        <Text style={{ fontSize: 15, lineHeight: 21, color: colors.ink }}><Text style={{ fontWeight: '700' }}>{view.round!.at + i}. {card.entry.lemmaPlain || card.entry.lemma}</Text> · {cardName(card)}</Text>
+        {!!card.why && <Text style={small}>{card.why.replace(' · ', ': ')}</Text>}
+      </Pressy>)}
+      {view.round.next.length > 12 && <Text style={small}>…and {view.round.next.length - 12} more. Answers can bring a word’s next cards in behind it.</Text>}
+    </View> : <Text style={small}>No round in progress: Study starts with the round below.</Text>}
+    <Text style={small}>{view.round ? 'After that, a' : 'A'} new round, as Study would plan it now ({view.order === 'smart' ? 'smart order' : 'shuffled'}, {view.include === 'both' ? 'words and sentences' : view.include}), by the same planner Study uses.</Text>
     <View style={styles.card}>
-      <Text style={styles.heading}>How the round is divided</Text>
+      <Text style={styles.heading}>{view.round ? 'The next new round: how it’s divided' : 'How the round is divided'}</Text>
       {plan.budget.map((line, i) => <Text key={i} style={[styles.copy, { fontSize: 15, lineHeight: 22 }]}>{line}</Text>)}
       <Text style={small}>During the round, answering a word for the first time brings its meaning card right after it, and a missed sentence card brings back its word card. Those aren’t planned here.</Text>
     </View>
@@ -376,7 +393,7 @@ function Upcoming() {
       {view.since.lines.length ? view.since.lines.slice(0, 16).map((line, i) => <Text key={i} style={[styles.copy, { fontSize: 14, lineHeight: 20 }]}>{line}</Text>) : <Text style={styles.copy}>No change.</Text>}
     </View>}
     <View style={styles.card}>
-      <Text style={styles.heading}>The round, in order</Text>
+      <Text style={styles.heading}>{view.round ? 'The next new round, in order' : 'The round, in order'}</Text>
       <Text style={small}>Each card’s rank is within its part of the round. Its place differs from its rank where new words are put early, familiar checks spread through, and a word’s cards kept apart.</Text>
       {ordered.map((item, i) => <Pressy key={item.key} moment="tick" accessibilityRole="button" onPress={() => router.push({ pathname: '/insights', params: { word: item.wordId } })} style={{ gap: 2 }}>
         <Text style={{ fontSize: 15, lineHeight: 21, color: colors.ink }}><Text style={{ fontWeight: '700' }}>{i + 1}. {item.lemma}</Text> · {item.card}</Text>

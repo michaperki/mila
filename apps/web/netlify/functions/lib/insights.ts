@@ -179,7 +179,7 @@ const spent = (a: number, b: number, background: [number, number][]) => {
 
 const isStudy = (events: Ev[]) => events.some(event => ['start', 'show', 'answer'].includes(event.type))
 // The events of a session id as listed: one session, or reading sessions told as one (ids joined by +).
-export const eventsOf = (id: string, events: Ev[]) => { const ids = new Set(id.split('+')); return events.filter(event => ids.has(event.session)) }
+export const eventsOf = (id: string, events: Ev[]) => { const ids = new Set(id.split(/[+ ]/)); return events.filter(event => ids.has(event.session)) }
 
 // Late events and what they held back: Study sessions that started after they happened and before
 // the server had them (its choice of new words and the cards written then read lookups, answers
