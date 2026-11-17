@@ -169,3 +169,14 @@ describe('distractors', () => {
     expect(cardsOf([generated('m.sg', ['a', 'b', 'c'])], 'present', [{ slot: 'm.sg', means: '' }]).forms[0].distractors).toBeUndefined()
   })
 })
+
+describe('fields for the shadow score', () => {
+  it('gives when a word was first studied only when every earlier answer was recorded', () => {
+    const fresh = { id: 'w1', lemma: 'אחד', createdAt: 1, results: [true], last: 2000 }
+    const older = { id: 'w2', lemma: 'שניים', createdAt: 1, results: [false, true], last: 3000 }
+    const answers = [{ session: 's', seq: 0, at: 2000, type: 'answer', key: 'w1:word' }, { session: 's', seq: 1, at: 3000, type: 'answer', key: 'w2:word' }]
+    const [one, two] = relevanceOf([fresh, older], [], { answers }) as { firstStudied?: number }[]
+    expect(one.firstStudied).toBe(2000)
+    expect(two.firstStudied).toBeUndefined()
+  })
+})

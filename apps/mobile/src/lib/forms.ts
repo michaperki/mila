@@ -460,10 +460,10 @@ export function planRound(entries: VocabEntry[], { include, order }: { include: 
   due.slice(next).forEach((item, i) => note({ entry: item.entry, form: null }, 'review', false, `due, but the round is full: the ${plural(next, 'word')} least late for their review come first`, [...dueText(item), ...usefulness(item.entry)], next + i + 1))
   // Words not due yet only fill a round with room left.
   let filled = 0
-  for (const item of early) {
-    if (taken.length < room) { turnOf(item.entry, room, 'early', dueText(item), ++filled); continue }
-    note({ entry: item.entry, form: null }, 'early', false, `not due yet: ${dueText(item)[1]}`, dueText(item), filled + 1)
-  }
+  early.forEach((item, i) => {
+    if (taken.length < room) { filled++; turnOf(item.entry, room, 'early', dueText(item), i + 1); return }
+    note({ entry: item.entry, form: null }, 'early', false, `not due yet: ${dueText(item)[1]}`, dueText(item), i + 1)
+  })
   const wanted = throttled ?? Math.min(rules.newWordsMax, Math.max(rules.newWords, rules.roundSize - taken.length))
   const incoming: Card[] = []
   const newWhy = throttled ? `${plural(throttled, 'new word')} this round instead of ${rules.newWords}: ${waiting()} words due for review wait` : `${plural(wanted, 'new word')} this round`

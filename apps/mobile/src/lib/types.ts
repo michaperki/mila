@@ -88,6 +88,10 @@ export type VocabEntry = StarredItem & Built & {
   // common the word is in Hebrew (1 = the most common; none for a word or expression not ranked),
   // and how often it was looked up again after it was saved, and when last.
   rank?: number; lookedUp?: { count: number; last: number }
+  // Also worked out on fetch, for Study's shadow score (lib/scoring.ts): when the word was first
+  // answered in Study (none for words first studied before answers were recorded, 2026-11-05), and
+  // how often it comes up in the part of the saved passages read so far, and in how many.
+  firstStudied?: number; reading?: { read: number; texts: number }
   // How it is organised (VOCAB-2, lib/taxonomy.ts): up to three themes, the main one first, its
   // register, a level where frequency can't place it, and the taxonomy version used. Set by the
   // explanation it was saved with, or by an import (functions/lib/data-tasks.ts).

@@ -301,7 +301,17 @@ better.
   cards. Each round's plan is logged (`plan` event). **Learning Insights → Upcoming** shows the
   round Study would plan now, the cards left out with why, and what changed since it was last
   looked at.
-- **Next** (from the research): a memory model per card in shadow (LM-5) shown in Upcoming beside
+- **Shadow score, live 2026-11-17** (`lib/scoring.ts`, score-v0; changes nothing Study does):
+  (usefulness + reading) × timing × need, + 0.3 × value × recently introduced, + 0.15 ×
+  uncertainty. Need is smoothed from the word's kept answers, a primed answer a quarter, so one
+  swipe moves it little. Each round's plan logs the score's ranking beside Study's
+  (`plan.shadow`); Upcoming → Candidates shows it word by word, part by part, with disagreements;
+  Model checks → "Shadow score against what happened" follows each scored word for 7 days
+  (shown, next unprimed answer) by need and by who would take it. The word list fetch now carries
+  `firstStudied` (only where every answer was recorded) and `reading` (times met in what was read).
+  **Next:** after about a week, review the disagreements; if they look right, order reviews by
+  the score (the first behaviour change), keeping the parts of a round and the follow-ups.
+- **Later** (from the research): a memory model per card in shadow (LM-5) shown in Upcoming beside
   the due rule; usefulness inside each part of the round; an exploration slot; probe cards at set
   delays and a split by word to judge a new scheduler on later-day recall and lookups in reading,
   not on in-round accuracy.

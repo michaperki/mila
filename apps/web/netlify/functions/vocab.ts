@@ -3,6 +3,7 @@ import { getDb } from './lib/mongo'
 import { verifyAuth } from './lib/auth'
 import type { LearnerEvent } from './lib/learner'
 import { relevanceOf } from './lib/relevance'
+import type { TextDoc } from './lib/exposure'
 import { organisationOf } from './lib/taxonomy'
 import { lemmaKeyOf } from './lib/lemma'
 
@@ -13,12 +14,14 @@ const handler: Handler = async (event) => {
     const vocab = db.collection('vocab')
 
     if (event.httpMethod === 'GET') {
-      const [docs, lookups] = await Promise.all([
+      const [docs, events, texts] = await Promise.all([
         // Archived words (an import set them aside, DATA-1) stay saved but leave Study and the list.
         vocab.find({ userId: auth.userId, archived: { $ne: true } }).sort({ createdAt: -1 }).toArray(),
-        db.collection('studyEvents').find({ userId: auth.userId, type: 'lookup' }).project<LearnerEvent>({ _id: 0, userId: 0 }).toArray().catch(() => []),
+        db.collection('studyEvents').find({ userId: auth.userId, type: { $in: ['lookup', 'answer'] } }).project<LearnerEvent>({ _id: 0, userId: 0, options: 0, results: 0, primed: 0, wordShown: 0, cardShown: 0 }).toArray().catch(() => []),
+        // The saved passages, for how often each word comes up in what was read (relevanceOf).
+        db.collection('texts').find({ userId: auth.userId }).project<TextDoc>({ _id: 0, id: 1, textId: 1, 'chunks.text': 1, furthestSegment: 1, lastSegment: 1 }).toArray().catch(() => []),
       ])
-      const sanitized = relevanceOf(docs.map(({ _id, ...rest }) => normalizeItem(rest)), lookups)
+      const sanitized = relevanceOf(docs.map(({ _id, ...rest }) => normalizeItem(rest)), events.filter(item => item.type === 'lookup'), { answers: events.filter(item => item.type === 'answer'), texts })
       return {
         statusCode: 200,
         body: JSON.stringify({ vocab: sanitized }),
@@ -42,10 +45,10 @@ const handler: Handler = async (event) => {
       // `encounter` (mobile): one place the word was met. It is added to the entry's
       // `encounters` (one per sentence, newest last) instead of replacing the entry's context,
       // so meeting a word again in another book keeps one entry and one practice history.
-      // `rank` and `lookedUp` are worked out on every fetch (relevanceOf), never kept.
+      // `rank`, `lookedUp`, `firstStudied` and `reading` are worked out on every fetch (relevanceOf), never kept.
       // Themes and register come from the save's explanation (VOCAB-2) and are kept only where the
       // word has none yet: an import's, or an earlier save's, stay.
-      const { encounter, createdAt: _sent, rank: _rank, lookedUp: _lookedUp, categories, register, taxonomy: _taxonomy, level: _level, ...fields } = payload
+      const { encounter, createdAt: _sent, rank: _rank, lookedUp: _lookedUp, firstStudied: _first, reading: _reading, categories, register, taxonomy: _taxonomy, level: _level, ...fields } = payload
       const organised = organisationOf({ categories, register })
       if (encounter !== undefined && !(encounter && typeof encounter === 'object' && typeof encounter.context === 'string')) {
         return { statusCode: 400, body: JSON.stringify({ message: 'Invalid encounter' }) }

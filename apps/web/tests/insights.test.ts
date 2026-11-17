@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { learnerState, type Level } from '../netlify/functions/lib/learner'
-import { backgroundSpans, cardLabel, evidenceLineOf, IDLE_MS, modelChecks, predictionFor, sessionsOf, sessionStory, type Context, type Ev, type InsightEntry, type Prediction } from '../netlify/functions/lib/insights'
+import { backgroundSpans, cardLabel, evidenceLineOf, IDLE_MS, shadowChecks, modelChecks, predictionFor, sessionsOf, sessionStory, type Context, type Ev, type InsightEntry, type Prediction } from '../netlify/functions/lib/insights'
 
 const now = 1_800_000_000_000
 const level: Level = { words: 2000, low: 1000, high: 4000, basis: 'test' }
@@ -128,5 +128,22 @@ describe('plain words', () => {
     const events = [ev('r', 0, t, 'lookup', { text: 'p', word: 'x', receivedAt: t + 7_200_000 }), ev('s', 0, t + 600_000, 'start', { cards: 3 })]
     const reading = sessionsOf(events, new Map(), now).find(item => item.id === 'r')!
     expect(reading.late).toEqual({ count: 1, receivedAt: t + 7_200_000, missed: [t + 600_000] })
+  })
+})
+
+describe('shadow score against what happened', () => {
+  it('follows each scored word to whether it was shown and how its next unprimed answer went', () => {
+    const t = now - 3 * 86_400_000
+    const words = [{ id: 'a', p: 'review', s: 0.9, n: 0.7, sr: 1, r: 2, c: true, w: true }, { id: 'b', p: 'review', s: 0.8, n: 0.65, sr: 2, r: 9, c: false, w: true }, { id: 'c', p: 'review', s: 0.2, n: 0.3, sr: 9, r: 1, c: true, w: false }]
+    const events = [
+      ev('s', 0, t, 'plan', { shadow: { v: 'score-v0', words } }),
+      ev('s', 1, t + 1000, 'show', { key: 'a:word', position: 0 }), ev('s', 2, t + 2000, 'answer', { key: 'a:word', position: 0, knew: false }),
+      ev('s', 3, t + 3000, 'show', { key: 'c:word', position: 1 }), ev('s', 4, t + 4000, 'answer', { key: 'c:word', position: 1, knew: true }),
+    ]
+    const checks = shadowChecks(events, now)
+    expect(checks).toEqual(expect.objectContaining({ version: 'score-v0', plans: 1, words: 3 }))
+    expect(checks.need.find(item => item.label === '0.6 and over')).toEqual(expect.objectContaining({ n: 2, answered: 1, missed: 1 }))
+    expect(checks.need.find(item => item.label === 'under 0.4')).toEqual(expect.objectContaining({ n: 1, missed: 0 }))
+    expect(checks.groups.find(item => item.label === 'Score only')).toEqual(expect.objectContaining({ n: 1, shown: 0, answered: 0 }))
   })
 })

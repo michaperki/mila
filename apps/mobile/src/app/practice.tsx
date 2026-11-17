@@ -27,6 +27,7 @@ import { cardWords, ensureForms, freshSentences } from '../lib/word-forms'
 import { askBeforeResuming, resumeRound, roundToSave } from '../lib/rounds'
 import { clearRound, loadRound, saveRound } from '../lib/saved-round'
 import { fingerprint, sendStudyLog, studySession } from '../lib/study-log'
+import { shadowLog, shadowRanking } from '../lib/scoring'
 import { saveResult, sendResults } from '../lib/results'
 import type { ResultBody } from '../lib/result-queue'
 import { appInfo } from '../lib/app-info'
@@ -179,10 +180,13 @@ export default function Practice() {
   // when it was first shown and what of its word had been shown before it; an answer's primed
   // mark is settled on its first answer, so changing the answer keeps it.
   const study = useRef<ReturnType<typeof studySession> | null>(null)
-  // A round as Mila planned it (lib/forms.ts planRound), logged with how it was divided and each
-  // card's part of the round and rank in it (Learning Insights); its cards from `from` in the deck.
-  const planned = (plan: Plan, from: number) => {
-    study.current?.log('plan', { from, budget: plan.budget, cards: plan.considered.filter(item => item.chosen).map(({ key, slot, rank }) => ({ key, slot, rank })), left: plan.considered.filter(item => !item.chosen).length })
+  // A round as Mila planned it (lib/forms.ts planRound), logged with how it was divided, each
+  // card's part of the round and rank in it, and the shadow score's ranking beside it (lib/scoring.ts,
+  // which never changes the round): Learning Insights. Its cards from `from` in the deck.
+  const planned = (plan: Plan, from: number, entries: VocabEntry[], include: Include) => {
+    let shadow: ReturnType<typeof shadowLog> | null = null
+    try { shadow = shadowLog(shadowRanking(plan, entries, include)) } catch { /* the score is only looked at, never needed */ }
+    study.current?.log('plan', { from, budget: plan.budget, cards: plan.considered.filter(item => item.chosen).map(({ key, slot, rank }) => ({ key, slot, rank })), left: plan.considered.filter(item => !item.chosen).length, ...(shadow ? { shadow } : {}) })
     return plan.cards
   }
   const seen = useRef<Seen[]>([])
@@ -317,7 +321,7 @@ export default function Practice() {
         // waits for the learner to say whether to go on with it.
         const saved = loadRound(session.user.id)
         const resumed = resumeRound(saved, entries)
-        let cards = resumed ? resumed.deck : planned(planRound(entries, chosen), 0)
+        let cards = resumed ? resumed.deck : planned(planRound(entries, chosen), 0, entries, chosen.include)
         // Its words, and the next a round will draw on, get the cards of their open stages
         // written now. Studying starts with what is ready; only if nothing is does it wait.
         const preparing = prepareAhead(cards, entries, chosen.include)
@@ -331,7 +335,8 @@ export default function Practice() {
         }
         if (!cards.length && entries.length) {
           const written = new Map((await preparing).map(entry => [entry.id, entry]))
-          cards = planned(planRound(entries.map(entry => written.get(entry.id) ?? entry), chosen), 0)
+          const latest = entries.map(entry => written.get(entry.id) ?? entry)
+          cards = planned(planRound(latest, chosen), 0, latest, chosen.include)
         }
         if (current) setDeck(cards)
       } catch (failure) { if (current) setError((failure as Error).message) }
@@ -414,7 +419,7 @@ export default function Practice() {
   // Another round, from the latest copy of each word (its order reflects what was just studied).
   const newRound = () => {
     stopAdvancing()
-    const again = planned(planRound(Object.values(words), settings, Date.now(), `${Date.now()}`), deck.length)
+    const again = planned(planRound(Object.values(words), settings, Date.now(), `${Date.now()}`), deck.length, Object.values(words), settings.include)
     // Don't show the card just studied twice in a row.
     const last = deck[deck.length - 1]
     if (again.length > 1 && last && cardKey(again[0]) === cardKey(last)) again.push(again.shift()!)
@@ -500,7 +505,7 @@ export default function Practice() {
     if (patch.choices) { setPref('studyChoices', patch.choices); setPref('studyQuiz', false) }
     if (patch.order || patch.include) {
       const here = deck[position]
-      const rest = planned(planRound(Object.values(words), updated, Date.now(), `${Date.now()}`), position + 1).filter(card => !here || cardKey(card) !== cardKey(here))
+      const rest = planned(planRound(Object.values(words), updated, Date.now(), `${Date.now()}`), position + 1, Object.values(words), updated.include).filter(card => !here || cardKey(card) !== cardKey(here))
       void prepareAhead(rest, Object.values(words), updated.include)
       setDeck([...deck.slice(0, position + 1), ...rest])
     }
