@@ -66,6 +66,11 @@ export function studySession(owner: string) {
 export const waitingEvents = (owner: string) => pending().filter(event => event.owner === owner)
 
 // Sends what is waiting for this account, a batch at a time; whatever fails waits for next time.
+// Batches are kept small so a slow connection doesn't time out on them. The last failure is kept
+// for Learning Insights (sendingState), which otherwise couldn't tell events waiting from none.
+const BATCH = 50
+let lastError: { at: number; message: string } | null = null
+export const sendingState = (owner: string) => ({ waiting: waitingEvents(owner).length, lastError })
 let sending: Promise<void> | null = null
 export function sendStudyLog(owner: string, token: string): Promise<void> {
   lastSent = Date.now()
@@ -75,14 +80,14 @@ export function sendStudyLog(owner: string, token: string): Promise<void> {
 async function drain(owner: string, token: string) {
   try {
     for (;;) {
-      const batch = pending().filter(event => event.owner === owner).slice(0, 200)
-      if (!batch.length) return
+      const batch = pending().filter(event => event.owner === owner).slice(0, BATCH)
+      if (!batch.length) { lastError = null; return }
       await request('study-events', { token, body: { events: batch.map(({ owner: _owner, ...event }) => event) } })
       const sent = new Set(batch.map(event => event.id))
       queue = pending().filter(event => !sent.has(event.id))
       keep()
     }
-  } catch { /* offline or refused: sent next time */ }
+  } catch (failure) { lastError = { at: Date.now(), message: (failure as Error).message } /* offline or refused: sent next time */ }
 }
 
 // Notes the app leaving the foreground and coming back (so time away isn't taken for time spent),

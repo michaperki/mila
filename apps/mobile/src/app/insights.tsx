@@ -4,7 +4,7 @@ import { Text, View } from 'react-native'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { colors, ErrorNotice, Loading, Page, Pill, Pressy, styles, TextButton } from '../components/ui'
 import { request } from '../lib/api'
-import { sendStudyLog } from '../lib/study-log'
+import { sendingState, sendStudyLog } from '../lib/study-log'
 import { useSession } from '../state/session'
 
 // Learning Insights, for the developers only (the server answers ADMIN_EMAILS and no one else,
@@ -78,13 +78,17 @@ function Home() {
 // never while Mila was in the background.
 const brief = (item: Summary) => item.activeMs < 30_000 && !item.counts.answers && !item.counts.lookups && !item.counts.saves && !item.counts.sentences
 function Sessions() {
+  const { session } = useSession()
   const { data, error, load } = useInsights<{ version: string; sessions: Summary[]; events: number; lastEventAt: number | null }>('insights')
   const [all, setAll] = useState(false)
+  // What this phone hasn't sent yet, read after each load (useInsights sends first).
+  const phone = data && session ? sendingState(session.user.id) : null
   if (!data) return <Page>{error ? <ErrorNotice message={error} /> : <Loading />}</Page>
   const shown = all ? data.sessions : data.sessions.filter(item => !brief(item))
   const hidden = data.sessions.length - shown.length
   return <Page onRefresh={load}>
     <ErrorNotice message={error} />
+    {!!phone && (phone.waiting > 0 || phone.lastError) && <Text style={[small, { color: colors.red }]}>{phone.waiting} events still on this phone, not yet on the server.{phone.lastError ? ` The last upload failed: ${phone.lastError.message}` : ''}</Text>}
     <Text style={small}>The last 30 days as Mila recorded them: what you did, what the learner model took from it, and what Study did. Model {data.version}; {data.events} events, the latest {data.lastEventAt ? when(data.lastEventAt) : 'none'}.</Text>
     {shown.map(item => <Pressy key={item.id} moment="tick" accessibilityRole="button" onPress={() => open({ session: item.id })} style={[styles.card, { gap: 6, padding: 16 }]}>
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
