@@ -13,12 +13,21 @@ import { request } from './api'
 // sent to apps/web/netlify/functions/study-events.ts. Until the server has them they wait in a
 // file on the phone, so a lost connection or a closed app loses nothing; each has its own id, so
 // one sent twice is kept once. Each is kept with whose it is, and only sent as that account.
-export type StudyEventType = 'start' | 'show' | 'reveal' | 'answer' | 'end' | 'read' | 'select' | 'lookup' | 'explained' | 'save' | 'unsave'
+// Also kept, since 2026-11-17, for Learning Insights: the app going to the background and coming
+// back (`app`), how far a passage was scrolled (`view`), a lookup's drawer closing (`closed`) and
+// a word held on a card shown in English (`hold`). Waiting events are sent while the app is in use
+// too (every SEND_EVERY events or SEND_AFTER), not only when it is left.
+export type StudyEventType = 'start' | 'show' | 'reveal' | 'answer' | 'end' | 'read' | 'select' | 'lookup' | 'explained' | 'save' | 'unsave' | 'app' | 'view' | 'closed' | 'hold'
 export type LogEvent = (type: StudyEventType, fields?: Record<string, unknown>) => string
 export type StudyEvent = { id: string; session: string; seq: number; at: number; type: StudyEventType; owner: string } & Record<string, unknown>
 
 const file = new File(Paths.document, 'study-events.json')
 const LIMIT = 5000
+const SEND_EVERY = 20
+const SEND_AFTER = 60_000
+// Whose events go out while the app is in use, and when they last did (sendStudyLogInBackground).
+let sender: { owner: string; token: string } | null = null
+let lastSent = 0
 let queue: StudyEvent[] | null = null
 const pending = () => {
   if (queue) return queue
@@ -45,6 +54,9 @@ export function studySession(owner: string) {
       events.push({ ...fields, id: event, session: id, seq: seq++, at: Date.now(), type, owner })
       if (events.length > LIMIT) events.splice(0, events.length - LIMIT)
       keep()
+      // Not more than once in a few seconds, so a phone offline doesn't try at every event.
+      const since = Date.now() - lastSent
+      if (sender?.owner === owner && ((events.length >= SEND_EVERY && since > 5000) || since > SEND_AFTER)) void sendStudyLog(owner, sender.token)
       return event
     }) as LogEvent,
   }
@@ -56,6 +68,7 @@ export const waitingEvents = (owner: string) => pending().filter(event => event.
 // Sends what is waiting for this account, a batch at a time; whatever fails waits for next time.
 let sending: Promise<void> | null = null
 export function sendStudyLog(owner: string, token: string): Promise<void> {
+  lastSent = Date.now()
   sending ??= drain(owner, token).finally(() => { sending = null })
   return sending
 }
@@ -72,8 +85,25 @@ async function drain(owner: string, token: string) {
   } catch { /* offline or refused: sent next time */ }
 }
 
-// Sends what is waiting each time the app leaves the foreground; returns the way to stop.
+// Notes the app leaving the foreground and coming back (so time away isn't taken for time spent),
+// sends what is waiting each time it leaves, and while it is in use; returns the way to stop.
 export function sendStudyLogInBackground(owner: string, token: string) {
-  const subscription = AppState.addEventListener('change', state => { if (state !== 'active') void sendStudyLog(owner, token) })
-  return () => subscription.remove()
+  sender = { owner, token }
+  const app = studySession(owner)
+  let was = AppState.currentState
+  const subscription = AppState.addEventListener('change', state => {
+    const active = state === 'active'
+    if (active === (was === 'active')) { was = state; return }
+    was = state
+    app.log('app', { state: active ? 'active' : 'background' })
+    if (!active) void sendStudyLog(owner, token)
+  })
+  return () => { subscription.remove(); if (sender?.owner === owner) sender = null }
+}
+
+// A short fingerprint of a text (FNV-1a, base 36): which sentence a card showed, without its words.
+export function fingerprint(text: string) {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0
+  return hash.toString(36)
 }

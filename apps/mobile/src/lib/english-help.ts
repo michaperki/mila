@@ -25,6 +25,18 @@ export function englishTokens(text: string): Token[] {
 export const tokenAt = (tokens: Token[], offset: number) => tokens.findIndex(token => offset >= token.start && offset < token.end)
 
 const plain = (word: string) => word.toLowerCase().replace(/[’]/g, '\'').replace(/^[^\p{L}\p{N}']+|[^\p{L}\p{N}']+$/gu, '')
+// A contraction or possessive is one English word but often two Hebrew ones (I'm: אני; doctor's:
+// של הרופא), and the card's word data names the pieces ("I", "'m going", "'s", "n't").
+const piecesOf = (word: string) => {
+  const not = word.match(/^(.+)(n't)$/)
+  if (not) return [not[1], not[2]]
+  const clitic = word.match(/^(.+)('(?:m|s|re|ve|ll|d))$/)
+  return clitic ? [clitic[1], clitic[2]] : word.endsWith('s\'') ? [word.slice(0, -1), '\''] : []
+}
+// Words English uses where Hebrew uses a prefix or nothing: one may serve two Hebrew words
+// ("to the problem" and "the parking", both from "to the parking problem"), and a place whose
+// words aren't all found is placed by its other words.
+const LIGHT = new Set(['the', 'a', 'an', 'to', 'of', 'in', 'on', 'at', 'for', 'and', 'with', 'by', 'from', 'that', 'is', 'are', 'was', 'were', 'be', "'s", "'", "'m", "'re", "n't"])
 
 // Which English words (by their index among `tokens`) each Hebrew place says: each place's words
 // found in the English as shown, in order, the first occurrence not taken by an earlier place.
@@ -37,32 +49,50 @@ export function alignment(tokens: Token[], renders: { place: number; t: string }
   tokens.forEach((token, i) => { if (token.text.startsWith('(')) open = true; if (open) inCue.add(i); if (token.text.includes(')')) open = false })
   // The words that can be matched, by index: not a cue, and with letters (a person cue such as 👩
   // stands between words without being one).
-  const usable = tokens.map((token, i) => ({ i, word: plain(token.text) })).filter(item => item.word && !inCue.has(item.i))
+  const usable = tokens.map((token, i) => ({ i, word: plain(token.text) })).filter(item => item.word && !inCue.has(item.i)).map(item => ({ ...item, pieces: piecesOf(item.word) }))
   const taken = new Map<number, number[]>()
-  let unplaced = 0
-  for (const { place, t } of renders) {
-    const wanted = t.split(/\s+/).map(plain).filter(Boolean)
-    if (!wanted.length) continue
-    let found = false
-    // In order, the first word anywhere not taken by another place, each next one within the
-    // next few words (an English phrase can have words between its own: "would only come").
-    const free = (k: number) => !taken.has(usable[k].i) || taken.get(usable[k].i)!.includes(place)
-    for (let start = 0; start < usable.length && !found; start++) {
-      if (usable[start].word !== wanted[0] || !free(start)) continue
+  // A word may be had by another place too when it is a light one, or only a piece of it is meant;
+  // but a word of its own, not had by another, is tried first (`shared` false).
+  let shared = false
+  const fits = (k: number, word: string) => usable[k].word === word || (shared && usable[k].pieces.includes(word))
+  const free = (k: number, word: string, place: number) => !taken.has(usable[k].i) || taken.get(usable[k].i)!.includes(place) || (shared && (LIGHT.has(word) || usable[k].word !== word))
+  const place = (at: number, wanted: string[]) => {
+    shared = false
+    if (placeAs(at, wanted)) return true
+    shared = true
+    return placeAs(at, wanted)
+  }
+  const placeAs = (at: number, wanted: string[]) => {
+    for (let start = 0; start < usable.length; start++) {
+      if (!fits(start, wanted[0]) || !free(start, wanted[0], at)) continue
       const span = [start]
       for (const word of wanted.slice(1)) {
         const last = span[span.length - 1]
-        const next = usable.findIndex((item, k) => k > last && k <= last + 3 && item.word === word && free(k))
+        // In order, each next word within the next few (an English phrase can have words between
+        // its own: "would only come"); a contraction's pieces are in the same word.
+        const next = usable.findIndex((item, k) => k >= last && k <= last + 3 && (k > last || item.pieces.includes(word)) && fits(k, word) && free(k, word, at))
         if (next === -1) break
         span.push(next)
       }
       if (span.length < wanted.length) continue
-      for (const k of span) taken.set(usable[k].i, [...(taken.get(usable[k].i) ?? []), place])
-      found = true
+      for (const k of new Set(span)) taken.set(usable[k].i, [...(taken.get(usable[k].i) ?? []), at])
+      return true
     }
-    if (!found) unplaced++
+    return false
   }
-  return Object.assign(taken, { unplaced })
+  let unplaced = 0
+  const missed: { at: number; wanted: string[] }[] = []
+  // Longer renderings first: they fit fewer places ("we change" needs the "we" before "change";
+  // "We" alone can be the "We" of "We're").
+  const wanted = renders.map(({ place: at, t }) => ({ at, wanted: t.split(/\s+/).map(plain).filter(Boolean) })).filter(item => item.wanted.length)
+  for (const item of [...wanted].sort((a, b) => b.wanted.length - a.wanted.length)) if (!place(item.at, item.wanted)) missed.push(item)
+  // Then, by their other words, the places not found as written ("the parking" where the English
+  // has "the" taken before it, "at wedding" for "at my brother's wedding").
+  for (const { at, wanted } of missed) {
+    const heavy = wanted.filter(word => !LIGHT.has(word))
+    if (!(heavy.length && heavy.length < wanted.length && place(at, heavy)) && !(heavy.length > 1 && heavy.every(word => place(at, [word])))) unplaced++
+  }
+  return Object.assign(new Map([...taken.entries()].sort(([a], [b]) => a - b).map(([i, places]) => [i, [...places].sort((a, b) => a - b)])), { unplaced })
 }
 
 // The places of the Hebrew sentence that are the card's own word (as the card marks them).
@@ -86,7 +116,8 @@ export function helpFor(index: number, aligned: Map<number, number[]> & { unplac
   if (!places?.length) return aligned.unplaced ? { kind: 'unknown' } : { kind: 'none' }
   if (places.some(place => target.has(place))) return { kind: 'target' }
   const words = sentence.split(/\s+/).filter(Boolean)
-  return { kind: 'hebrew', places, hebrew: places.map(place => bareWord(words[place] ?? '')).filter(Boolean).join(' ') }
+  const ordered = [...places].sort((a, b) => a - b)
+  return { kind: 'hebrew', places: ordered, hebrew: ordered.map(place => bareWord(words[place] ?? '')).filter(Boolean).join(' ') }
 }
 
 // Whether a card's sentence has its word data (glosses saying which English words each Hebrew

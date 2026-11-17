@@ -65,3 +65,26 @@ test('a card\'s sentences take their word data once prepared, and only those wit
   assert.deepEqual(entry.forms[1], { key: 'other' })
   assert.equal(withSentenceWords(entry, 'missing', [{ variant: -1, glosses: [] }]), entry)
 })
+
+test('words English puts in another order, or shares, are still found (the parking problem)', () => {
+  const sentence = 'אין פתרון פשוט לבעיית החניה בשכונה'
+  const tokens = englishTokens('There\'s no simple solution to the parking problem in the neighborhood.')
+  const aligned = alignment(tokens, [{ place: 0, t: 'There\'s no' }, { place: 2, t: 'simple' }, { place: 3, t: 'to the problem' }, { place: 4, t: 'the parking' }, { place: 5, t: 'in the neighborhood' }])
+  assert.equal(aligned.unplaced, 0)
+  const target = targetPlaces(sentence, 'פתרון')
+  assert.deepEqual(helpFor(6, aligned, sentence, target), { kind: 'hebrew', places: [4], hebrew: 'החניה' })
+  assert.deepEqual(helpFor(5, aligned, sentence, target), { kind: 'hebrew', places: [3, 4], hebrew: 'לבעיית החניה' })
+})
+
+test('contractions and possessives are found by their pieces, a word of its own first', () => {
+  const sentence = 'אנחנו משוכנעות בהחלטה שלנו ולא נשנה את דעתנו'
+  const tokens = englishTokens('We\'re convinced of our decision and we won\'t change our minds.')
+  const aligned = alignment(tokens, [{ place: 0, t: 'We' }, { place: 2, t: 'of decision' }, { place: 3, t: 'our' }, { place: 4, t: 'and won\'t' }, { place: 5, t: 'we change' }, { place: 7, t: 'our minds' }])
+  const help = (i: number) => helpFor(i, aligned, sentence, new Set([1]))
+  assert.equal(help(0).kind === 'hebrew' && help(0).hebrew, 'אנחנו')
+  assert.equal(help(8).kind === 'hebrew' && help(8).hebrew, 'נשנה')
+  const doctor = englishTokens('The doctor\'s secretary made me an appointment.')
+  const placed = alignment(doctor, [{ place: 1, t: '\'s' }, { place: 2, t: 'The doctor' }, { place: 3, t: 'made' }])
+  assert.equal(placed.unplaced, 0)
+  assert.deepEqual(helpFor(1, placed, 'המזכירה של הרופא קבעה', new Set([0])), { kind: 'hebrew', places: [1, 2], hebrew: 'של הרופא' })
+})

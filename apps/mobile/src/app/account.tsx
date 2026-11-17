@@ -177,6 +177,11 @@ export default function Account() {
       </View>)}
       <Text style={[styles.copy, { fontSize: 13 }]}>Estimated at list prices, before free tiers.</Text>
     </View>}
+    {session && !!usage && <View style={styles.card}>
+      <Text style={styles.heading}>Learning Insights</Text>
+      <Text style={styles.copy}>What Mila saw you do, what it took from it, and where its model was wrong. Only you see this, as a developer.</Text>
+      <Button secondary title="Open Learning Insights" onPress={() => router.push('/insights')} />
+    </View>}
     {/* The spend summary answers only for the developers, so it also says who sees developer tools. */}
     {session && !!usage && <ResetPassword session={session} />}
     {session && <ChangePassword session={session} />}

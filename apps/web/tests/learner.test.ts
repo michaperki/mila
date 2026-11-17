@@ -96,6 +96,33 @@ describe('learner model', () => {
     ]
     const word = learnerState([verb], events, level, now).words.find(item => item.id === 'native-v')!
     expect(word.evidence.some(item => item.what.includes('looked up while reading'))).toBe(true)
+    expect(word.evidence.find(item => item.kind === 'lookup')!.from).toEqual(['r:1', 'r:2'])
+  })
+  it('says which events each piece of evidence came from', () => {
+    const word = learnerState([verb], [answer(1, 'native-v:meanings:sense1', true, 'he')], level, now).words.find(item => item.id === 'native-v')!
+    expect(word.evidence.find(item => item.kind === 'answer')!.from).toEqual(['s:1'])
+    expect(word.evidence.filter(item => item.kind === 'result').every(item => item.dated === false && !item.from)).toBe(true)
+  })
+  it('notes a word tapped on the answer side of a card shown in English, without counting it', () => {
+    const key = 'native-v:meanings:sense1'
+    const events: LearnerEvent[] = [
+      { session: 's', seq: 1, at: now - 2000, type: 'show', id: 's:1', key, position: 0, front: 'en' },
+      { session: 's', seq: 2, at: now - 1000, type: 'lookup', id: 's:2', key, word: 'תקציב', lemma: 'תַּקְצִיב', place: 2, own: false },
+    ]
+    const tapped = learnerState([verb], events, level, now).words.find(item => item.key === 'תקציב')!
+    expect(tapped.evidence).toEqual([expect.objectContaining({ kind: 'note', weight: 0, from: ['s:2'] })])
+    expect(tapped.recognition.evidence).toBe(0)
+    // The same tap on a card shown in Hebrew counts against reading it.
+    const hebrew = learnerState([verb], [{ ...events[0], front: 'he' }, events[1]], level, now).words.find(item => item.key === 'תקציב')!
+    expect(hebrew.evidence[0]).toEqual(expect.objectContaining({ kind: 'lookup', weight: 0.5 }))
+  })
+  it('counts a phrase selected for the expression it was explained as', () => {
+    const events: LearnerEvent[] = [
+      { session: 'r', seq: 1, at: now - 1000, type: 'lookup', id: 'r:1', text: 't', segment: 0, word: 'בימים של פעם', phrase: true },
+      { session: 'r', seq: 2, at: now - 500, type: 'explained', id: 'r:2', of: 'r:1', lemma: 'בימים של פעם' },
+    ]
+    const phrase = learnerState([verb], events, level, now).words.find(item => item.key === 'בימים של פעם')!
+    expect(phrase.evidence[0]).toEqual(expect.objectContaining({ kind: 'lookup', what: expect.stringContaining('a phrase selected') }))
   })
   it('finds the level a vocabulary check shows, discounting guesses', () => {
     const ranks = [100, 300, 600, 1000, 1500, 2500, 4000, 6000, 10000, 15000, 25000]

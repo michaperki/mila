@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, type LayoutChangeEvent, type NativeScrollEvent, Pressable, ScrollView, type StyleProp, StyleSheet, Text, useWindowDimensions, View, type ViewStyle } from 'react-native'
 import { router } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -72,7 +72,19 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   const byLemma = useMemo(() => savedByLemma(vocab), [vocab])
   const bySurface = useMemo(() => savedBySurface(vocab), [vocab])
 
-  const lookedUp = useRef<{ id: string; at: number } | null>(null)
+  // The lookup open now: when it was asked for, when its meaning first showed, and when its
+  // details were opened, for its `closed` event (Learning Insights: how long a word was looked at).
+  const lookedUp = useRef<{ id: string; at: number; shownAt?: number; detailsAt?: number } | null>(null)
+  const closedFor = useRef(new Set<string>())
+  useEffect(() => { const looked = lookedUp.current; if (looked && !looked.shownAt && (gloss || analysis)) looked.shownAt = now() }, [gloss, analysis])
+  useEffect(() => { const looked = lookedUp.current; if (looked && !looked.detailsAt && details) looked.detailsAt = now() }, [details])
+  // The drawer leaving the word it shows: another word, closed, or the screen left.
+  const finish = (how: 'next word' | 'closed' | 'left') => {
+    const looked = lookedUp.current
+    if (!looked || closedFor.current.has(looked.id)) return
+    closedFor.current.add(looked.id)
+    log?.('closed', { of: looked.id, how, ms: now() - looked.at, waitMs: looked.shownAt ? looked.shownAt - looked.at : null, details: !!looked.detailsAt })
+  }
   const explainedFor = useRef(new Set<string>())
   // The explanation of a word looked up arriving: its dictionary form and how it is used here,
   // how long it took, and what asked for it (the tap, More or Save). Kept once per lookup, and
@@ -87,6 +99,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   }
   const open = async (next: Lookup) => {
     const current = ++version.current
+    finish('next word')
     setTap(next); setDetails(false); setAnalysis(undefined); setGloss(''); setError(null); setBusy(true); setAsked(false)
     // Saved from this sentence: show what it was saved with instead of asking the model again.
     // Words saved before explanations were kept show their saved meaning while it loads.
@@ -134,8 +147,10 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
     finally { if (version.current === current) setBusy(false) }
   }
   // Anything still on its way for the word shown is dropped (leaving the screen does this too).
-  const invalidate = useCallback(() => { version.current++; stopSpeaking() }, [])
-  const close = () => { invalidate(); setTap(null) }
+  const leave = useRef(finish)
+  useEffect(() => { leave.current = finish })
+  const invalidate = useCallback(() => { version.current++; stopSpeaking(); leave.current('left') }, [])
+  const close = () => { finish('closed'); invalidate(); setTap(null) }
 
   const isPhrase = !!tap?.phrase
   const quickMeaning = tap && !isPhrase ? quick : ''
@@ -256,7 +271,8 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       // Undone while it was on its way: take it back out now that it has landed.
       if (undoAfterSave.current.delete(key)) { await removeSave(savedId, tapped.sentence, key); return }
       noteActivity('saved')
-      log?.('save', { of, id: savedId, ...(asPhrase ? { phrase: true } : {}) })
+      // The word saved as `saved` (an event's own `id` is its id: before 2026-11-17 this was lost).
+      log?.('save', { of, saved: savedId, ...(asPhrase ? { phrase: true } : {}) })
       // The saved words as the server now has them: this entry, with this sentence's encounter
       // in place of any earlier one from the same sentence.
       const { encounter: _added, createdAt: _created, ...rest } = entry

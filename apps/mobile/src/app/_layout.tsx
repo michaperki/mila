@@ -46,6 +46,7 @@ function Navigator() {
     <Stack.Screen name="table" options={{ title: 'All forms' }} />
     <Stack.Screen name="root" options={{ title: 'Root' }} />
     <Stack.Screen name="import" options={{ title: 'Import changes' }} />
+    <Stack.Screen name="insights" options={{ title: 'Learning Insights' }} />
   </Stack></>
 }
 // A screen that throws while drawing shows this instead of closing the app, and the error is

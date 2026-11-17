@@ -26,7 +26,12 @@ import { isListed, PREFIXES, plainWord, rankedForm, rankOf } from './frequency.t
 // word, not reading it: it wasn't there when the learner was building the sentence. It isn't
 // noted against the card, and the card's own answer counts as before: the help was with another
 // word, and never showed it. A word not asked for is no evidence.
-export const MODEL_VERSION = 'learner-v1.3'
+// learner-v1.4: evidence says where it came from (`from`, the events; `kind`, what sort of
+// observation), for Learning Insights. A Hebrew word tapped on the answer side of a card shown in
+// English is noted, not counted: after turning over, a tap there is mostly checking how the
+// sentence says what it says, not failing to read it. A phrase selected and explained counts for
+// the expression it was explained as (before, phrase lookups were left out).
+export const MODEL_VERSION = 'learner-v1.4'
 export const WEIGHTS = {
   answer: 1, // an answer recalled or missed, not primed
   primed: 0.25, // the same, just after the word's Hebrew was shown (lib/forms.ts isPrimed)
@@ -60,7 +65,11 @@ export type LearnerEvent = { session: string; seq: number; at: number; type: str
 export type Level = { words: number; low: number; high: number; basis: string }
 export type Channel = 'recognition' | 'production'
 // `dated: false`: an older card result whose date wasn't kept; `at` is the latest it can have been.
-export type Evidence = { at: number; channel: Channel | 'either'; knew: boolean; weight: number; what: string; uncertain?: boolean; dated?: false }
+// `kind`: an answer recorded as an event, an older card result (kept on the card, not as an event),
+// help asked for on a card shown in English, a lookup, a save from a page before lookups were
+// recorded, or a note (no weight). `from`: the ids of the events it comes from.
+export type EvidenceKind = 'answer' | 'result' | 'help' | 'lookup' | 'save' | 'note'
+export type Evidence = { at: number; channel: Channel | 'either'; knew: boolean; weight: number; what: string; uncertain?: boolean; dated?: false; kind?: EvidenceKind; from?: string[] }
 // The chance known, with an 80% range, and how much evidence (in answers' worth) is behind it.
 export type Estimate = { p: number; low: number; high: number; evidence: number }
 // known: likely known (recognition at least 75%, and surely over 55%); acquiring: saved and being
@@ -246,13 +255,13 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
   // (WEIGHTS.quiz), and what it says depends on what it tested: the word's meaning in context (to
   // reading it), or which of its forms the sentence needs (to the grammar only: choosing the wrong
   // form isn't not knowing the word).
-  const answered = (entry: LearnerEntry, card: { kind: string; stage?: string; slot?: string }, item: Omit<Evidence, 'weight' | 'what'> & { primed?: boolean; quiz?: boolean; tests?: 'word' | 'form'; asked?: number }) => {
+  const answered = (entry: LearnerEntry, card: { kind: string; stage?: string; slot?: string }, item: Omit<Evidence, 'weight' | 'what' | 'kind'> & { primed?: boolean; quiz?: boolean; tests?: 'word' | 'form'; asked?: number }) => {
     const base = (item.primed ? WEIGHTS.primed : WEIGHTS.answer) * (item.quiz ? WEIGHTS.quiz : 1)
     const label = card.kind === 'word' ? 'word card' : card.kind === 'checkpoint' ? `${card.stage} checkpoint` : `${card.stage} ${card.slot}`
     const side = item.channel === 'production' ? 'English first' : item.channel === 'recognition' ? 'Hebrew first' : 'side not recorded'
     const what = `${item.knew ? 'knew' : 'missed'} ${label} (${side}${item.primed ? ', primed' : ''}${item.quiz ? `, choices${item.tests ? `: ${item.tests}` : ''}` : ''}${item.asked ? `, Hebrew for ${item.asked} ${item.asked === 1 ? 'word' : 'words'} around it given` : ''}${item.dated === false ? ', older result: date not kept' : ''})`
     const own = word(entry.lemma, entry)
-    const undated = item.dated === false ? { dated: false as const } : {}
+    const undated = item.dated === false ? { dated: false as const, kind: 'result' as const } : { kind: 'answer' as const, ...(item.from ? { from: item.from } : {}) }
     if (item.tests !== 'form') own.evidence.push({ at: item.at, channel: item.channel, knew: item.knew, weight: base * (isWordCard(card.stage) && card.kind !== 'checkpoint' ? 1 : WEIGHTS.formCard), what, ...undated })
     own.answers++
     if (item.dated !== false) own.dated++
@@ -271,12 +280,18 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
   const final = new Map<string, LearnerEvent>()
   for (const event of sorted) if (event.type === 'answer') final.set(`${event.session}:${event.position}:${event.key}`, event)
   const shownFront = new Map<string, string>()
+  // The side each card was last shown first in a session, for lookups made on it.
+  const cardFront = new Map<string, string>()
+  const lookupFront = new Map<string, string>()
   const recordedAt = new Map<string, number[]>()
   const lookups = new Map<string, LearnerEvent>()
   const resolved = new Set<string>()
   let readerLogSince = Infinity
   for (const event of sorted) {
-    if (event.type === 'show') shownFront.set(`${event.session}:${event.position}`, String(event.front))
+    if (event.type === 'show') {
+      shownFront.set(`${event.session}:${event.position}`, String(event.front))
+      if (typeof event.key === 'string') cardFront.set(`${event.session}:${event.key}`, String(event.front))
+    }
     if (event.type === 'answer' && typeof event.key === 'string') {
       if (final.get(`${event.session}:${event.position}:${event.key}`) !== event) continue
       const card = parseCardKey(event.key)
@@ -286,7 +301,7 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
       recordedAt.set(event.key, [...(recordedAt.get(event.key) ?? []), event.at])
       const tests = event.exercise === 'choice' && (event.tests === 'word' || event.tests === 'form') ? event.tests : undefined
       const channel = tests ? 'recognition' : front === 'en' ? 'production' : front === 'he' ? 'recognition' : 'either'
-      answered(entry, card, { at: event.at, knew: !!event.knew, primed: !!event.primed, quiz: !!event.quiz, channel, tests, asked: Array.isArray(event.asked) ? event.asked.length : 0 })
+      answered(entry, card, { at: event.at, knew: !!event.knew, primed: !!event.primed, quiz: !!event.quiz, channel, tests, asked: Array.isArray(event.asked) ? event.asked.length : 0, from: [String(event.id)] })
     }
     if (event.type === 'lookup') {
       // The same word tapped again in the same place within seconds (while its meaning loads) is
@@ -295,12 +310,22 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
         && other.segment === event.segment && other.place === event.place && event.at - other.at < 10_000)
       if (again) continue
       lookups.set(String(event.id), event)
+      if (typeof event.key === 'string') {
+        const front = typeof event.front === 'string' ? event.front : cardFront.get(`${event.session}:${event.key}`)
+        if (front) lookupFront.set(String(event.id), front)
+      }
       if (event.text) readerLogSince = Math.min(readerLogSince, event.at)
       if (event.lemma && typeof event.lemma === 'string' && !event.own) { lookedUp(event, event.lemma); resolved.add(String(event.id)) }
     }
     if (event.type === 'explained' && typeof event.lemma === 'string') {
       const lookup = lookups.get(String(event.of))
-      if (lookup && !resolved.has(String(lookup.id)) && !lookup.own && !lookup.phrase) { lookedUp(lookup, event.lemma); resolved.add(String(lookup.id)) }
+      if (lookup && !resolved.has(String(lookup.id)) && !lookup.own) {
+        // A phrase selected counts for the expression it was explained as.
+        const phrase = lookup.phrase ? (typeof event.phrase === 'string' && event.phrase) || event.lemma : null
+        // A phrase explained without a dictionary form (a stretch that isn't one) says nothing.
+        if (phrase ?? event.lemma) lookedUp(lookup, phrase ?? event.lemma, phrase ? ' (a phrase selected)' : '', undefined, String(event.id))
+        resolved.add(String(lookup.id))
+      }
     }
   }
   // A lookup whose dictionary form never came (a card's word met only by its sentence's quick
@@ -313,12 +338,20 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
     const entry = keys.length === 1 ? entries.find(item => lemmaKeyOf(item.lemmaPlain || item.lemma) === keys[0]) : undefined
     if (entry) lookedUp(lookup, entry.lemma, ' (word found by its spelling)', entry)
   }
-  function lookedUp(event: LearnerEvent, lemma: string, how = '', known?: LearnerEntry) {
+  function lookedUp(event: LearnerEvent, lemma: string, how = '', known?: LearnerEntry, explained?: string) {
     const entry = known ?? [...byId.values()].find(item => lemmaKeyOf(item.lemmaPlain || item.lemma) === lemmaKeyOf(lemma))
     const onCard = typeof event.key === 'string'
     const fromEnglish = event.help === 'english'
+    // Tapped on a card shown in English (its Hebrew is only on the answer side): checking, noted.
+    const checking = onCard && !fromEnglish && lookupFront.get(String(event.id)) === 'en'
+    const from = [String(event.id), ...(explained ? [explained] : [])]
+    if (checking) {
+      word(lemma, entry).evidence.push({ at: event.at, channel: 'recognition', knew: false, weight: 0, uncertain: true, kind: 'note', from, what: `tapped on the answer side of a card shown in English (${String(event.word)}): checking, not counted${how}` })
+      return
+    }
     word(lemma, entry).evidence.push({
       at: event.at, channel: fromEnglish ? 'production' : 'recognition', knew: false, weight: fromEnglish ? WEIGHTS.askedFor : onCard ? WEIGHTS.cardLookup : WEIGHTS.lookup,
+      kind: fromEnglish ? 'help' : 'lookup', from,
       what: (fromEnglish ? `asked for on a card shown in English, for "${String(event.english ?? '')}" (${String(event.word)})` : onCard ? `looked up on a card in Study (${String(event.word)})` : `looked up while reading (${String(event.word)})`) + how,
     })
     // The card it was looked up on (after answering): noted, not counted, as what may have made
@@ -326,7 +359,7 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
     if (onCard && !fromEnglish) {
       const target = byId.get(parseCardKey(event.key as string).wordId)
       if (target && lemmaKeyOf(target.lemmaPlain || target.lemma) !== lemmaKeyOf(lemma)) {
-        word(target.lemma, target).evidence.push({ at: event.at, channel: 'either', knew: false, weight: 0, uncertain: true, what: `${plainWord(lemma)} was looked up on this card: maybe why it was hard, maybe not` })
+        word(target.lemma, target).evidence.push({ at: event.at, channel: 'either', knew: false, weight: 0, uncertain: true, kind: 'note', from, what: `${plainWord(lemma)} was looked up on this card: maybe why it was hard, maybe not` })
       }
     }
   }
@@ -343,7 +376,7 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
     const own = word(entry.lemma, entry)
     for (const met of entry.encounters || []) {
       if ((met.at ?? 0) >= readerLogSince) continue
-      own.evidence.push({ at: met.at ?? now, channel: 'recognition', knew: false, weight: WEIGHTS.lookup, what: `saved from a page (${met.surface ?? ''})` })
+      own.evidence.push({ at: met.at ?? now, channel: 'recognition', knew: false, weight: WEIGHTS.lookup, kind: 'save', what: `saved from a page (${met.surface ?? ''})` })
     }
   }
 

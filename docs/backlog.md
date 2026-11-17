@@ -104,6 +104,31 @@ Background and findings: [learner-model.md](learner-model.md). Investigation and
   prediction vs learning) are in [learner-model.md](learner-model.md#open-questions-for-when-a-feature-needs-them-or-the-data-allows).
   Take one up only when a feature needs it.
 
+### LM-9 Learning Insights v0
+**Live 2026-11-17, measuring.** Account → Learning Insights (admins only): sessions, one session
+told event by event, one word, model checks. Read-only; nothing in it changes Study.
+- **Supporting fixes shipped with it:**
+  - learner-v1.4: evidence keeps the events it came from and its kind; a Hebrew word tapped on
+    the answer side of an English-first card is noted, not counted; a phrase selected counts for
+    the expression it was explained as.
+  - New events: `app` (background and back), `view` (how far a passage is scrolled, as fractions),
+    `closed` (a lookup's drawer: time open, when its meaning showed, details opened, how it
+    ended), `hold` (every hold, with what it found). Card lookups record `position`, `side` and
+    `front`; shows record `sentenceId` (a fingerprint of the sentence); `read` is logged when a
+    passage opens; `save` records the saved word as `saved` (it was lost under the event's id).
+  - Events are sent while the app is in use (every 20 events or a minute), not only on leaving.
+  - Hints on English cards: matching tolerates English word order, shared "the/of/to" and
+    contractions ("Not found" went from 25 of 1,056 holdable words to 1); an unmatched word says
+    "No hint for this word".
+- **Heuristics** (named in `lib/insights.ts`, all labelled in the app): `surprise` (the model at
+  75%+ and wrong), `ambiguous-miss` (an English-first miss after help with other words),
+  `common-save` (a saved word in the 3,000 most common: what Study did about it),
+  `help-gap` (help with a common word not saved), `met-in-reading` (saved words in the sentences
+  read, kept as exposure, never as knowing).
+- **Not yet:** reading exposure from `view` in the model or insights beyond counting; pages linked
+  into books; what Study considered and didn't choose; the UX candidates (a swipe for the card's
+  word only, expression units, "missed" marks), to decide from this data.
+
 ### LM-3 Vocabulary check
 **Done** (`scripts/personalize.mjs level`). Level about 739 words; not a vocabulary size. Not used
 by the app.

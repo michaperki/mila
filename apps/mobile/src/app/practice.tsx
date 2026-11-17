@@ -26,7 +26,7 @@ import { useWordLookup, WordDrawer, type WordLookup } from '../components/WordDr
 import { cardWords, ensureForms, freshSentences } from '../lib/word-forms'
 import { askBeforeResuming, resumeRound, roundToSave } from '../lib/rounds'
 import { clearRound, loadRound, saveRound } from '../lib/saved-round'
-import { sendStudyLog, studySession } from '../lib/study-log'
+import { fingerprint, sendStudyLog, studySession } from '../lib/study-log'
 import { saveResult, sendResults } from '../lib/results'
 import type { ResultBody } from '../lib/result-queue'
 import { appInfo } from '../lib/app-info'
@@ -214,7 +214,7 @@ export default function Practice() {
   useEffect(() => { void getPref('holdTip').then(setHoldTip) }, [])
   const holdWord = async (card: Card, entry: VocabEntry, form: FormCard, variant: number, index: number) => {
     if (!session) return
-    const here = position
+    const here = position, started = Date.now()
     feel('select')
     setHolding(index)
     const show = (text: string | null, note = false) => setWordHint(current => (current[here] && current[here].index !== index ? current : { ...current, [here]: { index, text, note } }))
@@ -230,9 +230,15 @@ export default function Practice() {
       glosses = done?.sentences.find(item => item.variant === variant - 1)?.glosses ?? null
     }
     const help = glosses ? helpFor(index, alignment(englishTokens(cuedTranslation(form)), glosses.map(item => ({ place: item.i, t: item.t ?? '' }))), form.sentence, targetPlaces(form.sentence, form.mark)) : null
+    // Every hold, with what it found (Learning Insights: help that found nothing is seen too); the
+    // Hebrew words given are also logged as lookups below, which the learner model reads.
+    study.current?.log('hold', {
+      key: cardKey(card), position: here, index, english: englishTokens(cuedTranslation(form))[index]?.text, found: help?.kind ?? 'failed',
+      ...(help?.kind === 'hebrew' ? { hebrew: help.hebrew, places: help.places } : {}), from: ready ? 'card' : 'late', ...(ready ? {} : { waitMs: Date.now() - started }),
+    })
     if (help?.kind !== 'hebrew') {
       show(!help ? 'Couldn’t be looked up just now' : help.kind === 'target' ? 'Part of the word you’re recalling'
-        : help.kind === 'none' ? 'No separate word in Hebrew' : 'Not found in this sentence', true)
+        : help.kind === 'none' ? 'No separate word in Hebrew' : 'No hint for this word', true)
       return
     }
     show(help.hebrew)
@@ -373,6 +379,8 @@ export default function Practice() {
     const shownAs = card.checkpoint ? null : presentation(card, entry, record, front !== 'en', justAfterItsWord(deck!, position, roundStart), position)
     study.current.log('show', {
       ...cardFields(card, entry, position, roundStart), front: shownAs?.quiz ? null : front, quiz: !!shownAs?.quiz, exercise: shownAs?.quiz ? 'choice' : 'card',
+      // Which sentence exactly, so an event can be read against it after the card is repaired.
+      ...(shownAs?.shown?.sentence ? { sentenceId: fingerprint(shownAs.shown.sentence) } : {}),
       ...(shownAs?.quiz ? { tests: !card.form || card.form.stage === 'meanings' ? 'word' : 'form' } : {}),
       ...presented(shownAs),
       wordShown: word, cardShown: self, results: record.results ?? [], primed: record.primed ?? [], lastAnswered: record.last ?? null, wordLastStudied: lastStudied(entry) || null,
@@ -616,7 +624,7 @@ export default function Practice() {
   const flipHere = () => { if (tapped()) { feel('reveal'); turnOver() } }
   const side = (english: boolean, answerSide: boolean) => <ScriptContext.Provider value={answerSide ? 'answers' : 'print'}>
     {form
-      ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} hideMark={!!choices && picked === null} v={answerSide ? vAnswer : vQuestion} lookup={answerSide ? lookup : undefined}
+      ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} position={position} front={englishFirst ? 'en' : 'he'} hideMark={!!choices && picked === null} v={answerSide ? vAnswer : vQuestion} lookup={answerSide ? lookup : undefined}
         hint={!flipped ? wordHint[position] : undefined} holding={holding} holdable={english && !answerSide && !choices} onHold={holdHere} onLetGo={letGo} onTap={flipHere} />
       : <WordSide entry={entry} english={english} answer={answerSide} v={answerSide ? vAnswer : vQuestion} />}
   </ScriptContext.Provider>
@@ -833,8 +841,8 @@ const heardOf = (form: FormCard) => form.said || (form.stage === 'meanings' ? fo
 // On a question side shown in English, each English word but the card's own can be held for the
 // Hebrew that says it (`onHold`, lib/english-help.ts), shown on one quiet line under the sentence
 // (`hint`), and a tap still turns the card over. The word held is marked only while held.
-function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, lookup, hint, holding, holdable, onHold, onLetGo, onTap }: {
-  entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; hideMark: boolean; v: (text: string) => string; lookup?: WordLookup
+function SentenceSide({ entry, form, english, answer: answerSide, position, front, hideMark, v, lookup, hint, holding, holdable, onHold, onLetGo, onTap }: {
+  entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; position: number; front: 'en' | 'he'; hideMark: boolean; v: (text: string) => string; lookup?: WordLookup
   hint?: { text: string | null; note?: boolean }; holding: number | null; holdable: boolean; onHold: (index: number) => void; onLetGo: () => void; onTap: () => void
 }) {
   const he = useHebrew()
@@ -845,7 +853,7 @@ function SentenceSide({ entry, form, english, answer: answerSide, hideMark, v, l
     feel('select')
     const gloss = own ? { en: form.en, lemma: entry.lemmaPlain || entry.lemma } : form.glosses?.find(item => item.i === at)
     const words = form.sentence.split(/\s+/).filter(Boolean).map(bareWord)
-    void lookup.open({ text: word, sentence: form.sentence, translation: form.translation, card: { meaning: gloss?.en, lemma: gloss?.lemma || undefined, words, at }, context: { key: `${entry.id}:${form.key}`, own } })
+    void lookup.open({ text: word, sentence: form.sentence, translation: form.translation, card: { meaning: gloss?.en, lemma: gloss?.lemma || undefined, words, at }, context: { key: `${entry.id}:${form.key}`, own, position, side: answerSide ? 'back' : 'front', front } })
   })
   const looked = lookup?.tap?.sentence === form.sentence ? lookup.tap.card?.at : undefined
   const hebrew = <Text style={[practice.sentence, he]}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} onWord={onWord} looked={looked} /></Text>

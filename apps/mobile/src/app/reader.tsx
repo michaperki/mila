@@ -29,6 +29,8 @@ import { useCursive, useHebrew } from '../state/script'
 // Runs reflow (REFLOW) when a sentence is selected and its English opens beneath it.
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 
+// The time, outside render (the reader's view events, logView).
+const now = () => Date.now()
 export default function Reader() {
   const he = useHebrew()
   const [cursive, setCursive] = useCursive('reader')
@@ -101,16 +103,34 @@ export default function Reader() {
   }
   const sized = useMemo(() => ({ word: { fontSize: 21 * size, lineHeight: 32 * size }, english: { fontSize: 15 * size, lineHeight: 21 * size } }), [size])
   const segments = useMemo(() => (recognition ? segmentsOf(recognition) : []), [recognition])
-  // Reading kept as learning events (lib/study-log.ts): the passage, once something in it is
-  // selected, then each sentence selected (with whether its English showed) and word looked up.
+  // Reading kept as learning events (lib/study-log.ts): the passage opened, how far it was
+  // scrolled (`view`), each sentence selected (with whether its English showed) and word looked up.
   const reading = useRef<ReturnType<typeof studySession> | null>(null)
-  const logRead: LogEvent = (type, fields) => {
-    if (!session) return ''
+  const startReading = () => {
+    if (!session) return null
     if (!reading.current) {
       reading.current = studySession(session.user.id)
       reading.current.log('read', { text: docId.current, ...(recognition?.source ? { source: recognition.source } : {}) })
     }
-    return reading.current.log(type, fields)
+    return reading.current
+  }
+  const logRead: LogEvent = (type, fields) => startReading()?.log(type, fields) ?? ''
+  // Opening a passage is logged at once (before 2026-11-17, only once something in it was selected).
+  useEffect(() => { if (recognition) startReading() })
+  // The part of the passage on screen, as fractions of its height (about which sentences were in
+  // view: Learning Insights). Logged when a scroll comes to rest, at most every few seconds unless
+  // it moved a good way.
+  const contentHeight = useRef(0)
+  const viewHeight = useRef(0)
+  const lastView = useRef<{ at: number; from: number } | null>(null)
+  const logView = () => {
+    if (!contentHeight.current || !viewHeight.current) return
+    const from = Math.max(0, Math.min(1, scrollY.current / contentHeight.current))
+    const to = Math.max(0, Math.min(1, (scrollY.current + viewHeight.current) / contentHeight.current))
+    const last = lastView.current
+    if (last && now() - last.at < 5000 && Math.abs(from - last.from) < 0.1) return
+    lastView.current = { at: now(), from }
+    logRead('view', { text: docId.current, from: Math.round(from * 100) / 100, to: Math.round(to * 100) / 100 })
   }
   // A page read keeps the page's paragraphs: dividers go between paragraphs, not sentences.
   const paged = recognition?.source === 'page'
@@ -411,6 +431,8 @@ export default function Reader() {
     {/* The scrolling area, measured to keep the active sentence in view. */}
     <View ref={frame} style={{ flex: 1 }}>
     <ScrollView ref={scroller} scrollEnabled={!dragRange} scrollEventThrottle={32} onScroll={event => { scrollY.current = event.nativeEvent.contentOffset.y }}
+      onScrollEndDrag={logView} onMomentumScrollEnd={logView} onLayout={event => { viewHeight.current = event.nativeEvent.layout.height }}
+      onContentSizeChange={(_width, height) => { contentHeight.current = height; if (!lastView.current) logView() }}
       contentContainerStyle={[styles.content, { gap: 10, paddingTop: 10, paddingBottom: active !== null ? overlayHeight + 24 : 36, paddingLeft: 22 + insets.left, paddingRight: 22 + insets.right }]}>
       {active === null && hint && <Text style={[styles.copy, { fontSize: 13, lineHeight: 18 }]}>Tap a word for its meaning, or beside the words for just the sentence’s English. Drag across words for a phrase.</Text>}
       {!!recognition.readError && <Text style={reader.edge}>Read with basic text recognition, so some letters may be wrong.</Text>}

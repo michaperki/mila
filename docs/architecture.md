@@ -125,3 +125,11 @@ update it in the same commit. Numbers were measured on 2026-11-15 with `apps/web
   Read-only.
 - **`scripts/study-events.mjs`**, **`scripts/personalize.mjs outcomes`**, **`scripts/learner-dashboard.mjs`**: what was studied, and how.
 - **Account → AI usage** (for admins): this month's spend by feature.
+- **Account → Learning Insights** (for admins, `ADMIN_EMAILS`; `functions/insights.ts`, built in
+  `lib/insights.ts`): your own sessions as Mila recorded them, event by event, with the evidence
+  the learner model took from each (`Evidence.from`, learner-v1.4), a few named heuristics
+  (observation → interpretation → opportunity → decision → outcome), one word's knowledge,
+  importance and scheduling kept apart, and the model's predictions of recent answers against the
+  card's own history. Read-only; predictions are kept per model version in `insightPredictions`
+  (derived, safe to drop). Time spent is derived (`IDLE_MS` caps a gap, an `app` background event
+  ends it), never logged as a duration of its own.

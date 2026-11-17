@@ -10,7 +10,10 @@ import { getDb } from './lib/mongo'
 // at what Study chose and what was remembered (scripts/study-events.mjs), and deleted with the
 // account. Each event's id is unique per account, so a batch sent again is kept once.
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
-const TYPES = new Set(['start', 'show', 'reveal', 'answer', 'end', 'read', 'select', 'lookup', 'explained', 'save', 'unsave'])
+// Since 2026-11-17 also: the app going to the background and coming back (`app`), how far a passage
+// was scrolled (`view`), a lookup's drawer closing (`closed`, with how long it was open), and a word
+// held on a card shown in English (`hold`, with what it found).
+const TYPES = new Set(['start', 'show', 'reveal', 'answer', 'end', 'read', 'select', 'lookup', 'explained', 'save', 'unsave', 'app', 'view', 'closed', 'hold'])
 const MAX_EVENTS = 200
 let indexReady: Promise<unknown> | null = null
 

@@ -59,6 +59,16 @@ calibration scores to `calibration-history.json`, so model versions can be compa
 
 None of these were tuned to improve calibration. The dashboard shows learner-v1 beside v1.1.
 
+## learner-v1.4 (2026-11-17)
+
+- Each piece of evidence says what kind it is (answer, older result, help, lookup, save, note) and
+  which events it came from, so Learning Insights can trace an estimate to what was done.
+- A Hebrew word tapped on the answer side of a card shown in English is noted with no weight:
+  after turning over, a tap there is mostly checking. Older taps don't record the side; it is taken
+  from how the card was last shown in the session.
+- A phrase selected and explained counts for the expression it was explained as. Phrase lookups
+  were left out before.
+
 ## Open questions, for when a feature needs them or the data allows
 
 - **Saves and reading:** a save shows the word wasn't known then. How should later reading
