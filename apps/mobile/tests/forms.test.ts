@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, apart, byDue, dueOf, planRound, ProgressRules, asChoice, assess, awaitsRecall, exerciseOf, MAX_SENTENCES, onSentence, sentenceFor, wantsSentence, freshCards, freshPicks, freshRound, justAfterItsWord, personalVariant, shownForm, writerOf, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
+import { ago, apart, byDue, dueOf, planRound, ProgressRules, asChoice, assess, awaitsRecall, exerciseOf, MAX_SENTENCES, onSentence, sentenceFor, wantsSentence, freshCards, freshPicks, freshRound, justAfterItsWord, personalVariant, shownForm, writerOf, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, mayFollow, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -309,6 +309,10 @@ test('in a learning sequence a new word is followed by its sentences, and a miss
   assert.deepEqual(keys(after(false)), ['open:meanings:sense1', 'open:present:m.sg'])
   assert.deepEqual(keys(after(true)), ['open:meanings:sense1', 'open:present:m.sg'])
   assert.ok(after(false).every(card => card.sequence))
+  // Study prepares those with the round, before the word card is answered (mayFollow).
+  const prepared = mayFollow(fresh, 'both').map(item => item.key)
+  assert.ok(['meanings:sense1', 'present:m.sg'].every(key => prepared.includes(key)))
+  assert.deepEqual(mayFollow(fresh, 'words'), [])
   // Words only: nothing follows a word card. A word already met: its cards come in their own time.
   assert.deepEqual(followUps(round, 1, fresh, false, fresh, 'words'), [])
   const met = { ...fresh, results: [true], last: now - DAY }

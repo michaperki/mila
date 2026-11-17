@@ -12,7 +12,7 @@ import { APPEAR, CARD_BACK_IN, CARD_IN, DISAPPEAR } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { ago, assess, type Card, planRound, type Plan, cardKey, type ChoiceMode, checkpointGroup, exerciseOf, freshCards, freshPicks, freshRound, justAfterItsWord, onSentence, type Sentence, sentenceFor, shownForm, wantsSentence, writerOf, checkpointRecord, cuedTranslation, exposureOf, firstSense, followUps, type Include, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
+import { ago, assess, type Card, planRound, type Plan, cardKey, type ChoiceMode, checkpointGroup, exerciseOf, freshCards, freshPicks, freshRound, justAfterItsWord, onSentence, type Sentence, sentenceFor, shownForm, wantsSentence, writerOf, checkpointRecord, cuedTranslation, exposureOf, firstSense, followUps, type Include, mayFollow, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, type Planner, setPref } from '../lib/prefs'
@@ -123,19 +123,26 @@ export default function Practice() {
     const ready = Promise.all(missing.map(entry => ensureForms(entry, session.token)))
     void ready.then(written => written.forEach(item => { share(session, item); keep(item) }))
     varyAhead(cards, all)
-    wordsAhead(cards)
+    // Again once new words' cards are written, for those (each card is asked once).
+    wordsAhead(cards, include)
+    void ready.then(() => wordsAhead(cards, include), () => undefined)
     return ready
   }
   // Word data for the round's older cards (lib/english-help.ts): asked for in the background, in
   // the round's order and two at a time, so each card has it before it comes up and nothing in
-  // Study waits for it; kept on the card by the server. Each card once a visit.
+  // Study waits for it; kept on the card by the server. Each card once a visit. Then the other
+  // cards of the round's words that an answer may bring in behind them (lib/forms.ts mayFollow).
   const wordsAsked = useRef<Set<string>>(new Set())
-  const wordsAhead = (cards: Card[]) => {
+  const wordsAhead = (cards: Card[], include: Include) => {
     if (!session) return
     const latest = new Map((cachedVocab(session) ?? []).map(entry => [entry.id, entry]))
-    const queue = cards.flatMap(card => {
-      const entry = latest.get(card.entry.id) ?? card.entry
-      const form = card.form ? entry.forms?.find(item => item.key === card.form!.key) : undefined
+    const entries = [...new Map(cards.map(card => [card.entry.id, latest.get(card.entry.id) ?? card.entry])).values()]
+    const wanted = [
+      ...cards.flatMap(card => (card.form ? [{ entry: latest.get(card.entry.id) ?? card.entry, key: card.form.key }] : [])),
+      ...entries.flatMap(entry => mayFollow(entry, include).map(form => ({ entry, key: form.key }))),
+    ]
+    const queue = wanted.flatMap(({ entry, key }) => {
+      const form = entry.forms?.find(item => item.key === key)
       if (!form || !needsWords(form) || wordsAsked.current.has(`${entry.id}:${form.key}`)) return []
       wordsAsked.current.add(`${entry.id}:${form.key}`)
       return [{ entry, key: form.key }]

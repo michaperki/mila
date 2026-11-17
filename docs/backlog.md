@@ -410,7 +410,9 @@ turn the whole card over for them.
   sentences have it from the writer. Older ones get it before they are shown: when Study builds a
   round, it asks `card-words` for the round's cards without it, in the background, in order, two
   at a time, and the server keeps it on the card for good (about $0.007 a sentence, once, only for
-  cards that come up). A word held on a card not yet prepared asks for that sentence then
+  cards that come up). Then, the same way, the round's words' other cards that an answer may bring
+  in mid-round (a new word's sentences after its word card; `lib/forms.ts mayFollow`, 2026-11-17),
+  which before weren't prepared and waited when a word was held. A word held on a card not yet prepared asks for that sentence then
   (`card-words` with `variant`, counted apart as `card-words-now`, logged as `from: 'late'`): the
   fallback, which should be rare; Account → AI usage and `ai-report.mjs` show how rare. Saving a
   word and More still ask for the full explanation, as they create or show a dictionary entry.

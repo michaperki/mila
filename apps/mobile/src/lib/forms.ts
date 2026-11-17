@@ -540,6 +540,11 @@ export function followUps(round: Card[], at: number, entry: VocabEntry, knew: bo
   return next.filter(item => !shown.has(cardKey(item))).slice(0, Math.max(0, ProgressRules.sequenceLongest - run))
     .map(item => ({ ...item, sequence: true, why: `in sequence · after ${card.form ? 'its sentence' : 'the word'}` }))
 }
+// Every card an answer in a round could bring in behind a card of this word (followUps), or the
+// round could show of it: its sequence and its cards in play. Study prepares them with the round's
+// own (practice.tsx wordsAhead), so a card brought in mid-round has what it needs when it comes up.
+export const mayFollow = (entry: VocabEntry, include: Include): FormCard[] =>
+  [...(include === 'words' ? [] : sequenceOf(entry)), ...cardsInPlay(entry, include).flatMap(card => (card.form ? [card.form] : []))]
 // The words a round is about to draw on, for writing their cards ahead (practice.tsx): the
 // started words whose turn comes next and the next words to come in, a round's worth of each.
 // Cards are written for these rather than for every saved word.
