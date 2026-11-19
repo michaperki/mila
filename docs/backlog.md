@@ -76,7 +76,7 @@ collection keeps improving; models are compared only as data allows (191 answers
   the model holds now, at the moment of the evidence; "No change" when not counted). Reading: a
   row a sentence, its lookups and saves on one line each (a save joins the lookup it came from),
   and the saved words read past without a lookup in one line, recorded, never counted. A
-  priority still open: estimates use today's starting point (level from today's saves).
+  Still open: estimates start from today's starting point (level from today's saves).
 - **C. Learning Feed, Study and Reader:** observed behaviour kept apart from inferred change. Each
   row a word (Hebrew, form, English): what happened; what the model took from it (which of
   exposure, recognition, comprehension, production, and how much; little or nothing when the
