@@ -31,6 +31,8 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 
 // The time, outside render (the reader's view events, logView).
 const now = () => Date.now()
+// How a sentence came to be selected (logged with `select`; `deselect` also says 'done' or 'left').
+type SelectedVia = 'word' | 'sentence' | 'next' | 'previous'
 export default function Reader() {
   const he = useHebrew()
   const [cursive, setCursive] = useCursive('reader')
@@ -115,6 +117,20 @@ export default function Reader() {
     return reading.current
   }
   const logRead: LogEvent = (type, fields) => startReading()?.log(type, fields) ?? ''
+  // The sentence selected now and since when, and the English setting (to log its end).
+  const selectedSince = useRef<{ segment: number; at: number } | null>(null)
+  const englishNow = useRef<EnglishMode>(english)
+  useEffect(() => { englishNow.current = english }, [english])
+  const endSelected = (how: SelectedVia | 'done' | 'left') => {
+    const since = selectedSince.current
+    if (!since || !reading.current) return
+    selectedSince.current = null
+    reading.current.log('deselect', { text: docId.current, segment: since.segment, ms: now() - since.at, english: englishNow.current, how })
+  }
+  // Leaving the reader ends the sentence selected.
+  const endOnLeave = useRef(endSelected)
+  useEffect(() => { endOnLeave.current = endSelected })
+  useEffect(() => () => endOnLeave.current('left'), [])
   // Opening a passage is logged at once (before 2026-11-17, only once something in it was selected).
   useEffect(() => { if (recognition) startReading() })
   // The part of the passage on screen, as fractions of its height (about which sentences were in
@@ -260,8 +276,17 @@ export default function Reader() {
 
   // A sentence becomes the active one, its English placed at once from the words' boxes (they
   // don't move when it is), so it never shows for a moment in the wrong place.
-  const activate = (segment: number | null) => {
-    if (segment !== null && segment !== active) logRead('select', { text: docId.current, segment, english })
+  // Logged with how it was chosen (`via`): a word tapped in it, the sentence itself, Next or
+  // Previous. The sentence it replaces is logged as no longer selected (`deselect`), with how long
+  // it was and the English setting then: while selected in 'tap', its English was on screen, which
+  // doesn't say it was read.
+  const activate = (segment: number | null, via: SelectedVia | 'done') => {
+    if (segment === active) return
+    endSelected(segment === null ? 'done' : via)
+    if (segment !== null) {
+      logRead('select', { text: docId.current, segment, english, via })
+      selectedSince.current = { segment, at: now() }
+    }
     setActive(segment); setBreakAt(segment === null ? null : breakFor(segment))
     if (segment !== null && hint) { setHint(false); setPref('readerHint', false) }
   }
@@ -272,7 +297,7 @@ export default function Reader() {
     if (!first) return
     feel('select')
     setSelected(index); setSelectedTo(to)
-    if (first.segment !== active) { activate(first.segment); remember(first.segment) }
+    if (first.segment !== active) { activate(first.segment, 'word'); remember(first.segment) }
     const segment = segments[first.segment]
     void lookup.open({
       text: words.slice(index, to + 1).map(item => item.bare).join(' '), sentence: segment.he, translation: segment.en, phrase: to > index,
@@ -293,13 +318,13 @@ export default function Reader() {
   const goSentence = (step: number) => {
     const next = sentences[activePosition + step]
     if (next === undefined) return
-    feel('tick'); close(); activate(next); remember(next)
+    feel('tick'); close(); activate(next, step > 0 ? 'next' : 'previous'); remember(next)
   }
-  const leaveSentence = () => { close(); activate(null) }
+  const leaveSentence = () => { close(); activate(null, 'done') }
   // A tap beside a sentence's words (between rows, at a row's end) selects only the sentence:
   // its English, the sentence bar and its words' quick meanings.
   const chooseSentence = (segment: number) => {
-    feel('tick'); close(); activate(segment); remember(segment)
+    feel('tick'); close(); activate(segment, 'sentence'); remember(segment)
   }
   const last = selected === null ? null : (selectedTo ?? selected)
   const word = selected === null || last === null ? null

@@ -147,10 +147,19 @@ export function modelLine({ lemma, evidence }: { lemma: string; evidence: Eviden
   const how = `${evidence.knew ? 'Counts for' : 'Counts against'} ${doing(evidence.channel)} ${lemma}, weight ${weightOf(evidence.weight)}`
   const why = evidence.kind === 'help' ? 'you asked for its Hebrew'
     : evidence.kind === 'lookup' ? (evidence.what.includes('a phrase selected') ? 'looked up, as an expression' : evidence.what.includes('on a card') ? 'looked up on a card' : 'looked up while reading')
-    : evidence.what.includes('primed') ? 'a quarter, since the word was just shown'
-    : evidence.what.includes('choices') ? 'less, since it was chosen from options'
-    : evidence.weight < 1 ? 'half, since a form card is partly about the form' : ''
+    : lessBecause(evidence)
   return `${how}${why ? `: ${why}` : ''}.`
+}
+// Why an answer counts less than in full, every reason it has (learner.ts WEIGHTS).
+function lessBecause({ what, weight }: Evidence) {
+  const reasons = [
+    what.includes('primed') && 'the word was just shown',
+    what.includes('choices') && 'it was chosen from options',
+    what.includes('English shown') && 'the English was shown',
+    what.includes('around it given') && 'Hebrew was given for words around it',
+  ].filter(Boolean)
+  if (reasons.length) return `less, since ${reasons.join(' and ')}`
+  return weight < 1 ? 'half, since a form card is partly about the form' : ''
 }
 
 // Final answers only: a changed answer replaces the one before it on the same card.

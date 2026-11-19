@@ -144,11 +144,15 @@ export type FormCard = {
   // On a meaning card: three words of the same kind and form as the card's word that don't fit its
   // sentence, for filling in the blank (lib/forms.ts quizOf). Missing on cards written before.
   distractors?: string[]
+  // The word as it stands in the sentence (vocalized, with any attached prefix) that the distractors
+  // were written for, which is then the blank's answer (lib/forms.ts blankAnswer); missing on
+  // distractors written in the dictionary form, before 2026-11-19.
+  distractorsFor?: string
   // New sentences for the card written later, newest last: the same form and meaning in another
   // sentence. The card's results are the card's, whichever sentence is shown (lib/forms.ts shownForm).
   variants?: FormVariant[]
 } & Results
-export type FormVariant = Pick<FormCard, 'he' | 'en' | 'sentence' | 'mark' | 'said' | 'translation' | 'enMark' | 'cue' | 'cueAfter' | 'cues' | 'usage' | 'glosses' | 'support' | 'distractors'> & { writer: string; at: number; why?: string }
+export type FormVariant = Pick<FormCard, 'he' | 'en' | 'sentence' | 'mark' | 'said' | 'translation' | 'enMark' | 'cue' | 'cueAfter' | 'cues' | 'usage' | 'glosses' | 'support' | 'distractors' | 'distractorsFor'> & { writer: string; at: number; why?: string }
 // What studying has shown about a card, and nothing about when to see it again: its last few
 // results (true: knew it), which of them were primed (answered just after the word's Hebrew was
 // shown, lib/forms.ts isPrimed; by position, missing on answers given before this was kept) and

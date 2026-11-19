@@ -64,8 +64,9 @@ export type Cue = { cue: string; after: string }
 export type WrittenForm = {
   key: string; stage: string; slot: string; he: string; en: string; sentence: string; mark: string; said?: string
   translation: string; enMark: string; cue: string; cueAfter?: string; cues: Cue[]; usage?: string; glosses?: Gloss[]
-  // A meanings card's three wrong words for filling in its blank (see Distractors in SYSTEM).
-  distractors?: string[]
+  // A meanings card's three wrong words for filling in its blank (see Distractors in SYSTEM), and the
+  // word as the sentence has it, which they match.
+  distractors?: string[]; distractorsFor?: string
   // Which writer wrote it ('base', or 'personal-v1' when told about the learner, lib/profile.ts) and
   // what its other words were to the learner then (supportOfCard), to compare how the two go.
   // Cards written before the split have neither.
@@ -75,7 +76,7 @@ export type WrittenForm = {
   // its results stay as they are; Study shows one or another (apps/mobile/src/lib/forms.ts).
   variants?: Variant[]
 }
-export type Variant = Pick<WrittenForm, 'he' | 'en' | 'sentence' | 'mark' | 'said' | 'translation' | 'enMark' | 'cue' | 'cueAfter' | 'cues' | 'usage' | 'glosses' | 'distractors' | 'writer' | 'support'> & { at: number; why?: string }
+export type Variant = Pick<WrittenForm, 'he' | 'en' | 'sentence' | 'mark' | 'said' | 'translation' | 'enMark' | 'cue' | 'cueAfter' | 'cues' | 'usage' | 'glosses' | 'distractors' | 'distractorsFor' | 'writer' | 'support'> & { at: number; why?: string }
 // What a word of a card's sentence means there, for looking it up on the card without asking the
 // model: `i` is the word's place among the sentence's words (split at spaces, as the card draws
 // them), so a word that comes twice has a meaning for each place; `lemma` its dictionary form
@@ -136,7 +137,7 @@ export const schema = {
           },
           distractors: {
             type: 'array', items: { type: 'string' },
-            description: 'On a meanings card: three other Hebrew words, fully vocalized, of the same part of speech and in the same form as this one (an infinitive for an infinitive), that a learner could be tempted to put in its place but that do not fit this sentence (see Distractors). On any other card: [].',
+            description: 'On a meanings card: three other Hebrew words, fully vocalized, of the same part of speech and written exactly as this word is written in the sentence (as in "said": the same prefix, person, gender, number and tense, so each could stand in its place grammatically), that a learner could be tempted to put there but that do not fit this sentence (see Distractors). On any other card: [].',
           },
           glosses: {
             type: 'array', description: 'Every word of the sentence except this form\'s own words (inSentence), in order, a word that comes twice glossed each time.',
@@ -169,7 +170,7 @@ Writing each sentence:
 - Variety comes from the word's uses, not from rare words: the rest of the card stays common vocabulary, so the target word is the only hard part. Vary who acts too (you, I, we, people, things, institutions, not mostly family members or names like Dana), the setting and the shape.
 - A sentence or a phrase, whichever teaches the use best (where these instructions say sentence, a phrase is meant too). Many uses are best met as a short phrase Israelis really say or write on its own: a noun or adjective with the words it typically goes with (ספר כרוך בעור, שיטפון של תלונות), a fixed expression (מתהפך בקברו), a headline, a sign, a label, a short reply. Write those as the phrase, without building a sentence around it only to make it one. Write a sentence when the use needs a situation around it to be clear. A form that agrees with someone has them in the phrase, and the card's form is used exactly.
 
-Meanings: when asked for the word's meanings, give one card per genuinely distinct sense a learner meets in modern Hebrew, most common first. Only senses the word really has in use today: never a sense that only an English gloss suggests. Most words have one; give at most three. Senses that are close or shade into each other are one card whose "english" lists them, most common first ("to assume, to estimate, to imagine"; "to bloom, to flourish"). Make a separate card only for a sense a learner would not guess from the others, such as a different domain or a colloquial or idiomatic use, and say so briefly in "english" ("to vanish, to take off (slang)"; "to cease (literary)"). Each card uses the dictionary form itself (verbs: the infinitive; adjectives: the masculine singular), never another form of it, in that sense, in a sentence or phrase that shows that sense clearly, wherever Hebrew really uses the dictionary form: a verb's infinitive after another verb, a noun, an adjective or כדי, in a rule, a sign, an instruction or a question; an adjective with a masculine singular noun. Pick the one that fits the situation rather than reaching for a modal (may, can, want, need) by default, and never a frame that needs another form or makes the dictionary form sound forced; "english" is that sense in 1 to 6 words (verbs as "to …"). Include the sense the learner met the word in, unless they met it inside an expression (למען in למען האמת, ראש in בראש קטן): what the expression means is not a sense of the word, so leave it out, and never write a card "(in …)".
+Meanings: when asked for the word's meanings, give one card per genuinely distinct sense a learner meets in modern Hebrew, most common first. Only senses the word really has in use today: never a sense that only an English gloss suggests. Most words have one; give at most three. Senses that are close or shade into each other are one card whose "english" lists them, most common first ("to assume, to estimate, to imagine"; "to bloom, to flourish"). Make a separate card only for a sense a learner would not guess from the others, such as a different domain or a colloquial or idiomatic use, and say so briefly in "english" ("to vanish, to take off (slang)"; "to cease (literary)"). Each card shows the word in that sense, in a sentence or phrase that shows that sense clearly. Prefer a sentence where Hebrew really uses the dictionary form (verbs: the infinitive; adjectives: the masculine singular): a verb's infinitive after another verb, a noun, an adjective or כדי, in a rule, a sign, an instruction or a question; an adjective with a masculine singular noun. Pick the one that fits the situation rather than reaching for a modal (may, can, want, need) by default. Where the sense is far more natural in another form (an adjective describing a feminine noun, a verb that is mostly met conjugated), use the form the sentence needs rather than a forced frame: the card teaches the meaning, and "form" is still the dictionary form; "english" is that sense in 1 to 6 words (verbs as "to …"). Include the sense the learner met the word in, unless they met it inside an expression (למען in למען האמת, ראש in בראש קטן): what the expression means is not a sense of the word, so leave it out, and never write a card "(in …)".
 
 Forms: for each requested form, give the correct standard modern Hebrew form and a sentence that uses exactly that form. Leave out a form that is not in real use (for example a verbal noun the verb doesn't have) rather than inventing one. The forms are one word: spread them over the word's meanings and uses, the main meaning most, as the uses above say. Each form's "english" is the meaning its card uses, worded as its meaning card words it, changing only for person, tense, number and gender ("he guesses", "they guessed", "guess! (to one woman)"), never to a synonym; in a fixed expression it is the word's own meaning there, and the translation renders the expression. A feminine form needs a subject that is feminine: a woman, or a thing whose noun is feminine; not an animal unless the English says it is female ("our dog had her puppies").
 
@@ -181,7 +182,7 @@ Patterns: when the word is learned as a pattern (נָטוּל + [שֵׁם עֶצ
 
 Glosses: for each card, after its translation, gloss every other word of its sentence (glosses), so the learner can tap any word on the card for its meaning there, and say which words of the translation say it (t), so a learner building the Hebrew from the English can ask for one word.
 
-Distractors: on a meanings card the learner may be asked to fill the word's place in the sentence from four words, so give three that make them think about what the sentence says: common words of the same kind that are related in some way (the same situation, a near meaning, a similar look or sound) but that mean something clearly different from this word, so that someone who knows what it means picks it. Never a synonym, a word that would also make a natural sentence here, or a rare word.
+Distractors: on a meanings card the learner may be asked to fill the word's place in the sentence from four words, so give three that make them think about what the sentence says: common words of the same kind that are related in some way (the same situation, a near meaning, a similar look or sound) but that mean something clearly different from this word, so that someone who knows what it means picks it. The learner sees only the Hebrew sentence, not its English, so the sentence alone must rule each one out: never a synonym, a word that would also make a natural sentence here, or a rare word. Write each exactly as it would stand in the word's place, in the same form as the word is in this sentence (its prefix, person, gender, number and tense), so the form gives nothing away.
 
 ${CUE_RULES}
 
@@ -298,7 +299,10 @@ export function cardsOf(generated: Generated[], stage: string, slots: Slot[]) {
       cue: cues[0]?.cue ?? '', ...(cues[0]?.after ? { cueAfter: cues[0].after } : {}), cues,
       ...(item.usage?.trim() ? { usage: item.usage.trim() } : {}),
       ...(item.glosses?.length ? { glosses: placeGlosses(item.sentence, item.glosses) } : {}),
-      ...(stage === 'meanings' && item.distractors?.filter(word => word?.trim()).length === 3 ? { distractors: item.distractors.map(word => word.trim()) } : {}),
+      // With the word as the sentence has it, which the distractors were written to match and is the
+      // blank's answer (apps/mobile/src/lib/forms.ts blankAnswer).
+      ...(stage === 'meanings' && item.distractors?.filter(word => word?.trim()).length === 3
+        ? { distractors: item.distractors.map(word => word.trim()), distractorsFor: item.said?.trim() || words(item.inSentence) } : {}),
     })
   }
   return { forms, rejected }

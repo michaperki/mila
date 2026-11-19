@@ -603,7 +603,8 @@ export function mix<T>(cards: T[], extra: T[], first = 1): T[] {
 export const shownForm = (form: FormCard, variant = 0): FormCard => {
   const other = variant > 0 ? form.variants?.[variant - 1] : undefined
   // A sentence's glosses are its own: one written without them never takes its card's first one's.
-  return other ? { ...form, ...other, glosses: other.glosses, key: form.key, stage: form.stage, slot: form.slot } : form
+  // So are its distractors, written for the word as it stands in that sentence.
+  return other ? { ...form, ...other, glosses: other.glosses, distractors: other.distractors, distractorsFor: other.distractorsFor, key: form.key, stage: form.stage, slot: form.slot } : form
 }
 // Which sentence a card is shown in, and why (logged with it, as `sentence`), from how it has
 // gone (its results, and which sentence each was given on, `on`, `seen`):
@@ -806,25 +807,43 @@ export function choicesFor(entry: VocabEntry, form: FormCard, seed: string): str
 // Any card as a quiz: the right answer among three or four options, or null when there aren't
 // enough to make a real choice (the card is then flipped as usual). A later stage's form chooses
 // among the word's other forms (choicesFor). A meanings card (the word blanked in its sentence)
-// and a word card have no other forms, so they choose among the learner's other saved words,
-// same part of speech first (an expression among expressions): the Hebrew word, or for a word card shown in Hebrew its English
-// meaning (the first sense only, so the length of a list doesn't give it away).
+// chooses among the distractors written for its sentence, or isn't a quiz (blankAnswer). A word
+// card chooses among the learner's other saved words, same part of speech first (an expression
+// among expressions): the Hebrew word, or shown in Hebrew its English meaning (the first sense
+// only, so the length of a list doesn't give it away).
 export type Quiz = { options: string[]; answer: string }
+// A meaning card's sentence as a fill in the blank has one right answer only with distractors
+// written for it, wrong in this sentence and in the same form as the word stands in it: the blank
+// takes the word as written there (שלמה, not שלם), so they must be such words too. Distractors
+// written for that form say so (`distractorsFor`, the word as in the sentence, vocalized); older
+// ones were written in the dictionary form, and do only where the sentence has the word in it
+// (spelling aside). Otherwise there is no fair choice to make (the sentence's English would be
+// needed to rule out other saved words), and the card is a flashcard.
+export function blankAnswer(form: FormCard): string | null {
+  if (form.distractorsFor) return form.distractors?.length === 3 ? form.distractorsFor : null
+  return form.distractors?.length === 3 && sameSpelling(form.mark, form.he) ? form.he : null
+}
+// The same words but for how fully they are spelled (לנהוג, לִנְהֹג) and how they are joined (אי־נוחות, אי נוחות).
+const sameSpelling = (a: string, b: string) => {
+  const loose = (text: string) => stripNiqqud(text).replace(/[־-]/g, ' ').replace(/[^א-ת ]/g, '').replace(/[וי]/g, '').replace(/\s+/g, ' ').trim()
+  return !!loose(a) && loose(a) === loose(b)
+}
 export const firstSense = (gloss: string) => gloss.split(/[,;]/)[0].trim()
 export function quizOf(entries: VocabEntry[], { entry, form }: Card, english: boolean, seed: string): Quiz | null {
   if (form && form.stage !== 'meanings') {
     const options = choicesFor(entry, form, seed)
     return options && { options, answer: form.he }
   }
-  const inEnglish = !form && english
-  const valueOf = (item: VocabEntry) => (inEnglish ? firstSense(item.gloss || '') : item.lemma || '')
   const key = (text: string) => stripNiqqud(text).trim().toLowerCase()
-  const answer = form ? form.he : valueOf(entry)
+  if (form) {
+    const answer = blankAnswer(form)
+    const own = answer ? (form.distractors || []).filter((item, i, all) => key(item) !== key(answer) && all.findIndex(other => key(other) === key(item)) === i).slice(0, 3) : []
+    return answer && own.length === 3 ? { options: shuffle([answer, ...own], seed), answer } : null
+  }
+  const inEnglish = english
+  const valueOf = (item: VocabEntry) => (inEnglish ? firstSense(item.gloss || '') : item.lemma || '')
+  const answer = valueOf(entry)
   if (!answer) return null
-  // A meaning card written with distractors of its own (words that look as if they could go in the
-  // blank but don't fit this sentence) chooses among those; older cards among the saved words.
-  const own = (form?.distractors || []).filter((item, i, all) => key(item) !== key(answer) && all.findIndex(other => key(other) === key(item)) === i).slice(0, 3)
-  if (own.length === 3) return { options: shuffle([answer, ...own], seed), answer }
   // An expression chooses among other expressions, a word among other words: the same part of
   // speech first, then words the learner has practised (so the choice is between words they know,
   // and which fits is what it asks), then those about as common as this one; taken from the best
@@ -834,7 +853,7 @@ export function quizOf(entries: VocabEntry[], { entry, form }: Card, english: bo
   const score = (item: VocabEntry) => (item.partOfSpeech === entry.partOfSpeech ? 0 : 10) + (practised(item) ? 0 : 4) + distance(item)
   // Never a word that means much the same (לבחון beside לבדוק, both "examine"): the English given
   // would fit both, and the question would have two answers.
-  const meaning = meaningWords(`${entry.gloss || ''} ${form?.en || ''}`)
+  const meaning = meaningWords(entry.gloss || '')
   const alike = (item: VocabEntry) => [...meaningWords(item.gloss || '')].some(word => meaning.has(word))
   const ranked = entries.filter(item => item.id !== entry.id && item.partOfSpeech !== 'phrase' && expression(item) === expression(entry) && !alike(item))
     .sort((a, b) => score(a) - score(b))

@@ -5,7 +5,7 @@ each thing forward. Detailed research lives in the linked docs and commits; this
 to it. Read it before starting product work; update it in the same commit as the work (see
 [Keeping this up to date](#keeping-this-up-to-date)).
 
-Last reviewed: 2026-11-16 (help on English cards STUDY-4; vocabulary organisation VOCAB-2: taxonomy v1, themes in the word list, themes on save; VOCAB-1 proposals revised).
+Last reviewed: 2026-11-19 (consolidation plan, phases A–D; phase A shipped: fill in the blank with one right answer, help recorded, Reader selections).
 
 **Status words**
 - **Done**: shipped and on the phone.
@@ -44,6 +44,44 @@ No dates; order only. Move items between bands as decisions are made.
    - the intake order ([STUDY-3](#study-3-choosing-which-new-words-come-in)).
 
    Then iterate on what Mike reports.
+
+**Consolidation (agreed with Mike 2026-11-19): stabilise and integrate before adding systems.**
+Simplifying what Mike sees is kept apart from simplifying how Mila models learning. Evidence
+collection keeps improving; models are compared only as data allows (191 answers on 66 words by
+19/11), without choosing defaults early. Phases, in order:
+- **A. Fill in the blank with one right answer** (shipped 2026-11-19, see [EX-0](#exercises)):
+  answers in the word's form in the sentence, English as a hint, help recorded and weighed, an
+  answered card shown as it was asked; Reader selections say how they were made and how long.
+  Distractors for older cards: `scripts/backfill-distractors.mjs`, 127 sentences on 64 words, at
+  most $0.26, **waiting for Mike's approval**.
+- **B. Upcoming Study:** the round as the order in force plans it, with how each card will be
+  asked and one plain reason, the rule once at the top; remove the by-part shadow ranking
+  (score-v0) from screens and new plans, keeping its data; Sessions, Candidates and Model checks
+  move to a secondary Diagnostics view.
+- **C. Learning Feed, Study and Reader:** observed behaviour kept apart from inferred change. Each
+  row a word (Hebrew, form, English): what happened; what the model took from it (which of
+  exposure, recognition, comprehension, production, and how much; little or nothing when the
+  evidence is ambiguous); the learner model's estimate before and after. Card history stays a
+  comparison in Diagnostics, not a replacement. Reading summed up per sentence or passage; a row
+  of its own only for a word with something to say (looked up, saved, a saved word passed). A
+  lookup isn't proof a word was unknown, nor passing one proof it was understood: recorded as
+  observations, read with low weight. Needs a server replay of the model in order.
+- **D. Developer Tools in Account** (admins): AI spend, Learning Insights, tester passwords,
+  vocabulary exports, imports and clean-ups, Study's experimental options. "Back up my data"
+  stays in Account for everyone. Retire Settings → Try → New sentences; remove only preferences
+  whose in-context control does the same.
+- **Not now:** Stage 2 probe cards (STUDY-2); theme classification and study packs (VOCAB-2,
+  STUDY-3; existing classifications kept; packs, chosen or made by Mila, are a later direction);
+  choosing Unified or the personalized writer as defaults (keep evaluating).
+- **Maintenance, kept apart from features:** archive the 2025 root docs and `next_steps.md`;
+  remove leftovers (the "Temporary, for checking cues" comment and the `studyQuiz` pref in
+  practice.tsx); ARCH-5's time-limit check; VOCAB-1 when Mike chooses.
+- **Reader evidence, measured 19/11** (9 sessions, 54 sentences selected, 172 lookups, 99 saves):
+  sentences are mostly read in order (34 next, 7 ahead, 4 back; median 29 s each), almost every
+  selected sentence had a lookup (52 of 54), 20 lookups were of saved words, 7 of 47 drawers
+  closed within a second. All selections were in "EN · tap", so the English was on screen; that
+  doesn't say it was read. Unsaved words have no dictionary form (quick meanings carry none), so
+  words passed can only be matched to saved ones.
 
 **The adaptive curriculum, still open** (kept here so it isn't lost between iterations):
 - which new words come in: relevance and obscurity, Mike's reading exposure, related words, and
@@ -136,6 +174,9 @@ told event by event, one word, model checks. Read-only; nothing in it changes St
 - **Sync stall found and fixed** (2026-11-17): three `context` events left on the phone by the
   reverted hint version (16/11) made the server refuse every batch from 16/11 06:27 UTC. Batches
   now keep valid events and set the rest apart (`studyEventsRefused`).
+- **Reader selections** (2026-11-19): `select` says how the sentence was chosen (`via`: word,
+  sentence, next, previous), and `deselect` when it stops being the selected one, with how long
+  it was (`ms`), the English setting then and how it ended (another sentence, `done`, `left`).
 - **Not yet:** reading exposure from `view` in the model or insights beyond counting; pages linked
   into books; what Study considered and didn't choose; the UX candidates (a swipe for the card's
   word only, expression units, "missed" marks), to decide from this data.
@@ -629,6 +670,26 @@ flashcard or fill in the blank. A new format is another branch there plus its lo
       (לבדוק beside לבחון, both "examine"), which the English shown would fit too.
     - A wrong choice waits 2.5–5 s by the length of the sentence, and a tap on the card holds
       it there; a right one still 0.9 s. Opening settings or starting a round stops the wait.
+  - **Iteration 4** (2026-11-19, consolidation phase A, after Mike's review):
+    - **One right answer without the English.** A meaning card is a fill in the blank only with
+      distractors written for its sentence, in the form the word has there (`blankAnswer`):
+      `distractorsFor` (the word as in the sentence, vocalized) is then the answer, and the blank
+      takes the whole word. Older dictionary-form distractors serve only a sentence with the
+      dictionary form in it (spelling aside). Otherwise a flashcard: the saved-word fallback is
+      gone for meaning cards, since without the English another saved word could fit. Fixes שלם
+      offered for שלמה (26 of 797 meaning sentences inflected the word; 5 on answered cards).
+    - **English as a hint** on a meaning fill in the blank: hidden, "Show English" shows it
+      unmarked, logged as `hint` (`kind: 'english'`). A form choice keeps its English, which says
+      which form the sentence needs.
+    - **Help recorded with the answer** (`assisted`: 'english', 'hebrew-word' for Hebrew given for
+      held words). The learner model (learner-v1.5) counts it less, by kind: half with the English,
+      three quarters with words given; never as wrong. Study's familiar rule is unchanged.
+    - **Show the question** on an answered fill in the blank: the blank and its choices as asked,
+      read-only, the answer kept; "Show your answer" goes back. (Flashcards already come back to
+      their question side.)
+    - **Writer:** meaning sentences may use the form the sentence needs where the dictionary form
+      would be forced (Mike: natural Hebrew first); distractors are written in the word's form
+      in its sentence and rule themselves out from the Hebrew alone.
   - Remaining, **exploratory**:
     - choosing the exercise type by what the learner needs (see LM-8);
     - choices for word cards in ordinary rounds;

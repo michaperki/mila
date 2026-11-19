@@ -276,8 +276,6 @@ test('word and meanings cards are quizzed with the learner\'s other saved words'
   assert.equal(hebrew.answer, 'לִפְתֹּחַ')
   assert.ok(!hebrew.options.includes('בְּעֶצֶם'))
   assert.deepEqual(quizOf(all, { entry: open, form: null }, false, 'seed'), hebrew)
-  // A meanings card chooses the word for its sentence.
-  assert.equal(quizOf(all, { entry: open, form: open.forms![0] }, true, 'seed')!.answer, 'לִפְתֹּחַ')
   // Too few other words: no quiz.
   assert.equal(quizOf([open, others[0]], { entry: open, form: null }, true, 'seed'), null)
 })
@@ -542,8 +540,28 @@ test('fill in the blank is a check on what is known: never just after another ca
   assert.equal(asChoice({ ...card, sequence: true }, { results: [true] }, 'some'), false)
 })
 
+test('a meaning card is a fill in the blank only with distractors for the word as its sentence has it', () => {
+  const other = verb([], { id: 'other', lemma: 'לָרוּץ' })
+  // Written for the form in the sentence (שְׁלֵמָה): that is the answer, among words in that form.
+  const natural = form('meanings:sense1', { he: 'שָׁלֵם', mark: 'שלמה', said: 'שְׁלֵמָה', distractors: ['רֵיקָה', 'שְׁבוּרָה', 'קְטַנָּה'], distractorsFor: 'שְׁלֵמָה' })
+  const quiz = quizOf([verb([natural], { lemma: 'שָׁלֵם' }), other], { entry: verb([natural], { lemma: 'שָׁלֵם' }), form: natural }, false, 'seed')!
+  assert.equal(quiz.answer, 'שְׁלֵמָה')
+  assert.ok(quiz.options.includes('רֵיקָה'))
+  // Older distractors were written in the dictionary form: not for a sentence that inflects it.
+  const older = form('meanings:sense1', { he: 'שָׁלֵם', mark: 'שלמה', distractors: ['רֵיק', 'שָׁבוּר', 'קָטָן'] })
+  assert.equal(quizOf([verb([older]), other], { entry: verb([older]), form: older }, false, 'seed'), null)
+  // Spelled more fully in the sentence is still the dictionary form.
+  const spelled = form('meanings:sense1', { he: 'לִנְהֹג', mark: 'לנהוג', distractors: ['לִשְׁחוֹת', 'לִרְקֹד', 'לִישֹׁן'] })
+  assert.equal(quizOf([verb([spelled]), other], { entry: verb([spelled]), form: spelled }, false, 'seed')!.answer, 'לִנְהֹג')
+  // No distractors of its own: the other saved words might fit the sentence too, so a flashcard.
+  assert.equal(quizOf([verb([form('meanings:sense1', { he: 'לִפְתֹּחַ', mark: 'לפתוח' })]), other, verb([], { id: 'c', lemma: 'לִסְגֹּר' }), verb([], { id: 'd', lemma: 'לִכְתֹּב' })], { entry: verb([form('meanings:sense1', { he: 'לִפְתֹּחַ', mark: 'לפתוח' })]), form: form('meanings:sense1', { he: 'לִפְתֹּחַ', mark: 'לפתוח' }) }, true, 'seed'), null)
+  // A new sentence's distractors are its own, never its card's.
+  const varied = { ...spelled, variants: [{ he: 'לִנְהֹג', en: 'to drive', sentence: 'הוא נהג', mark: 'נהג', translation: 'He drove', writer: 'personal-v1', at: 1 }] }
+  assert.equal(shownForm(varied, 1).distractors, undefined)
+})
+
 test('a meaning card written with distractors of its own chooses among them', () => {
-  const card = form('meanings:sense1', { he: 'לִבְלֹעַ', distractors: ['לִלְעֹס', 'לִנְשֹׁם', 'לִירֹק'] })
+  const card = form('meanings:sense1', { he: 'לִבְלֹעַ', mark: 'לבלוע', distractors: ['לִלְעֹס', 'לִנְשֹׁם', 'לִירֹק'] })
   const entry = verb([card], { lemma: 'לִבְלֹעַ' })
   const quiz = quizOf([entry, verb([], { id: 'other', lemma: 'לָרוּץ' })], { entry, form: card }, false, 'seed')!
   assert.deepEqual([...quiz.options].sort(), ['לִבְלֹעַ', 'לִלְעֹס', 'לִנְשֹׁם', 'לִירֹק'].sort())

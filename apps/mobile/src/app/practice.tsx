@@ -233,6 +233,12 @@ export default function Practice() {
   // `asked`, by position: the Hebrew words given, which the answer keeps for the learner model.
   const [holding, setHolding] = useState<number | null>(null)
   const [asked, setAsked] = useState<Record<number, number[]>>({})
+  // Other help taken before answering, by position: 'english', a meaning fill in the blank's English
+  // shown (Show English). Logged as a `hint` when taken, and with the answer as `assisted`.
+  const [helped, setHelped] = useState<Record<number, string[]>>({})
+  // An answered fill in the blank shown again as it was asked (Show question), by position; its
+  // answer stays as it was.
+  const [asAsked, setAsAsked] = useState<number | null>(null)
   const [holdTip, setHoldTip] = useState(false)
   useEffect(() => { void getPref('holdTip').then(setHoldTip) }, [])
   const holdWord = async (card: Card, entry: VocabEntry, form: FormCard, variant: number, index: number) => {
@@ -500,7 +506,7 @@ export default function Practice() {
   const go = (step: 1 | -1, quiet = false, added = 0) => {
     const to = position + step
     if (to < roundStart) return false
-    lookup.close(); stopAdvancing()
+    lookup.close(); stopAdvancing(); setAsAsked(null)
     if (to >= deck.length + added) { setDone(true); return true }
     if (!quiet) feel('advance')
     setWay(step === 1 ? 'next' : 'previous'); setPosition(to); setFlipped(false)
@@ -560,6 +566,9 @@ export default function Practice() {
   // kept: '' then) shows how it was answered and can't be answered again.
   const picked = picks[position] ?? (!!quiz && answers[position] !== undefined ? '' : null)
   const right = !!quiz && !!picked && bare(picked) === bare(quiz.answer)
+  // Shown again as it was asked: the blank, its choices and no answer, which can't be given again.
+  const viewing = asAsked === position && picked !== null
+  const shownPick = viewing ? null : picked
   const testsForm = !!form && form.stage !== 'meanings'
   const answered = answers[position]
   // A checkpoint can only be answered once its forms are there to check against.
@@ -591,6 +600,8 @@ export default function Practice() {
       ms: shown ? now - shown.at : null, turnedOver: revealed.current.has(position),
       // On a card shown in English: the Hebrew words given for English words held (by place).
       ...(englishFirst && !choices ? { asked: asked[position] ?? [] } : {}),
+      // Every help taken before this answer, by kind: weaker evidence, read as such (learner model).
+      assisted: [...(helped[position] ?? []), ...(englishFirst && !choices && asked[position]?.length ? ['hebrew-word'] : [])],
     })
     // A choice is kept as not unaided, like a primed answer (lib/forms.ts ProgressRules): choosing
     // right can't make a card familiar alone. The event keeps whether it was primed as such.
@@ -647,16 +658,23 @@ export default function Practice() {
   const holdHere = (index: number) => { if (form) void holdWord(card, entry, form, shownAs?.variant ?? 0, index) }
   const letGo = () => setHolding(null)
   const flipHere = () => { if (tapped()) { feel('reveal'); turnOver() } }
+  const showEnglish = () => {
+    if (helped[position]?.includes('english')) return
+    feel('tick')
+    study.current?.log('hint', { key: cardKey(card), position, kind: 'english' })
+    setHelped(current => ({ ...current, [position]: [...(current[position] ?? []), 'english'] }))
+  }
   const side = (english: boolean, answerSide: boolean) => <ScriptContext.Provider value={answerSide ? 'answers' : 'print'}>
     {form
-      ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} position={position} front={englishFirst ? 'en' : 'he'} hideMark={!!choices && picked === null} v={answerSide ? vAnswer : vQuestion} lookup={answerSide ? lookup : undefined}
+      ? <SentenceSide entry={entry} form={form} english={english} answer={answerSide} position={position} front={englishFirst ? 'en' : 'he'} hideMark={!!choices && shownPick === null} v={answerSide ? vAnswer : vQuestion} lookup={answerSide ? lookup : undefined}
+        blankAs={quiz?.answer} englishShown={!!helped[position]?.includes('english') && !viewing} onShowEnglish={picked === null ? showEnglish : undefined}
         hint={!flipped ? wordHint[position] : undefined} holding={holding} holdable={english && !answerSide && !choices} onHold={holdHere} onLetGo={letGo} onTap={flipHere} />
       : <WordSide entry={entry} english={english} answer={answerSide} v={answerSide ? vAnswer : vQuestion} />}
   </ScriptContext.Provider>
   const hint = checkpoint
     ? (!answerable ? (loaded && 'error' in loaded ? 'The forms could not be loaded, so swipe to skip this one.' : '')
       : flipped ? 'Swipe right if you knew them all, left if not.' : 'Say them to yourself, then tap to check.')
-    : choices ? (picked !== null ? (pausing && !lookup.tap ? (right ? '' : 'Tap the card to stay on it.') : 'Answered. Swipe or → to go on.') : testsForm ? 'Choose the form that fits.' : 'Choose the word that fits.')
+    : choices ? (viewing ? 'As it was asked. Your answer is kept.' : picked !== null ? (pausing && !lookup.tap ? (right ? '' : 'Tap the card to stay on it.') : 'Answered. Swipe or → to go on.') : testsForm ? 'Choose the form that fits.' : 'Choose the word that fits.')
       : answered !== undefined ? `${answered ? 'You knew it' : 'Still learning'}. Swipe again to change.`
         : !flipped && holdTip && englishFirst && !!form ? 'Hold any word for its Hebrew. Tap to turn the card over.'
           : Object.keys(answers).length < 3 ? 'Swipe right if you knew it, left if you\'re still learning.' : ''
@@ -684,9 +702,9 @@ export default function Practice() {
               back={<ScriptContext.Provider value="answers"><CheckpointSide entry={entry} stage={checkpoint} rows={rows} loading={!loaded} answer v={vAnswer} /></ScriptContext.Provider>} />
             : choices
               ? <Pressable accessible={false} onPress={() => { if (advancing.current) stopAdvancing() }} style={[styles.card, practice.card]}>
-                <ScriptContext.Provider value="print"><CardHead label={stage?.label} lemma={testsForm || picked !== null ? vQuestion(entry.lemma) : undefined} listen={picked !== null ? listen : undefined} /></ScriptContext.Provider>
-                {side(!form && englishFirst, picked !== null)}
-                <ScriptContext.Provider value="print"><Choices choices={choices} answer={quiz!.answer} picked={picked} v={vQuestion} onPick={option => {
+                <ScriptContext.Provider value="print"><CardHead label={stage?.label} lemma={testsForm || shownPick !== null ? vQuestion(entry.lemma) : undefined} listen={shownPick !== null ? listen : undefined} /></ScriptContext.Provider>
+                {side(!form && englishFirst, shownPick !== null)}
+                <ScriptContext.Provider value="print"><Choices choices={choices} answer={quiz!.answer} picked={shownPick} v={vQuestion} onPick={option => {
                   // Once only: a quick second tap, or a blank answered before, records nothing more.
                   if (!tapped() || picked !== null || advancing.current) return
                   const isRight = bare(option) === bare(quiz!.answer)
@@ -695,7 +713,10 @@ export default function Practice() {
                   setPausing(true)
                   advancing.current = setTimeout(() => { advancing.current = null; setPausing(false); go(1, true, added) }, isRight ? RIGHT_PAUSE : wrongPause(form))
                 }} /></ScriptContext.Provider>
-                {picked !== null && <Text style={[practice.verdict, { color: right ? colors.green : colors.red }]}>{right ? 'Right' : 'Not quite'}</Text>}
+                {shownPick !== null && <Text style={[practice.verdict, { color: right ? colors.green : colors.red }]}>{right ? 'Right' : 'Not quite'}</Text>}
+                {picked !== null && !pausing && <Pressable accessibilityRole="button" hitSlop={8} onPress={() => { feel('tick'); setAsAsked(viewing ? null : position) }}>
+                  <Text style={practice.showEnglish}>{viewing ? 'Show your answer' : 'Show the question'}</Text>
+                </Pressable>}
               </Pressable>
               : <FlipCard flipped={flipped} onPress={() => { if (tapped()) { feel('reveal'); turnOver() } }} style={[styles.card, practice.card]}
                 accessibilityLabel={flipped ? 'Answer side' : 'Question side'}
@@ -868,8 +889,9 @@ const heardOf = (form: FormCard) => form.said || (form.stage === 'meanings' ? fo
 // On a question side shown in English, each English word but the card's own can be held for the
 // Hebrew that says it (`onHold`, lib/english-help.ts), shown on one quiet line under the sentence
 // (`hint`), and a tap still turns the card over. The word held is marked only while held.
-function SentenceSide({ entry, form, english, answer: answerSide, position, front, hideMark, v, lookup, hint, holding, holdable, onHold, onLetGo, onTap }: {
-  entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; position: number; front: 'en' | 'he'; hideMark: boolean; v: (text: string) => string; lookup?: WordLookup
+function SentenceSide({ entry, form, english, answer: answerSide, position, front, hideMark, blankAs, englishShown, onShowEnglish, v, lookup, hint, holding, holdable, onHold, onLetGo, onTap }: {
+  entry: VocabEntry; form: FormCard; english: boolean; answer: boolean; position: number; front: 'en' | 'he'; hideMark: boolean; blankAs?: string; englishShown?: boolean; onShowEnglish?: () => void
+  v: (text: string) => string; lookup?: WordLookup
   hint?: { text: string | null; note?: boolean }; holding: number | null; holdable: boolean; onHold: (index: number) => void; onLetGo: () => void; onTap: () => void
 }) {
   const he = useHebrew()
@@ -883,16 +905,20 @@ function SentenceSide({ entry, form, english, answer: answerSide, position, fron
     void lookup.open({ text: word, sentence: form.sentence, translation: form.translation, card: { meaning: gloss?.en, lemma: gloss?.lemma || undefined, words, at }, context: { key: `${entry.id}:${form.key}`, own, position, side: answerSide ? 'back' : 'front', front } })
   })
   const looked = lookup?.tap?.sentence === form.sentence ? lookup.tap.card?.at : undefined
-  const hebrew = <Text style={[practice.sentence, he]}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={form.he} blank={hideMark} onWord={onWord} looked={looked} /></Text>
+  const hebrew = <Text style={[practice.sentence, he]}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={blankAs ?? form.he} blank={hideMark} onWord={onWord} looked={looked} /></Text>
   if (!answerSide) return <>
     {english ? <Text style={practice.english}><Marked text={cuedTranslation(form)} mark={form.enMark} holdable={holdable} holding={holding} onHold={onHold} onLetGo={onLetGo} onTap={onTap} /></Text> : hebrew}
     {english && holdable && !!hint && <Text style={[practice.hintLine, !hint.note && !!hint.text && [practice.hintHebrew, he]]} accessibilityLiveRegion="polite">
       {hint.text === null ? '…' : hint.note ? hint.text : v(hint.text)}
     </Text>}
-    {/* Fill in the blank: what the whole sentence says, so the choice is the Hebrew that says it
-        here. Its English is kept for a word too: with it left out, a related distractor can fit
-        the sentence as well (ללטף, לנשק: "began to ___ her hand"), and the question is unfair. */}
-    {hideMark && <Text style={practice.hint}><Marked text={cuedTranslation(form)} mark={form.enMark} /></Text>}
+    {/* Fill in the blank. Choosing a form: the English says which form the sentence needs (who, when),
+        so it is shown. Choosing the word for a meaning: its distractors are wrong in this sentence
+        (lib/forms.ts blankAnswer), so the Hebrew is enough, and the English, which would say the
+        word's meaning, is a hint asked for (logged; the answer is then counted as helped), unmarked. */}
+    {hideMark && (form.stage !== 'meanings'
+      ? <Text style={practice.hint}><Marked text={cuedTranslation(form)} mark={form.enMark} /></Text>
+      : englishShown ? <Text style={practice.hint}>{cuedTranslation(form)}</Text>
+        : onShowEnglish ? <Pressable accessibilityRole="button" onPress={onShowEnglish} hitSlop={8}><Text style={practice.showEnglish}>Show English</Text></Pressable> : null)}
   </>
   const heard = heardOf(form)
   return <View style={{ gap: 8, alignSelf: 'stretch' }}>
@@ -1085,6 +1111,7 @@ const practice = StyleSheet.create({
   hintLine: { fontSize: 15, lineHeight: 28, color: colors.muted, textAlign: 'center', minHeight: 28 },
   hintHebrew: { fontSize: 21, color: colors.ink },
   hint: { fontSize: 15, color: colors.muted, textAlign: 'center' },
+  showEnglish: { fontSize: 15, color: colors.green, fontWeight: '600', textAlign: 'center' },
   option: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   optionRight: { borderColor: colors.green, backgroundColor: colors.lime },
   optionWrong: { borderColor: colors.red, backgroundColor: '#FBE7E6' },

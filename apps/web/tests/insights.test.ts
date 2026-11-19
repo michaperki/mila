@@ -68,7 +68,8 @@ describe('a session told', () => {
     expect(answer.detail).toContain('11 s on the card: 8 s on the question side, 3 s on the answer side')
     expect(answer.insight?.rule).toBe('ambiguous-miss')
     expect(answer.words).toBeUndefined()
-    expect(answer.model).toEqual(['Counts against producing לִכְתֹּב, weight 1.'])
+    // Hebrew was given for a word around it, so the answer says less.
+    expect(answer.model).toEqual(['Counts against producing לִכְתֹּב, weight 0.75: less, since Hebrew was given for words around it.'])
     // Tapped after turning over an English-first card: noted, with why; tapped again: why not again.
     expect(story.rows[5].model).toEqual(['Not counted for מכתב: you were checking the answer side of an English-first card.'])
     expect(story.rows[6].model).toEqual(['Not counted again: the same word was looked up here 0 s before.'])

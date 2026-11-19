@@ -13,7 +13,9 @@ const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { '
 // Since 2026-11-17 also: the app going to the background and coming back (`app`), how far a passage
 // was scrolled (`view`), a lookup's drawer closing (`closed`, with how long it was open), and a word
 // held on a card shown in English (`hold`, with what it found), and a round as planned (`plan`).
-const TYPES = new Set(['start', 'show', 'reveal', 'answer', 'end', 'read', 'select', 'lookup', 'explained', 'save', 'unsave', 'app', 'view', 'closed', 'hold', 'plan'])
+// Since 2026-11-19: help asked for on a card before answering (`hint`, by kind), and a reader's
+// sentence no longer the selected one (`deselect`, with how long it was and how it ended).
+const TYPES = new Set(['start', 'show', 'reveal', 'answer', 'end', 'read', 'select', 'lookup', 'explained', 'save', 'unsave', 'app', 'view', 'closed', 'hold', 'plan', 'hint', 'deselect'])
 const MAX_EVENTS = 200
 // An event larger than this is kept apart rather than with the others (see below).
 const MAX_EVENT = 16_000

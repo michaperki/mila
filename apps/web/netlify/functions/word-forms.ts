@@ -103,7 +103,7 @@ export const handler: Handler = async (event) => {
       for (const form of checked) {
         const variant: Variant = {
           he: form.he, en: form.en, sentence: form.sentence, mark: form.mark, said: form.said, translation: form.translation, enMark: form.enMark,
-          cue: form.cue, cueAfter: form.cueAfter, cues: form.cues, usage: form.usage, glosses: form.glosses, ...(form.distractors ? { distractors: form.distractors } : {}),
+          cue: form.cue, cueAfter: form.cueAfter, cues: form.cues, usage: form.usage, glosses: form.glosses, ...(form.distractors ? { distractors: form.distractors, ...(form.distractorsFor ? { distractorsFor: form.distractorsFor } : {}) } : {}),
           writer: PERSONAL_WRITER, support: supportOfCard(form.glosses, profile, form.sentence), at, ...(why ? { why } : {}),
         }
         // Never past the limit, even with two requests at once.

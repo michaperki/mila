@@ -31,7 +31,11 @@ import { isListed, PREFIXES, plainWord, rankedForm, rankOf } from './frequency.t
 // English is noted, not counted: after turning over, a tap there is mostly checking how the
 // sentence says what it says, not failing to read it. A phrase selected and explained counts for
 // the expression it was explained as (before, phrase lookups were left out).
-export const MODEL_VERSION = 'learner-v1.4'
+// learner-v1.5: an answer says what help it had before it was given (`assisted`, mobile practice.tsx),
+// and counts less by kind: the sentence's English shown on a meaning fill in the blank says what
+// the word means there (half), Hebrew given for words around it on a card shown in English took
+// away some of the work (three quarters). Help doesn't make an answer wrong; it only says less.
+export const MODEL_VERSION = 'learner-v1.5'
 export const WEIGHTS = {
   answer: 1, // an answer recalled or missed, not primed
   primed: 0.25, // the same, just after the word's Hebrew was shown (lib/forms.ts isPrimed)
@@ -41,6 +45,8 @@ export const WEIGHTS = {
   cardLookup: 0.5, // the word looked up on a card in Study
   askedFor: 0.5, // a Hebrew word asked for from its English on a card shown in English (production)
   either: 0.5, // evidence that doesn't say which side came first, for each side
+  englishShown: 0.5, // an answer chosen with the sentence's English shown (Show English), by its weight above
+  wordsGiven: 0.75, // an answer after Hebrew was given for words around it (held English words)
   prior: 2, // how many answers' worth the starting estimate is
   productionPrior: 0.6, // producing a word is harder than recognizing it: the prior chance, scaled
 }
@@ -255,11 +261,14 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
   // (WEIGHTS.quiz), and what it says depends on what it tested: the word's meaning in context (to
   // reading it), or which of its forms the sentence needs (to the grammar only: choosing the wrong
   // form isn't not knowing the word).
-  const answered = (entry: LearnerEntry, card: { kind: string; stage?: string; slot?: string }, item: Omit<Evidence, 'weight' | 'what' | 'kind'> & { primed?: boolean; quiz?: boolean; tests?: 'word' | 'form'; asked?: number }) => {
+  const answered = (entry: LearnerEntry, card: { kind: string; stage?: string; slot?: string }, item: Omit<Evidence, 'weight' | 'what' | 'kind'> & { primed?: boolean; quiz?: boolean; tests?: 'word' | 'form'; asked?: number; assisted?: string[] }) => {
+    // Help taken before answering; answers from before it was logged had Hebrew given if `asked`.
+    const help = new Set(item.assisted ?? (item.asked ? ['hebrew-word'] : []))
     const base = (item.primed ? WEIGHTS.primed : WEIGHTS.answer) * (item.quiz ? WEIGHTS.quiz : 1)
+      * (help.has('english') ? WEIGHTS.englishShown : 1) * (help.has('hebrew-word') ? WEIGHTS.wordsGiven : 1)
     const label = card.kind === 'word' ? 'word card' : card.kind === 'checkpoint' ? `${card.stage} checkpoint` : `${card.stage} ${card.slot}`
     const side = item.channel === 'production' ? 'English first' : item.channel === 'recognition' ? 'Hebrew first' : 'side not recorded'
-    const what = `${item.knew ? 'knew' : 'missed'} ${label} (${side}${item.primed ? ', primed' : ''}${item.quiz ? `, choices${item.tests ? `: ${item.tests}` : ''}` : ''}${item.asked ? `, Hebrew for ${item.asked} ${item.asked === 1 ? 'word' : 'words'} around it given` : ''}${item.dated === false ? ', older result: date not kept' : ''})`
+    const what = `${item.knew ? 'knew' : 'missed'} ${label} (${side}${item.primed ? ', primed' : ''}${item.quiz ? `, choices${item.tests ? `: ${item.tests}` : ''}` : ''}${item.asked ? `, Hebrew for ${item.asked} ${item.asked === 1 ? 'word' : 'words'} around it given` : ''}${help.has('english') ? ', English shown' : ''}${item.dated === false ? ', older result: date not kept' : ''})`
     const own = word(entry.lemma, entry)
     const undated = item.dated === false ? { dated: false as const, kind: 'result' as const } : { kind: 'answer' as const, ...(item.from ? { from: item.from } : {}) }
     if (item.tests !== 'form') own.evidence.push({ at: item.at, channel: item.channel, knew: item.knew, weight: base * (isWordCard(card.stage) && card.kind !== 'checkpoint' ? 1 : WEIGHTS.formCard), what, ...undated })
@@ -301,7 +310,8 @@ export function learnerState(entries: LearnerEntry[], events: LearnerEvent[], le
       recordedAt.set(event.key, [...(recordedAt.get(event.key) ?? []), event.at])
       const tests = event.exercise === 'choice' && (event.tests === 'word' || event.tests === 'form') ? event.tests : undefined
       const channel = tests ? 'recognition' : front === 'en' ? 'production' : front === 'he' ? 'recognition' : 'either'
-      answered(entry, card, { at: event.at, knew: !!event.knew, primed: !!event.primed, quiz: !!event.quiz, channel, tests, asked: Array.isArray(event.asked) ? event.asked.length : 0, from: [String(event.id)] })
+      answered(entry, card, { at: event.at, knew: !!event.knew, primed: !!event.primed, quiz: !!event.quiz, channel, tests, asked: Array.isArray(event.asked) ? event.asked.length : 0,
+        ...(Array.isArray(event.assisted) ? { assisted: event.assisted.map(String) } : {}), from: [String(event.id)] })
     }
     if (event.type === 'lookup') {
       // The same word tapped again in the same place within seconds (while its meaning loads) is

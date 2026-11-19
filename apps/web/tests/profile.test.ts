@@ -165,6 +165,8 @@ describe('distractors', () => {
     const generated = (slot: string, distractors: string[]) => ({ slot, form: 'לִבְלֹעַ', english: 'to swallow', sentence: 'קשה לבלוע', inSentence: ['לבלוע'], said: 'לִבְלֹעַ', translation: 'Hard to swallow', inTranslation: ['swallow'], cues: [], distractors })
     const meanings = cardsOf([generated('sense1', ['לִלְעֹס', 'לִנְשֹׁם', 'לִירֹק'])], 'meanings', [{ slot: 'sense1', means: '' }]).forms
     expect(meanings[0].distractors).toEqual(['לִלְעֹס', 'לִנְשֹׁם', 'לִירֹק'])
+    // With the word as the sentence has it, which they were written to match: the blank's answer.
+    expect(meanings[0].distractorsFor).toBe('לִבְלֹעַ')
     expect(cardsOf([generated('sense1', ['לִלְעֹס'])], 'meanings', [{ slot: 'sense1', means: '' }]).forms[0].distractors).toBeUndefined()
     expect(cardsOf([generated('m.sg', ['a', 'b', 'c'])], 'present', [{ slot: 'm.sg', means: '' }]).forms[0].distractors).toBeUndefined()
   })
