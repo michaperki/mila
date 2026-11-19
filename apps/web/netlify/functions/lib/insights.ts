@@ -619,7 +619,6 @@ export function modelChecks(predictions: Prediction[], events: Ev[], entries: In
     return inside.length ? { range: `${Math.round(low * 100)}–${Math.min(100, Math.round(high * 100))}%`, n: inside.length, predicted: round(mean(inside.map(rOf)), 100), actual: round(inside.filter(item => item.knew).length / inside.length, 100) } : null
   }).filter((item): item is NonNullable<typeof item> => !!item)
   return {
-    shadow: shadowChecks(events),
     memory: {
       answers: withMemory.length, sameDay, guessed,
       loss: { memory: lossOn(withMemory, rOf), model: lossOn(withMemory, item => item.p), card: lossOn(withMemory, item => item.cardSoFar) },
@@ -666,42 +665,8 @@ export function retentionOf(events: Ev[]) {
   return found.map(item => ({ ...item, rate: item.n ? Math.round(100 * item.right / item.n) / 100 : null }))
 }
 
-// The shadow score (mobile lib/scoring.ts) set against what happened after each round was planned:
-// for each word a plan scored (the first plan of a day for it), whether it was shown in the next 7
-// days and how its next unprimed answer went. Two checks, neither of them learning value: whether
-// `need` goes with missing (a word scored as needing practice should be missed more), and what
-// became of the words the score and Study disagreed on. Words Study chose are answered in the same
-// round, so they are shown more by construction: compare like with like.
-export function shadowChecks(events: Ev[], now = Date.now()) {
-  const answers = [...finalAnswers(events)].filter(event => !event.primed).sort((a, b) => a.at - b.at)
-  const shows = events.filter(event => event.type === 'show')
-  const wordOf = (key: unknown) => (typeof key === 'string' ? parseCardKey(key).wordId : '')
-  type Logged = { id: string; p: string; s: number; n: number; sr: number; r: number; c: boolean; w: boolean }
-  const seen = new Set<string>()
-  const items: (Logged & { at: number; shown: boolean; next: boolean | null })[] = []
-  let version = ''
-  for (const plan of events.filter(event => event.type === 'plan' && event.shadow)) {
-    const shadow = plan.shadow as { v: string; words: Logged[] }
-    version = shadow.v
-    for (const word of shadow.words ?? []) {
-      const id = `${day(plan.at)}:${word.p}:${word.id}`
-      if (seen.has(id)) continue
-      seen.add(id)
-      const until = plan.at + 7 * 86_400_000
-      const next = answers.find(answer => answer.at > plan.at && answer.at <= until && wordOf(answer.key) === word.id)
-      items.push({ ...word, at: plan.at, shown: shows.some(show => show.at > plan.at && show.at <= until && wordOf(show.key) === word.id), next: next ? !!next.knew : null })
-    }
-  }
-  const missRate = (list: typeof items) => { const answered = list.filter(item => item.next !== null); return { answered: answered.length, missed: answered.length ? Math.round(100 * answered.filter(item => !item.next).length / answered.length) / 100 : null } }
-  const needBins: [string, number, number][] = [['under 0.4', 0, 0.4], ['0.4 to 0.6', 0.4, 0.6], ['0.6 and over', 0.6, 2]]
-  const groups: [string, (item: Logged) => boolean][] = [['Both would take', item => item.c && item.w], ['Score only', item => !item.c && item.w], ['Study only', item => item.c && !item.w], ['Neither', item => !item.c && !item.w]]
-  return {
-    version, plans: events.filter(event => event.type === 'plan' && event.shadow).length, words: items.length, pending: items.filter(item => now - item.at < 7 * 86_400_000).length,
-    need: needBins.map(([label, low, high]) => { const list = items.filter(item => item.p !== 'new' && item.n >= low && item.n < high); return { label, n: list.length, need: list.length ? Math.round(100 * list.reduce((sum, item) => sum + item.n, 0) / list.length) / 100 : null, ...missRate(list) } }),
-    groups: groups.map(([label, test]) => { const list = items.filter(test); return { label, n: list.length, shown: list.length ? Math.round(100 * list.filter(item => item.shown).length / list.length) / 100 : null, ...missRate(list) } }),
-  }
-}
-
+// The by-part shadow score (score-v0) was set against what happened here until 2026-11-19, when it
+// was retired (consolidation phase B); the plans that logged it keep it in the study log.
 // The card's own history, smoothed: (right + 1) / (answers + 2), so no answers is 50%, one miss
 // 33%, two misses 25%, one right 67%.
 export const predictionFor = (answer: Ev, word: LearnerState['words'][number] | undefined, history: { right: number; all: number }): Omit<Prediction, 'answer'> | null => {

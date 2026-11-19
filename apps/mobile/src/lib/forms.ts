@@ -707,6 +707,10 @@ export const freshRound = (cards: Card[][]): Card[] =>
 
 // Whether another card of this card's word came just before it in the round (within
 // ProgressRules.primedCards), so that answering it is helped by having just seen the word.
+// Which side a card shows first, at its place in its round (`offset`, from the round's start):
+// Mixed settles it by the card and its place, so Study and Learning Insights → Upcoming agree.
+export const frontFor = (card: Card, offset: number, front: 'he' | 'en' | 'mixed'): 'he' | 'en' => (front !== 'mixed' ? front
+  : [...`${cardKey(card)}${offset}`].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 ? 'en' : 'he')
 export const justAfterItsWord = (deck: Card[], at: number, from = 0) =>
   deck.slice(Math.max(from, at - ProgressRules.primedCards), at).some(card => card.entry.id === deck[at]?.entry.id)
 

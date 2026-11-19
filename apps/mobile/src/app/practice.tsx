@@ -12,7 +12,7 @@ import { APPEAR, CARD_BACK_IN, CARD_IN, DISAPPEAR } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { ago, assess, type Card, planRound, type Plan, cardKey, type ChoiceMode, checkpointGroup, exerciseOf, freshCards, freshPicks, freshRound, justAfterItsWord, onSentence, type Sentence, sentenceFor, shownForm, wantsSentence, writerOf, checkpointRecord, cuedTranslation, exposureOf, firstSense, followUps, type Include, mayFollow, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
+import { ago, assess, type Card, planRound, type Plan, cardKey, type ChoiceMode, checkpointGroup, exerciseOf, freshCards, freshPicks, freshRound, justAfterItsWord, onSentence, type Sentence, sentenceFor, shownForm, wantsSentence, writerOf, checkpointRecord, cuedTranslation, exposureOf, firstSense, followUps, frontFor, type Include, mayFollow, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, type Planner, setPref } from '../lib/prefs'
@@ -27,7 +27,7 @@ import { cardWords, ensureForms, freshSentences } from '../lib/word-forms'
 import { askBeforeResuming, resumeRound, roundToSave } from '../lib/rounds'
 import { clearRound, loadRound, saveRound } from '../lib/saved-round'
 import { fingerprint, sendStudyLog, studySession } from '../lib/study-log'
-import { planUnified, shadowLog, shadowRanking, unifiedRanking } from '../lib/scoring'
+import { planUnified, rankingLog, unifiedRanking } from '../lib/scoring'
 import { saveResult, sendResults } from '../lib/results'
 import type { ResultBody } from '../lib/result-queue'
 import { appInfo } from '../lib/app-info'
@@ -193,12 +193,12 @@ export default function Practice() {
   // mark is settled on its first answer, so changing the answer keeps it.
   const study = useRef<ReturnType<typeof studySession> | null>(null)
   // A round as Mila planned it (lib/forms.ts planRound), logged with how it was divided, each
-  // card's part of the round and rank in it, and the shadow score's ranking beside it (lib/scoring.ts,
-  // which never changes the round): Learning Insights. Its cards from `from` in the deck.
+  // card's part of the round and rank in it, and the unified ranking beside it (lib/scoring.ts
+  // rankingLog, which plans the round only in the Unified order): Learning Insights. Its cards from `from` in the deck.
   // `planner`: which planner made the round (Study → Settings → Try), so rounds can be told apart.
   const planned = (plan: Plan, from: number, entries: VocabEntry[], { include, order, planner }: Settings) => {
-    let shadow: ReturnType<typeof shadowLog> | null = null
-    try { shadow = shadowLog(shadowRanking(plan, entries, include), unifiedRanking(plan, entries, include)) } catch { /* the score is only looked at, never needed */ }
+    let shadow: ReturnType<typeof rankingLog> | null = null
+    try { shadow = rankingLog(unifiedRanking(plan, entries, include)) } catch { /* the ranking is only looked at, never needed */ }
     study.current?.log('plan', { from, planner: order === 'smart' ? planner : 'shuffle', budget: plan.budget, cards: plan.considered.filter(item => item.chosen).map(({ key, slot, rank }) => ({ key, slot, rank })), left: plan.considered.filter(item => !item.chosen).length, ...(shadow ? { shadow } : {}) })
     return plan.cards
   }
@@ -207,8 +207,7 @@ export default function Practice() {
   const primedAt = useRef<Record<number, boolean>>({})
   const revealed = useRef<Set<number>>(new Set())
   // Which side a card shows first. Mixed: one or the other, settled per card and position.
-  const frontOf = (card: Card, at: number): 'he' | 'en' => (!settings ? 'he' : settings.front === 'mixed'
-    ? ([...`${cardKey(card)}${at - roundStart}`].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 ? 'en' : 'he') : settings.front)
+  const frontOf = (card: Card, at: number): 'he' | 'en' => (!settings ? 'he' : frontFor(card, at - roundStart, settings.front))
   // The Hebrew for an English word held on a card's question side, by position (holdWord).
   const [wordHint, setWordHint] = useState<Record<number, { index: number; text: string | null; note?: boolean }>>({})
   // Turning a card over, logged the first time at each position with how long it took.

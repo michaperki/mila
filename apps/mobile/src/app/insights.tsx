@@ -6,12 +6,14 @@ import Ionicons from '@expo/vector-icons/Ionicons'
 import { colors, ErrorNotice, Loading, Page, Pill, Pressy, styles, TextButton } from '../components/ui'
 import { request } from '../lib/api'
 import { sendingState, sendStudyLog } from '../lib/study-log'
-import { ago, type Card, cardName, type Considered, type Include, type Order, type Plan, planRound, type Slot } from '../lib/forms'
+import { ago, type Card, cardKey, type Considered, type Include, type Order, type Plan, planRound, type Slot } from '../lib/forms'
 import type { Planner } from '../lib/prefs'
 import { getPref } from '../lib/prefs'
 import { loadRound } from '../lib/saved-round'
 import { askBeforeResuming, resumeRound } from '../lib/rounds'
-import { type Activity, type ActivityKind, type Candidate, type Part, planUnified, SCORE_VERSION, shadowRanking, type Unified, unifiedRanking } from '../lib/scoring'
+import { type Activity, type ActivityKind, planUnified, type Unified, unifiedRanking } from '../lib/scoring'
+import { type AskSettings, ruleOf, type UpcomingRow, upcomingRows } from '../lib/upcoming'
+import type { VocabEntry } from '../lib/types'
 import { useSession } from '../state/session'
 import { vocabFor } from '../state/vocab'
 
@@ -39,9 +41,8 @@ type Trace = {
   surprises: Prediction[]; related: { id: string; lemma: string; why: string }[]
 }
 type Calibration = { channel: string; range: string; n: number; predicted: number; actual: number; card: number }
-type ShadowChecks = { version: string; plans: number; words: number; pending: number; need: { label: string; n: number; need: number | null; answered: number; missed: number | null }[]; groups: { label: string; n: number; shown: number | null; answered: number; missed: number | null }[] }
 type MemoryChecks = { answers: number; sameDay?: number; guessed?: number; loss: { memory: number | null; model: number | null; card: number | null }; calibration: { range: string; n: number; predicted: number; actual: number }[] }
-type Checks = { shadow?: ShadowChecks; memory?: MemoryChecks; memoryVersion?: string; retention?: { label: string; n: number; right: number; rate: number | null }[]; version: string; days: number; answers: number; unpredicted: number; right: number; expected: number; rate: number; loss: { model: number; card: number; base: number }; calibration: Calibration[]; surprises: Prediction[]; data: { label: string; value: number; of?: number }[] }
+type Checks = { memory?: MemoryChecks; memoryVersion?: string; retention?: { label: string; n: number; right: number; rate: number | null }[]; version: string; days: number; answers: number; unpredicted: number; right: number; expected: number; rate: number; loss: { model: number; card: number; base: number }; calibration: Calibration[]; surprises: Prediction[]; data: { label: string; value: number; of?: number }[] }
 
 const ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
   play: 'play-outline', plan: 'list-outline', card: 'albums-outline', flip: 'sync-outline', hold: 'hand-left-outline', lookup: 'search-outline', right: 'checkmark-circle-outline', wrong: 'close-circle-outline',
@@ -82,15 +83,23 @@ function useInsights<T>(path: string) {
   return { data, error, load }
 }
 
+// Upcoming Study first; the detail behind it (sessions told event by event, how a round was
+// planned, the unified ranking, model checks) under Diagnostics.
+type Diagnostic = 'sessions' | 'plan' | 'ranking' | 'checks'
+const pillRow = { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 8, paddingHorizontal: 22, paddingTop: 12, backgroundColor: colors.paper }
 function Home() {
-  const [tab, setTab] = useState<'sessions' | 'upcoming' | 'checks'>('sessions')
+  const [tab, setTab] = useState<'upcoming' | 'diagnostics'>('upcoming')
+  const [diagnostic, setDiagnostic] = useState<Diagnostic>('sessions')
+  const diagnostics: [Diagnostic, string][] = [['sessions', 'Sessions'], ['plan', 'How it was planned'], ['ranking', 'Unified ranking'], ['checks', 'Model checks']]
   return <>
-    <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 22, paddingTop: 12, backgroundColor: colors.paper }}>
-      <Pill label="Sessions" active={tab === 'sessions'} onPress={() => setTab('sessions')} />
-      <Pill label="Upcoming" active={tab === 'upcoming'} onPress={() => setTab('upcoming')} />
-      <Pill label="Model checks" active={tab === 'checks'} onPress={() => setTab('checks')} />
+    <View style={pillRow}>
+      <Pill label="Upcoming Study" active={tab === 'upcoming'} onPress={() => setTab('upcoming')} />
+      <Pill label="Diagnostics" active={tab === 'diagnostics'} onPress={() => setTab('diagnostics')} />
     </View>
-    {tab === 'sessions' ? <Sessions /> : tab === 'upcoming' ? <Upcoming /> : <ModelChecks />}
+    {tab === 'diagnostics' && <View style={[pillRow, { paddingTop: 8 }]}>
+      {diagnostics.map(([key, label]) => <Pill key={key} label={label} active={diagnostic === key} onPress={() => setDiagnostic(key)} />)}
+    </View>}
+    {tab === 'upcoming' ? <Upcoming /> : diagnostic === 'sessions' ? <Sessions /> : diagnostic === 'plan' ? <PlanDetails /> : diagnostic === 'ranking' ? <Ranking /> : <ModelChecks />}
   </>
 }
 
@@ -290,7 +299,6 @@ function ModelChecks() {
     </View>
     {data.memory && <MemoryCard memory={data.memory} version={data.memoryVersion} />}
     {data.retention && <RetentionCard retention={data.retention} />}
-    {data.shadow && <ShadowCard shadow={data.shadow} />}
     <View style={styles.card}>
       <Text style={styles.heading}>Predicted and actual</Text>
       <Text style={small}>Answers grouped by what the model predicted: how many were right, and what card history said.</Text>
@@ -325,19 +333,13 @@ function ModelChecks() {
   </Page>
 }
 
-// Upcoming: the round Study would plan now, every card it considered, and what changed since the
-// plan was last looked at (kept in a file on the phone: when, and each chosen card's part and rank).
+// Upcoming Study (consolidation phase B): the cards Study shows next, as it will show them: the
+// round in progress from where it was left, then the next new round by the order chosen in Study's
+// settings, each card with its word, how it will be asked and why it is there (lib/upcoming.ts),
+// and the rule the round follows. Worked out here by the same planner Study uses, so it can't
+// differ from what Study would do; what changed since the last look is kept in a file on the phone.
 const SLOTS: Record<Slot, string> = { review: 'Review', early: 'Not due yet', new: 'New word', familiar: 'Familiar check', checkpoint: 'Checkpoint', shuffled: 'Shuffled' }
-type Snapshot = { at: number; cards: { key: string; lemma: string; card: string; slot: Slot; rank: number }[]; scores?: Record<string, { lemma: string; score: number }> }
-// How the shadow score of each word moved since the plan was last looked at, the biggest first.
-function scoresSince(before: Snapshot, candidates: Candidate[]) {
-  if (!before.scores) return []
-  return candidates.flatMap(item => {
-    const was = before.scores![`${item.part}:${item.wordId}`]
-    return was && Math.abs(was.score - item.score) >= 0.05 ? [{ item, was: was.score }] : []
-  }).sort((a, b) => Math.abs(b.item.score - b.was) - Math.abs(a.item.score - a.was)).slice(0, 6)
-    .map(({ item, was }) => `Score ${item.score > was ? '↑' : '↓'} ${item.lemma}: ${was.toFixed(2)} → ${item.score.toFixed(2)} (${item.notes.slice(-2).join(', ')})`)
-}
+type Snapshot = { at: number; cards: { key: string; lemma: string; card: string; slot: Slot; rank: number }[] }
 const lastLook = new File(Paths.document, 'upcoming-last.json')
 const readLook = (): Snapshot | null => { if (Platform.OS === 'web') return null; try { return lastLook.exists ? JSON.parse(lastLook.textSync()) as Snapshot : null } catch { return null } }
 const keepLook = (look: Snapshot) => { if (Platform.OS === 'web') return; try { lastLook.write(JSON.stringify(look)) } catch { /* only this visit */ } }
@@ -358,78 +360,104 @@ function changesSince(before: Snapshot, plan: Plan) {
   }
   return lines
 }
-function Upcoming() {
+type UpcomingView = {
+  plan: Plan; planner: Planner; order: Order; include: Include; settings: AskSettings; entries: VocabEntry[]; unified: Unified | null
+  round: { at: number; of: number; deck: Card[]; from: number; ask: boolean; savedAt: number } | null
+  before: Snapshot | null
+}
+// What Upcoming and How it was planned both show, worked out on each visit. Only Upcoming keeps it
+// as the last look (`keep`), so What changed is since Upcoming was last open.
+function useUpcoming(keep: boolean) {
   const { session } = useSession()
-  // `round`: the round in progress, which Study goes on with before planning another: its cards
-  // from where it was left, as Study rebuilds them (lib/rounds.ts resumeRound), and whether Study
-  // will first ask (left over ASK_AFTER ago).
-  const [mode, setMode] = useState<'plan' | 'candidates'>('plan')
-  const [view, setView] = useState<{ plan: Plan; planner: Planner; candidates: Candidate[]; unified: Unified | null; since: { at: number; lines: string[] } | null; round: { at: number; of: number; next: Card[]; ask: boolean; savedAt: number } | null; include: Include; order: Order } | null>(null)
+  const [view, setView] = useState<UpcomingView | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [open, setOpen] = useState<Record<string, boolean>>({})
   const load = useCallback(async () => {
     if (!session) return
     try {
-      const [entries, include, order, planner] = await Promise.all([vocabFor(session), getPref('studyCards'), getPref('studyOrder'), getPref('studyPlanner')])
-      // The round as Study would plan it now, by the planner chosen in Study's settings; the shadow
-      // rankings are always set beside Study's standard plan.
-      const standard = planRound(entries, { include, order })
-      const plan = order === 'smart' && planner === 'unified' ? planUnified(entries, { include }) : standard
-      const before = readLook()
+      const [entries, include, order, planner, front, quiz, picked] = await Promise.all([vocabFor(session), getPref('studyCards'), getPref('studyOrder'), getPref('studyPlanner'), getPref('studyFront'), getPref('studyQuiz'), getPref('studyChoices')])
+      const plan = order === 'smart' && planner === 'unified' ? planUnified(entries, { include }) : planRound(entries, { include, order })
       const saved = loadRound(session.user.id)
       const resumed = resumeRound(saved, entries)
-      const round = resumed && saved ? { at: resumed.position + 1, of: resumed.deck.length, next: resumed.deck.slice(resumed.position), ask: askBeforeResuming(saved), savedAt: saved.savedAt } : null
-      const candidates = order === 'smart' ? shadowRanking(standard, entries, include) : []
-      const unified = order === 'smart' ? unifiedRanking(standard, entries, include) : null
-      setView({ plan, planner, candidates, unified, include, order, since: before ? { at: before.at, lines: [...changesSince(before, plan), ...scoresSince(before, candidates)] } : null, round })
-      keepLook({
-        at: Date.now(), cards: plan.considered.filter(item => item.chosen).map(({ key, lemma, card, slot, rank }) => ({ key, lemma, card, slot, rank })),
-        scores: Object.fromEntries(candidates.filter(item => item.part !== 'new' || item.scoreRank <= 30).map(item => [`${item.part}:${item.wordId}`, { lemma: item.lemma, score: item.score }])),
-      })
+      const round = resumed && saved ? { at: resumed.position + 1, of: resumed.deck.length, deck: resumed.deck, from: resumed.position, ask: askBeforeResuming(saved), savedAt: saved.savedAt } : null
+      const before = readLook()
+      // As Study reads its settings (practice.tsx): Quiz forms, from before fill in the blank had a setting, is Always.
+      setView({ plan, planner, order, include, settings: { front, choices: quiz ? 'all' : picked }, entries, unified: order === 'smart' ? unifiedRanking(plan, entries, include) : null, round, before })
+      if (keep) keepLook({ at: Date.now(), cards: plan.considered.filter(item => item.chosen).map(({ key, lemma, card, slot, rank }) => ({ key, lemma, card, slot, rank })) })
       setError(null)
     } catch (failure) { setError((failure as Error).message) }
-  }, [session])
+  }, [session, keep])
   useFocusEffect(useCallback(() => { void load() }, [load]))
+  return { view, error, load }
+}
+
+const FRONT_WORDS: Record<AskSettings['front'], string> = { he: 'Hebrew first', en: 'English first', mixed: 'Hebrew or English first' }
+const CHOICE_WORDS: Record<AskSettings['choices'], string> = { some: 'fill in the blank sometimes', all: 'fill in the blank whenever it can be', off: 'no fill in the blank' }
+function Upcoming() {
+  const { view, error, load } = useUpcoming(true)
+  if (!view) return <Page>{error ? <ErrorNotice message={error} /> : <Loading />}</Page>
+  const { plan, round, before } = view
+  const rows = upcomingRows(plan.cards, 0, view.entries, view.settings, plan.considered)
+  const inProgress = round ? upcomingRows(round.deck, round.from, view.entries, view.settings) : []
+  const seen = before ? new Set(before.cards.map(item => item.key)) : null
+  return <Page onRefresh={load}>
+    <ErrorNotice message={error} />
+    <View style={styles.card}>
+      <Text style={styles.heading}>How Study chooses</Text>
+      <Text style={styles.copy}>{ruleOf(view.order, view.planner)}</Text>
+      <Text style={small}>{view.include === 'both' ? 'Words and sentences' : view.include === 'words' ? 'Words only' : 'Sentences only'} · {FRONT_WORDS[view.settings.front]} · {CHOICE_WORDS[view.settings.choices]}. Change these in Study’s settings.</Text>
+    </View>
+    {round && <View style={styles.card}>
+      <Text style={styles.heading}>In progress: card {round.at} of {round.of}</Text>
+      <Text style={small}>{round.ask ? `You left it ${ago(round.savedAt)}, so Study will ask whether to go on with it or start the round below.` : 'Study goes on with it first. It was planned when it started, so it can differ from the round below.'}</Text>
+      {inProgress.slice(0, 12).map((row, i) => <UpcomingRowView key={`${i}:${row.key}`} row={row} n={round.at + i} />)}
+      {inProgress.length > 12 && <Text style={small}>…and {inProgress.length - 12} more.</Text>}
+    </View>}
+    <View style={styles.card}>
+      <Text style={styles.heading}>{round ? 'Then a new round' : 'Next round'} · {rows.length} cards</Text>
+      {rows.map((row, i) => <UpcomingRowView key={row.key} row={row} n={i + 1} fresh={!!seen && !seen.has(row.key)} />)}
+      {!rows.length && <Text style={styles.copy}>Nothing to study with these settings.</Text>}
+    </View>
+    <Text style={small}>As things stand now: an answer before a card comes up can change how it’s asked. During a round, answering a new word brings its sentences right after it, and missing a sentence brings back its word; those aren’t listed. Diagnostics → How it was planned shows every card considered.</Text>
+  </Page>
+}
+function UpcomingRowView({ row, n, fresh }: { row: UpcomingRow; n: number; fresh?: boolean }) {
+  return <Pressy moment="tick" accessibilityRole="button" onPress={() => open({ word: row.wordId })} style={{ gap: 1 }}>
+    <Text style={{ fontSize: 16, lineHeight: 22, color: colors.ink }} numberOfLines={1}>
+      <Text style={{ color: colors.muted }}>{n}. </Text><Text style={{ fontWeight: '700' }}>{row.hebrew}</Text>
+      <Text style={{ color: colors.muted }}> · {row.english}</Text>{fresh ? <Text style={{ color: colors.green, fontWeight: '700' }}>  new here</Text> : null}
+    </Text>
+    <Text style={[small, { color: colors.ink }]}>{row.card} · {row.asked.label}</Text>
+    {!!row.reason && <Text style={[small, { color: colors.green }]}>{row.reason}</Text>}
+  </Pressy>
+}
+
+// How the next new round was planned: how it was divided, what changed since Upcoming was last
+// open, each card with its part of the round, rank and the facts behind it, and what was left out.
+function PlanDetails() {
+  const { view, error, load } = useUpcoming(false)
+  const [opened, setOpened] = useState<Record<string, boolean>>({})
   if (!view) return <Page>{error ? <ErrorNotice message={error} /> : <Loading />}</Page>
   const { plan } = view
   const byKey = new Map(plan.considered.filter(item => item.chosen).map(item => [item.key, item]))
-  const ordered = plan.cards.map(card => byKey.get(`${card.entry.id}:${card.checkpoint ? `checkpoint:${card.checkpoint}` : card.form ? card.form.key : 'word'}`)).filter((item): item is Considered => !!item)
+  const ordered = plan.cards.map(card => byKey.get(cardKey(card))).filter((item): item is Considered => !!item)
   const left = plan.considered.filter(item => !item.chosen)
   const groups = [...new Set(left.map(item => item.slot))]
-  const modes = <View style={[styles.row, { gap: 8 }]}>
-    <Pill label="Plan" active={mode === 'plan'} onPress={() => setMode('plan')} />
-    <Pill label="Candidates" active={mode === 'candidates'} onPress={() => setMode('candidates')} />
-  </View>
-  if (mode === 'candidates') return <Page onRefresh={load}>{modes}<Candidates candidates={view.candidates} unified={view.unified} /></Page>
+  const since = view.before ? changesSince(view.before, plan) : null
   return <Page onRefresh={load}>
     <ErrorNotice message={error} />
-    {modes}
-    {view.round ? <View style={styles.card}>
-      <Text style={styles.heading}>Next in Study: the round in progress</Text>
-      <Text style={styles.copy}>{view.round.ask
-        ? `You left it ${ago(view.round.savedAt)}, so Study will ask whether to go on with it, at card ${view.round.at} of ${view.round.of}, or start the new round below.`
-        : `Study goes on with it, at card ${view.round.at} of ${view.round.of}. It was planned when it started, by the rules of that time, so it can differ from the new round below. Start a new round from Study’s top bar to switch to it.`}</Text>
-      {view.round.next.slice(0, 12).map((card, i) => <Pressy key={`${i}:${card.entry.id}`} moment="tick" accessibilityRole="button" onPress={() => router.push({ pathname: '/insights', params: { word: card.entry.id } })} style={{ gap: 1 }}>
-        <Text style={{ fontSize: 15, lineHeight: 21, color: colors.ink }}><Text style={{ fontWeight: '700' }}>{view.round!.at + i}. {card.entry.lemmaPlain || card.entry.lemma}</Text> · {cardName(card)}</Text>
-        {!!card.why && <Text style={small}>{card.why.replace(' · ', ': ')}</Text>}
-      </Pressy>)}
-      {view.round.next.length > 12 && <Text style={small}>…and {view.round.next.length - 12} more. Answers can bring a word’s next cards in behind it.</Text>}
-    </View> : <Text style={small}>No round in progress: Study starts with the round below.</Text>}
-    <Text style={small}>{view.round ? 'After that, a' : 'A'} new round, as Study would plan it now ({view.order === 'shuffle' ? 'shuffled' : view.planner === 'unified' ? 'Unified order, the experiment chosen in Study’s settings' : 'smart order'}, {view.include === 'both' ? 'words and sentences' : view.include}), by the same planner Study uses.</Text>
     <View style={styles.card}>
-      <Text style={styles.heading}>{view.round ? 'The next new round: how it’s divided' : 'How the round is divided'}</Text>
+      <Text style={styles.heading}>How the round is divided</Text>
       {plan.budget.map((line, i) => <Text key={i} style={[styles.copy, { fontSize: 15, lineHeight: 22 }]}>{line}</Text>)}
-      <Text style={small}>During the round, answering a word for the first time brings its meaning card right after it, and a missed sentence card brings back its word card. Those aren’t planned here.</Text>
     </View>
-    {view.since && <View style={styles.card}>
-      <Text style={styles.heading}>Since you last looked</Text>
-      <Text style={small}>{when(view.since.at)}</Text>
-      {view.since.lines.length ? view.since.lines.slice(0, 16).map((line, i) => <Text key={i} style={[styles.copy, { fontSize: 14, lineHeight: 20 }]}>{line}</Text>) : <Text style={styles.copy}>No change.</Text>}
+    {since && <View style={styles.card}>
+      <Text style={styles.heading}>Since Upcoming was last open</Text>
+      <Text style={small}>{when(view.before!.at)}</Text>
+      {since.length ? since.slice(0, 16).map((line, i) => <Text key={i} style={[styles.copy, { fontSize: 14, lineHeight: 20 }]}>{line}</Text>) : <Text style={styles.copy}>No change.</Text>}
     </View>}
     <View style={styles.card}>
-      <Text style={styles.heading}>{view.round ? 'The next new round, in order' : 'The round, in order'}</Text>
+      <Text style={styles.heading}>The round, in order</Text>
       <Text style={small}>Each card’s rank is within its part of the round. Its place differs from its rank where new words are put early, familiar checks spread through, and a word’s cards kept apart.</Text>
-      {ordered.map((item, i) => <Pressy key={item.key} moment="tick" accessibilityRole="button" onPress={() => router.push({ pathname: '/insights', params: { word: item.wordId } })} style={{ gap: 2 }}>
+      {ordered.map((item, i) => <Pressy key={item.key} moment="tick" accessibilityRole="button" onPress={() => open({ word: item.wordId })} style={{ gap: 2 }}>
         <Text style={{ fontSize: 15, lineHeight: 21, color: colors.ink }}><Text style={{ fontWeight: '700' }}>{i + 1}. {item.lemma}</Text> · {item.card}</Text>
         <Text style={[small, { color: colors.green }]}>{SLOTS[item.slot]} #{item.rank} · {item.why}</Text>
         {!!item.factors.length && <Text style={small}>{item.factors.join(' · ')}</Text>}
@@ -439,92 +467,28 @@ function Upcoming() {
       <Text style={styles.heading}>Considered, left out ({left.length})</Text>
       {groups.map(slot => {
         const items = left.filter(item => item.slot === slot)
-        const shown = open[slot] ? items : items.slice(0, 5)
+        const shown = opened[slot] ? items : items.slice(0, 5)
         return <View key={slot} style={{ gap: 6 }}>
           <Text style={[styles.label, { marginBottom: 0 }]}>{SLOTS[slot]} · {items.length}</Text>
           {shown.map(item => <View key={`${item.key}:${item.why}`} style={{ gap: 1 }}>
             <Text style={{ fontSize: 14, lineHeight: 20, color: colors.ink }}>{item.lemma} · {item.card}</Text>
             <Text style={small}>{item.why}</Text>
           </View>)}
-          {items.length > shown.length && <TextButton title={`Show all ${items.length}`} onPress={() => setOpen(current => ({ ...current, [slot]: true }))} />}
+          {items.length > shown.length && <TextButton title={`Show all ${items.length}`} onPress={() => setOpened(current => ({ ...current, [slot]: true }))} />}
         </View>
       })}
     </View>
   </Page>
 }
 
-// Candidates: every word the round considered, ranked by the shadow score within its part of the
-// round, beside what Study chose. Compact: one row per word, its score and the few facts behind it;
-// a tap shows the score's parts. The score decides nothing yet.
-const PARTS: [Part, string][] = [['review', 'Reviews'], ['early', 'Not due'], ['new', 'New'], ['familiar', 'Familiar']]
-function Candidates({ candidates, unified }: { candidates: Candidate[]; unified: Unified | null }) {
-  const [part, setPart] = useState<Part | 'unified'>('unified')
-  const [only, setOnly] = useState(false)
-  const [all, setAll] = useState(false)
-  const [opened, setOpened] = useState<string | null>(null)
-  if (!candidates.length) return <Text style={styles.copy}>The shadow score ranks smart-order rounds only.</Text>
-  const pills = <View style={[styles.row, { gap: 6 }]}>
-    <Pill label="Unified" active={part === 'unified'} onPress={() => { setPart('unified'); setAll(false) }} />
-    {PARTS.map(([key, label]) => <Pill key={key} label={`${label} ${candidates.filter(item => item.part === key).length}`} active={part === key} onPress={() => { setPart(key); setAll(false) }} />)}
-  </View>
-  if (part === 'unified') return <>{pills}{unified ? <UnifiedList unified={unified} /> : null}</>
-  const inPart = candidates.filter(item => item.part === part)
-  const listed = inPart.filter(item => !only || item.disagree)
-  const shown = all ? listed : listed.slice(0, 20)
-  const taken = inPart.filter(item => item.study.chosen).length
-  const agree = inPart.filter(item => item.study.chosen && item.scoreWould).length
-  return <>
-    <Text style={small}>Shadow score {SCORE_VERSION}: (usefulness + reading) × timing × need, plus a bonus for words first studied in the last few days and a little for few answers. It ranks the same words Study considered; Study doesn’t use it yet.</Text>
-    {pills}
-    <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
-      <Text style={[small, { flex: 1 }]}>{taken ? `Study takes ${taken}; the score would take ${agree} of the same.` : 'Study takes none of these this round.'}</Text>
-      <Pill label="Disagreements" active={only} onPress={() => setOnly(value => !value)} />
-    </View>
-    <View style={[styles.card, { padding: 14, gap: 12 }]}>
-      {shown.map(item => {
-        const id = `${item.part}:${item.wordId}`
-        const verdict = item.disagree === 'score-only' ? 'Score would take; Study left it out' : item.disagree === 'study-only' ? 'Study took; the score would leave it' : item.study.chosen ? 'Both take it' : 'Neither takes it'
-        return <Pressy key={id} moment="tick" accessibilityRole="button" onPress={() => setOpened(current => (current === id ? null : id))} style={{ gap: 2 }}>
-          <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 8 }]}>
-            <Text style={{ fontSize: 15, color: colors.ink, flexShrink: 1 }} numberOfLines={1}><Text style={{ color: colors.muted }}>#{item.scoreRank} </Text><Text style={{ fontWeight: '700' }}>{item.lemma}</Text></Text>
-            <Text style={{ fontSize: 15, fontWeight: '700', color: item.disagree ? colors.red : colors.green }}>{item.score.toFixed(2)}</Text>
-          </View>
-          <Text style={small} numberOfLines={opened === id ? undefined : 1}>{item.notes.join(' · ')}</Text>
-          <Text style={[small, { color: item.disagree ? colors.red : colors.muted }]} numberOfLines={opened === id ? undefined : 1}>{verdict} · Study #{item.study.rank}{item.study.chosen ? '' : `: ${item.study.why}`}</Text>
-          {opened === id && <View style={{ gap: 2, marginTop: 4, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: colors.lime }}>
-            <Text style={small}>Value: usefulness {item.parts.usefulness.toFixed(2)} + reading {item.parts.reading.toFixed(2)}</Text>
-            <Text style={small}>Practice now: value × timing {item.parts.timing.toFixed(2)} × need {item.parts.need.toFixed(2)} = {item.terms.core.toFixed(2)}</Text>
-            <Text style={small}>Recently introduced: +{item.terms.recent.toFixed(2)}{item.parts.recent ? '' : ', not first studied in the last few days (or before answers were recorded)'}</Text>
-            <Text style={small}>Few answers to go by: +{item.terms.uncertainty.toFixed(2)}</Text>
-            <Text style={small}>{item.part === 'new' ? 'Need is assumed: saved after looking it up, not studied yet.' : `Need from ${item.evidence.answers} kept answers, ${item.evidence.right} right${item.evidence.primed ? `; ${item.evidence.primed} just after seeing the word, counted a quarter` : ''}, smoothed so one answer moves it little.`}</Text>
-            <TextButton title="The word’s evidence" color={colors.green} onPress={() => router.push({ pathname: '/insights', params: { word: item.wordId } })} />
-          </View>}
-        </Pressy>
-      })}
-      {!shown.length && <Text style={styles.copy}>{only ? 'No disagreements here.' : 'Nothing in this part.'}</Text>}
-    </View>
-    {listed.length > shown.length && <TextButton title={`Show all ${listed.length}`} onPress={() => setAll(true)} />}
-  </>
-}
-
-function ShadowCard({ shadow }: { shadow: ShadowChecks }) {
-  const cell = { fontSize: 13, color: colors.ink, width: 56, textAlign: 'right' as const }
-  const head = (labels: string[]) => <View style={{ flexDirection: 'row' }}><Text style={[small, { flex: 1 }]} />{labels.map(label => <Text key={label} style={[small, { width: 56, textAlign: 'right' }]}>{label}</Text>)}</View>
-  return <View style={styles.card}>
-    <Text style={styles.heading}>Shadow score against what happened</Text>
-    <Text style={small}>{shadow.version || 'No scored plans yet'}: {shadow.plans} round plans, {shadow.words} scored words followed for 7 days{shadow.pending ? `, ${shadow.pending} of them still within those days` : ''}. Not learning value: whether “need” goes with missing, and what became of the words the two disagreed on.</Text>
-    <Text style={[styles.label, { marginBottom: 0 }]}>Need, and the next unprimed answer</Text>
-    {head(['Words', 'Need', 'Answered', 'Missed'])}
-    {shadow.need.map(row => <View key={row.label} style={{ flexDirection: 'row' }}>
-      <Text style={[cell, { flex: 1, textAlign: 'left' }]}>{row.label}</Text><Text style={cell}>{row.n}</Text><Text style={cell}>{row.need ?? '–'}</Text><Text style={cell}>{row.answered}</Text><Text style={[cell, { fontWeight: '700' }]}>{row.missed === null ? '–' : pct(row.missed)}</Text>
-    </View>)}
-    <Text style={[styles.label, { marginBottom: 0 }]}>Who would take it</Text>
-    {head(['Words', 'Shown', 'Answered', 'Missed'])}
-    {shadow.groups.map(row => <View key={row.label} style={{ flexDirection: 'row' }}>
-      <Text style={[cell, { flex: 1, textAlign: 'left' }]}>{row.label}</Text><Text style={cell}>{row.n}</Text><Text style={cell}>{row.shown === null ? '–' : pct(row.shown)}</Text><Text style={cell}>{row.answered}</Text><Text style={[cell, { fontWeight: '700' }]}>{row.missed === null ? '–' : pct(row.missed)}</Text>
-    </View>)}
-    <Text style={small}>Words Study takes are answered in the same round, so they are shown more by construction: compare like with like.</Text>
-  </View>
+// The unified ranking behind the Unified order, word by word.
+function Ranking() {
+  const { view, error, load } = useUpcoming(false)
+  if (!view) return <Page>{error ? <ErrorNotice message={error} /> : <Loading />}</Page>
+  return <Page onRefresh={load}>
+    <ErrorNotice message={error} />
+    {view.unified ? <UnifiedList unified={view.unified} /> : <Text style={styles.copy}>The unified ranking is for Study’s smart order; the order now is shuffled.</Text>}
+  </Page>
 }
 
 // Unified: every thing Study could do next on one list, by its value now (lib/scoring.ts
@@ -539,7 +503,7 @@ function UnifiedList({ unified }: { unified: Unified }) {
   const shown = all ? listed : listed.slice(0, 25)
   const kinds = Object.keys(KINDS) as ActivityKind[]
   return <>
-    <Text style={small}>One list of everything Study could do next, by value now: what practising it would add to recall {unified.horizon} days on (the memory model, {unified.memory}), times how useful the word is, per card. Study doesn’t use it yet.</Text>
+    <Text style={small}>One list of everything Study could do next, by value now: what practising it would add to recall {unified.horizon} days on (the memory model, {unified.memory}), times how useful the word is, per card. It plans rounds when Study’s order is Unified (Study → Settings → Try); otherwise it is shown beside the standard round.</Text>
     <View style={[styles.card, { padding: 14, gap: 4 }]}>
       <View style={{ flexDirection: 'row' }}><Text style={[small, { flex: 1 }]}>A round of {unified.cards} cards</Text><Text style={[small, { width: 64, textAlign: 'right' }]}>Unified</Text><Text style={[small, { width: 64, textAlign: 'right' }]}>Study</Text></View>
       {kinds.map(kind => <View key={kind} style={{ flexDirection: 'row' }}>

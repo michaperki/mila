@@ -52,12 +52,22 @@ collection keeps improving; models are compared only as data allows (191 answers
 - **A. Fill in the blank with one right answer** (shipped 2026-11-19, see [EX-0](#exercises)):
   answers in the word's form in the sentence, English as a hint, help recorded and weighed, an
   answered card shown as it was asked; Reader selections say how they were made and how long.
-  Distractors for older cards: `scripts/backfill-distractors.mjs`, 127 sentences on 64 words, at
-  most $0.26, **waiting for Mike's approval**.
-- **B. Upcoming Study:** the round as the order in force plans it, with how each card will be
-  asked and one plain reason, the rule once at the top; remove the by-part shadow ranking
-  (score-v0) from screens and new plans, keeping its data; Sessions, Candidates and Model checks
-  move to a secondary Diagnostics view.
+  Distractors for older cards: `scripts/backfill-distractors.mjs`, approved and run 2026-11-19:
+  124 of 127 sentences on 64 studied words written, 3 refused as unusable (they stay flashcards);
+  previous values in `scripts/distractors-backup-1795079052568.json`. **Cost $0.45 against an
+  estimate of at most $0.26**: input was counted exactly, output was guessed at 120 tokens a
+  sentence and came out higher. Next time cap output with `max_tokens` per request, or measure a
+  few requests first. Checked: every answer is the word as its sentence has it; in a sample of 14,
+  distractors are wrong in their sentence, one borderline (מבט מאשר for חמור).
+- **B. Upcoming Study** (shipped 2026-11-19): Learning Insights opens on Upcoming Study: the rule
+  the round follows in a sentence (Standard or Unified, with the settings in force), the round in
+  progress, then the next new round, each card with its word, English, card, how it will be asked
+  (flashcard and which side first, fill in the blank, checkpoint: the same rules Study applies,
+  `lib/upcoming.ts`, `forms.ts frontFor`) and one plain reason; "new here" marks a card not in the
+  last look. Diagnostics: Sessions, How it was planned (division, changes, every card considered),
+  Unified ranking, Model checks. The by-part shadow score (score-v0) is retired: gone from screens,
+  Model checks and new plans (which log the unified ranking, `rankingLog`); plans from 17–19/11
+  keep it in the study log.
 - **C. Learning Feed, Study and Reader:** observed behaviour kept apart from inferred change. Each
   row a word (Hebrew, form, English): what happened; what the model took from it (which of
   exposure, recognition, comprehension, production, and how much; little or nothing when the
@@ -343,7 +353,8 @@ better.
   cards. Each round's plan is logged (`plan` event). **Learning Insights → Upcoming** shows the
   round Study would plan now, the cards left out with why, and what changed since it was last
   looked at.
-- **Shadow score, live 2026-11-17** (`lib/scoring.ts`, score-v0; changes nothing Study does):
+- **Shadow score, live 2026-11-17, retired 2026-11-19** (consolidation phase B; superseded by the
+  unified ranking; its logged plans kept) (`lib/scoring.ts`, score-v0; changed nothing Study did):
   (usefulness + reading) × timing × need, + 0.3 × value × recently introduced, + 0.15 ×
   uncertainty. Need is smoothed from the word's kept answers, a primed answer a quarter, so one
   swipe moves it little. Each round's plan logs the score's ranking beside Study's
