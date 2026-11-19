@@ -23,6 +23,9 @@ describe('the Feed', () => {
     expect(word.interpretation).toBe('For reading it · full weight')
     expect(word.change!.skill).toBe('reading')
     expect(word.change!.after).toBeGreaterThan(word.change!.before)
+    // With the range it could be in, which one answer leaves wide.
+    expect(word.change!.low).toBeLessThan(word.change!.after)
+    expect(word.change!.high).toBeGreaterThan(word.change!.after)
   })
   it('says what help an answer had, and that it counted less', () => {
     const [item] = feedFor([

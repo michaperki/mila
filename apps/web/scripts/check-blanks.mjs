@@ -5,7 +5,9 @@
 // a native speaker accept the sentence with it, in meaning and grammar? The question passes only if
 // the intended answer fits and nothing else does. The verdict is kept on the sentence (`blankCheck`:
 // version, ok, the options that fit, when), and the phone asks a sentence that failed as a
-// flashcard. Distractors aren't rewritten here: a failed sentence simply isn't a fill in the blank.
+// flashcard. One the check couldn't settle (the request failed or was cut short, or not every
+// option was judged) is kept as `inconclusive`, not ok, so it is a flashcard too, and is checked
+// again on the next run. Distractors aren't rewritten here: a failed sentence simply isn't a fill in the blank.
 //
 // `node scripts/check-blanks.mjs <email>`: how many sentences, and the most it could cost (input
 // counted, output at max_tokens: lib/spend.mjs). Nothing paid.
@@ -55,6 +57,8 @@ const { userId } = user
 
 // Every meaning sentence of a word being studied that can be a fill in the blank, not yet checked.
 const words = []
+// Sentences whose gap can't be drawn from their marked words: not sent, kept as inconclusive.
+const ungapped = []
 for (const entry of await db.collection('vocab').find({ userId, archived: { $ne: true } }, { projection: { id: 1, lemma: 1, results: 1, forms: 1 } }).toArray()) {
   if (!entry.results?.length && !entry.forms?.some(form => form.results?.length)) continue
   const todo = []
@@ -62,9 +66,9 @@ for (const entry of await db.collection('vocab').find({ userId, archived: { $ne:
     if (form.stage !== 'meanings') continue
     for (const item of [{ variant: -1, ...form }, ...(form.variants || []).map((other, variant) => ({ variant, ...other, he: other.he || form.he }))]) {
       const answer = answerOf(item)
-      if (!answer || !item.sentence || (!again && item.blankCheck?.v === VERSION)) continue
+      if (!answer || !item.sentence || (!again && item.blankCheck?.v === VERSION && !item.blankCheck.inconclusive)) continue
       const gap = gapped(item.sentence, item.mark)
-      if (!gap.includes('＿＿＿')) continue
+      if (!gap.includes('＿＿＿')) { ungapped.push({ word: { id: entry.id }, item: { key: form.key, variant: item.variant, at: item.at, before: item.blankCheck ?? null } }); continue }
       todo.push({ key: form.key, variant: item.variant, at: item.at, gap, answer, options: shuffled([answer, ...item.distractors.slice(0, 3)], `${entry.id}:${form.key}:${item.variant}`), before: item.blankCheck ?? null })
     }
   }
@@ -72,38 +76,43 @@ for (const entry of await db.collection('vocab').find({ userId, archived: { $ne:
 }
 const requests = words.map((word, i) => ({ custom_id: `w${i}`, params: { model: MODEL, max_tokens: maxTokensFor(word.todo.length), output_config: { effort: 'low', format: { type: 'json_schema', schema } }, system: SYSTEM,
   messages: [{ role: 'user', content: word.todo.map((item, n) => `${n + 1}. ${item.gap}\nOptions: ${item.options.join(' / ')}`).join('\n\n') }] } }))
-console.log(`${words.reduce((sum, word) => sum + word.todo.length, 0)} fill in the blank sentences on ${words.length} words being studied to check.`)
+console.log(`${words.reduce((sum, word) => sum + word.todo.length, 0)} fill in the blank sentences on ${words.length} words being studied to check${ungapped.length ? `, and ${ungapped.length} whose gap can't be drawn (kept as inconclusive)` : ''}.`)
 const sent = requests.length ? await cappedBatch(api, requests, cap) : null
 if (!sent) { await client.close(); process.exit(0) }
 
 const before = []
 let cost = 0, passed = 0, failed = 0, unread = 0
+const keep = async (word, item, check) => {
+  const base = item.variant < 0 ? 'forms.$[card]' : `forms.$[card].variants.${item.variant}`
+  const filter = item.variant < 0 ? { 'card.key': item.key } : { 'card.key': item.key, [`card.variants.${item.variant}.at`]: item.at }
+  const result = await db.collection('vocab').updateOne({ userId, id: word.id }, { $set: { [`${base}.blankCheck`]: { v: VERSION, ...check, at: now } } }, { arrayFilters: [filter] })
+  if (result.modifiedCount) before.push({ id: word.id, key: item.key, variant: item.variant, blankCheck: item.before })
+}
+for (const { word, item } of ungapped) { unread++; await keep(word, item, { ok: false, fits: [], inconclusive: true }) }
+const inconclusive = async word => { for (const item of word.todo) { unread++; await keep(word, item, { ok: false, fits: [], inconclusive: true }) } }
 const failures = []
 for (const line of sent.lines) {
   const word = words[Number(line.custom_id.slice(1))]
-  if (line.result.type !== 'succeeded') { unread += word.todo.length; continue }
+  if (line.result.type !== 'succeeded') { await inconclusive(word); continue }
   const message = line.result.message
   cost += costOf(message)
   await db.collection('aiUsage').insertOne({ userId, feature: 'blank-check', provider: 'anthropic', model: message.model, cost: costOf(message), ms: 0, batch: sent.id,
     inputTokens: message.usage.input_tokens, outputTokens: message.usage.output_tokens, cacheReadTokens: 0, cacheWriteTokens: 0, at: new Date() })
-  if (message.stop_reason === 'max_tokens') { unread += word.todo.length; continue }
+  if (message.stop_reason === 'max_tokens') { await inconclusive(word); continue }
   const questions = JSON.parse(message.content.find(block => block.type === 'text').text).questions
   for (const [n, item] of word.todo.entries()) {
     const judged = questions.find(question => question.n === n + 1)?.options ?? []
     // Every option judged, matched back by spelling; a question not fully judged is left unchecked.
     const verdicts = item.options.map(option => judged.find(other => loose(other.option) === loose(option)))
-    if (verdicts.some(verdict => !verdict)) { unread++; continue }
+    if (verdicts.some(verdict => !verdict)) { unread++; await keep(word, item, { ok: false, fits: [], inconclusive: true }); continue }
     const fits = item.options.filter((_, i) => verdicts[i].fits)
     const ok = fits.length === 1 && loose(fits[0]) === loose(item.answer)
     if (ok) passed++; else { failed++; failures.push(`${strip(word.lemma)}: ${strip(item.gap)} · answer ${strip(item.answer)} · fit: ${fits.map(strip).join(', ') || 'none'} (${verdicts.filter(v => v.fits || loose(v.option) === loose(item.answer)).map(v => `${strip(v.option)}: ${v.why}`).join('; ')})`) }
-    const base = item.variant < 0 ? 'forms.$[card]' : `forms.$[card].variants.${item.variant}`
-    const filter = item.variant < 0 ? { 'card.key': item.key } : { 'card.key': item.key, [`card.variants.${item.variant}.at`]: item.at }
-    const result = await db.collection('vocab').updateOne({ userId, id: word.id }, { $set: { [`${base}.blankCheck`]: { v: VERSION, ok, fits, at: now } } }, { arrayFilters: [filter] })
-    if (result.modifiedCount) before.push({ id: word.id, key: item.key, variant: item.variant, blankCheck: item.before })
+    await keep(word, item, { ok, fits })
   }
 }
 const file = new URL(`./blank-check-backup-${now}.json`, import.meta.url)
 writeFileSync(file, JSON.stringify(before))
-console.log(`Passed ${passed}, failed ${failed} (asked as flashcards from now on), not read ${unread}; cost $${cost.toFixed(4)}. What they had before: ${file.pathname}`)
+console.log(`Passed ${passed}, failed ${failed}, inconclusive ${unread} (failed and inconclusive are asked as flashcards); cost $${cost.toFixed(4)}. What they had before: ${file.pathname}`)
 if (failures.length) console.log(`\nFailed:\n${failures.join('\n')}`)
 await client.close()

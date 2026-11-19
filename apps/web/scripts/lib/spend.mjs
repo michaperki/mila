@@ -27,7 +27,13 @@ export async function worstCase(api, requests) {
     if (!price) throw new Error(`No price for ${params.model}`)
     if (!Number.isInteger(params.max_tokens)) throw new Error('Every request must set max_tokens')
     const { model, system, messages, output_config } = params
-    const counted = await (await api('messages/count_tokens', { method: 'POST', body: JSON.stringify({ model, system, messages, ...(output_config?.format ? { output_config: { format: output_config.format } } : {}) }) })).json()
+    // Counting is free and changes nothing, so a dropped connection is simply tried again.
+    const body = JSON.stringify({ model, system, messages, ...(output_config?.format ? { output_config: { format: output_config.format } } : {}) })
+    let counted = null
+    for (let attempt = 1; !counted; attempt++) {
+      try { counted = await (await api('messages/count_tokens', { method: 'POST', body })).json() }
+      catch (error) { if (attempt >= 4) throw error; await new Promise(resolve => setTimeout(resolve, 2000 * attempt)) }
+    }
     if (typeof counted.input_tokens !== 'number') throw new Error(`Counting failed: ${JSON.stringify(counted).slice(0, 200)}`)
     input += counted.input_tokens; output += params.max_tokens
     dollars += (counted.input_tokens * price.input + params.max_tokens * price.output) / 1e6 * BATCH

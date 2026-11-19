@@ -337,7 +337,7 @@ function ModelChecks() {
 // The Feed (consolidation phase C; the server tells it, lib/feed.ts): newest first, what you did
 // (observed), and for each word what the model took from it (interpretation) and how its estimate
 // for that skill moved (before → after), or that it wasn't counted. Reading a sentence at a time.
-type FeedChange = { skill: 'reading' | 'producing'; before: number; after: number }
+type FeedChange = { skill: 'reading' | 'producing'; before: number; after: number; low: number; high: number }
 type FeedWord = { id?: string; lemma: string; gloss?: string; interpretation: string; counted: boolean; change: FeedChange | null }
 type FeedItem = { id: string; at: number; kind: 'study' | 'reading'; icon: string; observed: string; detail: string[]; sentence?: string; words: FeedWord[]; passed?: string[] }
 const FEED_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = { right: 'checkmark-circle-outline', wrong: 'close-circle-outline', choice: 'list-circle-outline', lookup: 'search-outline', sentence: 'reader-outline', save: 'bookmark-outline' }
@@ -348,7 +348,7 @@ function Feed() {
   const items = data.items.slice(0, shown)
   return <Page onRefresh={load}>
     <ErrorNotice message={error} />
-    <Text style={small}>The last {data.days} days, newest first. Each row: <Text style={{ color: colors.ink, fontWeight: '600' }}>what happened</Text>; for each word, what Mila took from it; and how its estimate moved. “Noted” and “recorded” mean it wasn’t counted: what happened doesn’t say enough. Estimates are the learner model’s ({data.version}).</Text>
+    <Text style={small}>The last {data.days} days, newest first. Each row: <Text style={{ color: colors.ink, fontWeight: '600' }}>what happened</Text>; for each word, what Mila took from it; and how its estimate moved. “Noted” and “recorded” mean it wasn’t counted: what happened doesn’t say enough. The percentages are the learner model’s estimates ({data.version}), with a wide range, not measurements: a move of a few points says little.</Text>
     {items.map((item, i) => <View key={item.id}>
       {(i === 0 || date(item.at) !== date(items[i - 1].at)) && <Text style={[styles.label, { marginTop: 8, marginBottom: 4 }]}>{date(item.at)}</Text>}
       <FeedRow item={item} />
@@ -375,11 +375,17 @@ function FeedRow({ item }: { item: FeedItem }) {
     {!!item.passed?.length && <Text style={small}>Saved words read past without a lookup: {item.passed.join(', ')}. Recorded, not counted: passing a word doesn’t show it was understood.</Text>}
   </View>
 }
+// An estimate, not a measurement: a move under SMALL points is shown as barely moved, in grey, and
+// the range the estimate could be in is always beside it.
+const SMALL = 3
 function ChangeLine({ change, counted }: { change: FeedChange | null; counted: boolean }) {
   if (!counted || !change) return <Text style={[small, { fontWeight: '600' }]}>No change</Text>
   const moved = Math.round(change.after * 100) - Math.round(change.before * 100)
-  const color = moved > 0 ? colors.green : moved < 0 ? colors.red : colors.muted
-  return <Text style={[small, { color, fontWeight: '600' }]}>{change.skill === 'reading' ? 'Reading it' : 'Producing it'}: {pct(change.before)} → {pct(change.after)}{moved === 0 ? ' (no visible change)' : ''}</Text>
+  const color = moved >= SMALL ? colors.green : moved <= -SMALL ? colors.red : colors.muted
+  return <Text style={[small, { color, fontWeight: '600' }]}>
+    {change.skill === 'reading' ? 'Reading it' : 'Producing it'}, estimated: {Math.abs(moved) < SMALL ? 'barely moved, ' : ''}{pct(change.before)} → {pct(change.after)}
+    <Text style={{ fontWeight: '400', color: colors.muted }}> (likely {pct(change.low)}–{pct(change.high)})</Text>
+  </Text>
 }
 
 // Upcoming Study (consolidation phase B): the cards Study shows next, as it will show them: the

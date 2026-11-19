@@ -100,11 +100,20 @@ collection keeps improving; models are compared only as data allows (191 answers
   `scripts/check-blanks.mjs` gives each sentence that can be a fill in the blank to a model as the
   learner sees it (gap, four options, no English, not told which is meant) and has it judge each
   option on its own; it passes only if the answer alone fits. The verdict is kept on the sentence
-  (`blankCheck`) and the phone asks a failed one as a flashcard. First run: 134 sentences on 66
-  studied words, at most $0.97 (hard cap), **waiting for Mike's approval**. For future cards, the
-  proposal is to check a sentence the same way, lazily, when it first becomes eligible for a fill
-  in the blank (like card word data, `card-words`), rather than at writing (most cards are never
-  studied); and to treat a wrong choice of the same distractor twice as a reason to check again.
+  (`blankCheck`) and the phone asks a failed or inconclusive one as a flashcard (inconclusive:
+  not every option judged, or the request failed; checked again on the next run). **First run,
+  approved, 2026-11-19:** 134 sentences on 66 studied words, $0.36 (cap $1): 124 passed, 8 failed,
+  2 inconclusive. The failures were real second answers: לבקר for לשנוא ("hard to ___ someone who
+  always helps you"), לנשק for ללטף (her hand), משבץ/מפספס for מנוקד (a sweater), להצחיק/להפחיד
+  for להציף (memories), לשחות for לנהוג (forbidden after drinking), הנהג/הכרטיס for המושב (wet
+  from the rain), לנסוע/לחזור for לעבור (to Tel Aviv), מקצר for מנוקד (text for first graders).
+  Previous values: `scripts/blank-check-backup-1795089542259.json` (not committed).
+- **Agreed next (Mike, 2026-11-19), not built yet:** check a card the same way when it first
+  becomes eligible for a fill in the blank (lazily, like card word data, `card-words`), not when
+  it is written (most cards are never studied); and the same wrong distractor chosen twice on a
+  card as a reason to check it again. After Mike reviews Study and the Feed on the phone.
+- **The Feed's estimates are estimates** (Mike, 2026-11-19): each change shows its 80% range after
+  ("likely 25–60%"), and a move under 3 points is grey, "barely moved", never a measurement.
 - **Not now:** Stage 2 probe cards (STUDY-2); theme classification and study packs (VOCAB-2,
   STUDY-3; existing classifications kept; packs, chosen or made by Mila, are a later direction);
   choosing Unified or the personalized writer as defaults (keep evaluating).

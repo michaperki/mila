@@ -151,7 +151,7 @@ export type FormCard = {
   // Whether the sentence as a fill in the blank has exactly one answer that fits, as judged with the
   // Hebrew alone (apps/web/scripts/check-blanks.mjs): `fits`, the options that fit. Missing: not
   // checked. One that failed is asked as a flashcard (lib/forms.ts blankAnswer).
-  blankCheck?: { v: string; ok: boolean; fits: string[]; at: number }
+  blankCheck?: { v: string; ok: boolean; fits: string[]; at: number; inconclusive?: boolean }
   // New sentences for the card written later, newest last: the same form and meaning in another
   // sentence. The card's results are the card's, whichever sentence is shown (lib/forms.ts shownForm).
   variants?: FormVariant[]

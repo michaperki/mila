@@ -14,7 +14,8 @@ import { cardLabel, type Ev, finalAnswers, type InsightEntry, lessBecause, type 
 // one in a single line, rather than a row for every word.
 
 export const FEED_VERSION = 'feed-v0'
-export type FeedChange = { skill: 'reading' | 'producing'; before: number; after: number }
+// `low`, `high`: the 80% range of the estimate after, which says how little one change can mean.
+export type FeedChange = { skill: 'reading' | 'producing'; before: number; after: number; low: number; high: number }
 export type FeedWord = { id?: string; lemma: string; gloss?: string; card?: string; interpretation: string; counted: boolean; change: FeedChange | null }
 export type FeedItem = {
   id: string; at: number; session: string; kind: 'study' | 'reading'
@@ -50,7 +51,8 @@ export function changeOf(word: WordState, evidence: Evidence): FeedChange | null
   const channel: Channel = evidence.channel === 'either' ? 'recognition' : evidence.channel
   const at = word.evidence.indexOf(evidence)
   const upTo = (included: boolean) => word.evidence.filter((item, i) => item.at < evidence.at || (item.at === evidence.at && (i < at || (included && i === at))))
-  return { skill: SKILL[channel], before: estimate(word.prior[channel], upTo(false), channel, evidence.at).p, after: estimate(word.prior[channel], upTo(true), channel, evidence.at).p }
+  const after = estimate(word.prior[channel], upTo(true), channel, evidence.at)
+  return { skill: SKILL[channel], before: estimate(word.prior[channel], upTo(false), channel, evidence.at).p, after: after.p, low: after.low, high: after.high }
 }
 
 export function feedOf(events: Ev[], entries: InsightEntry[], texts: Map<string, TextDoc>, state: LearnerState, { now = Date.now(), days = 7 } = {}): FeedItem[] {
