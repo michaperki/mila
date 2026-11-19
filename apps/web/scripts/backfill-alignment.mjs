@@ -13,6 +13,10 @@
 import { readFileSync, writeFileSync } from 'fs'
 import { MongoClient } from 'mongodb'
 
+// Paid calls without the enforced cap (lib/spend.mjs, 2026-11-19): it refuses to run until it is
+// moved onto cappedBatch (or a hard cap like it), so no run can cost more than was approved.
+console.log('This script predates enforced spending caps: move it onto scripts/lib/spend.mjs cappedBatch before running it again.'); process.exit(1)
+
 const env = Object.fromEntries(readFileSync(new URL('../.env', import.meta.url), 'utf8').split('\n').filter(l => l.includes('=')).map(l => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim().replace(/^"|"$/g, '')]))
 const [email, flag] = process.argv.slice(2)
 if (!email) { console.log('Usage: node scripts/backfill-alignment.mjs <email> [--run]'); process.exit(1) }

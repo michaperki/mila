@@ -83,23 +83,24 @@ function useInsights<T>(path: string) {
   return { data, error, load }
 }
 
-// Upcoming Study first; the detail behind it (sessions told event by event, how a round was
+// The Feed and Upcoming Study first; the detail behind them (sessions told event by event, how a round was
 // planned, the unified ranking, model checks) under Diagnostics.
 type Diagnostic = 'sessions' | 'plan' | 'ranking' | 'checks'
 const pillRow = { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 8, paddingHorizontal: 22, paddingTop: 12, backgroundColor: colors.paper }
 function Home() {
-  const [tab, setTab] = useState<'upcoming' | 'diagnostics'>('upcoming')
+  const [tab, setTab] = useState<'feed' | 'upcoming' | 'diagnostics'>('feed')
   const [diagnostic, setDiagnostic] = useState<Diagnostic>('sessions')
   const diagnostics: [Diagnostic, string][] = [['sessions', 'Sessions'], ['plan', 'How it was planned'], ['ranking', 'Unified ranking'], ['checks', 'Model checks']]
   return <>
     <View style={pillRow}>
+      <Pill label="Feed" active={tab === 'feed'} onPress={() => setTab('feed')} />
       <Pill label="Upcoming Study" active={tab === 'upcoming'} onPress={() => setTab('upcoming')} />
       <Pill label="Diagnostics" active={tab === 'diagnostics'} onPress={() => setTab('diagnostics')} />
     </View>
     {tab === 'diagnostics' && <View style={[pillRow, { paddingTop: 8 }]}>
       {diagnostics.map(([key, label]) => <Pill key={key} label={label} active={diagnostic === key} onPress={() => setDiagnostic(key)} />)}
     </View>}
-    {tab === 'upcoming' ? <Upcoming /> : diagnostic === 'sessions' ? <Sessions /> : diagnostic === 'plan' ? <PlanDetails /> : diagnostic === 'ranking' ? <Ranking /> : <ModelChecks />}
+    {tab === 'feed' ? <Feed /> : tab === 'upcoming' ? <Upcoming /> : diagnostic === 'sessions' ? <Sessions /> : diagnostic === 'plan' ? <PlanDetails /> : diagnostic === 'ranking' ? <Ranking /> : <ModelChecks />}
   </>
 }
 
@@ -331,6 +332,54 @@ function ModelChecks() {
       </View>)}
     </View>
   </Page>
+}
+
+// The Feed (consolidation phase C; the server tells it, lib/feed.ts): newest first, what you did
+// (observed), and for each word what the model took from it (interpretation) and how its estimate
+// for that skill moved (before → after), or that it wasn't counted. Reading a sentence at a time.
+type FeedChange = { skill: 'reading' | 'producing'; before: number; after: number }
+type FeedWord = { id?: string; lemma: string; gloss?: string; interpretation: string; counted: boolean; change: FeedChange | null }
+type FeedItem = { id: string; at: number; kind: 'study' | 'reading'; icon: string; observed: string; detail: string[]; sentence?: string; words: FeedWord[]; passed?: string[] }
+const FEED_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = { right: 'checkmark-circle-outline', wrong: 'close-circle-outline', choice: 'list-circle-outline', lookup: 'search-outline', sentence: 'reader-outline', save: 'bookmark-outline' }
+function Feed() {
+  const { data, error, load } = useInsights<{ version: string; days: number; items: FeedItem[] }>('insights?feed=1')
+  const [shown, setShown] = useState(40)
+  if (!data) return <Page>{error ? <ErrorNotice message={error} /> : <Loading />}</Page>
+  const items = data.items.slice(0, shown)
+  return <Page onRefresh={load}>
+    <ErrorNotice message={error} />
+    <Text style={small}>The last {data.days} days, newest first. Each row: <Text style={{ color: colors.ink, fontWeight: '600' }}>what happened</Text>; for each word, what Mila took from it; and how its estimate moved. “Noted” and “recorded” mean it wasn’t counted: what happened doesn’t say enough. Estimates are the learner model’s ({data.version}).</Text>
+    {items.map((item, i) => <View key={item.id}>
+      {(i === 0 || date(item.at) !== date(items[i - 1].at)) && <Text style={[styles.label, { marginTop: 8, marginBottom: 4 }]}>{date(item.at)}</Text>}
+      <FeedRow item={item} />
+    </View>)}
+    {data.items.length > shown && <TextButton title={`Show more (${data.items.length - shown} left)`} onPress={() => setShown(value => value + 40)} />}
+    {!data.items.length && <Text style={styles.copy}>Nothing recorded in the last {data.days} days.</Text>}
+  </Page>
+}
+function FeedRow({ item }: { item: FeedItem }) {
+  return <View style={{ gap: 4, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.line }}>
+    <View style={[styles.row, { gap: 6, flexWrap: 'nowrap' }]}>
+      <Ionicons name={FEED_ICONS[item.icon] ?? 'ellipse-outline'} size={17} color={item.icon === 'wrong' ? colors.red : colors.green} />
+      <Text style={{ fontSize: 15, fontWeight: '600', color: colors.ink, flexShrink: 1 }}>{item.observed}</Text>
+      <Text style={[small, { marginLeft: 'auto' }]}>{clock(item.at)}</Text>
+    </View>
+    {!!item.detail.length && <Text style={small}>{item.detail.join(' · ')}</Text>}
+    {!!item.sentence && <Text style={[styles.hebrew, { fontSize: 17, lineHeight: 26, textAlign: 'right' }]} numberOfLines={3}>{item.sentence}</Text>}
+    {item.words.map((word, i) => <Pressy key={`${i}:${word.lemma}`} moment="tick" accessibilityRole="button" disabled={!word.id} onPress={() => word.id && open({ word: word.id })}
+      style={{ gap: 1, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: word.counted ? colors.lime : colors.line }}>
+      <Text style={{ fontSize: 15, color: colors.ink }}><Text style={{ fontWeight: '700' }}>{word.lemma}</Text>{word.gloss ? <Text style={{ color: colors.muted }}> · {word.gloss}</Text> : null}</Text>
+      <Text style={small}>{word.interpretation}</Text>
+      <ChangeLine change={word.change} counted={word.counted} />
+    </Pressy>)}
+    {!!item.passed?.length && <Text style={small}>Saved words read past without a lookup: {item.passed.join(', ')}. Recorded, not counted: passing a word doesn’t show it was understood.</Text>}
+  </View>
+}
+function ChangeLine({ change, counted }: { change: FeedChange | null; counted: boolean }) {
+  if (!counted || !change) return <Text style={[small, { fontWeight: '600' }]}>No change</Text>
+  const moved = Math.round(change.after * 100) - Math.round(change.before * 100)
+  const color = moved > 0 ? colors.green : moved < 0 ? colors.red : colors.muted
+  return <Text style={[small, { color, fontWeight: '600' }]}>{change.skill === 'reading' ? 'Reading it' : 'Producing it'}: {pct(change.before)} → {pct(change.after)}{moved === 0 ? ' (no visible change)' : ''}</Text>
 }
 
 // Upcoming Study (consolidation phase B): the cards Study shows next, as it will show them: the

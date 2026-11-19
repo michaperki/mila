@@ -202,7 +202,10 @@ async function compare() {
     let spent = 0
     const results = []
     for (const call of calls) {
-      if (spent + estimate(call) * 1.5 > budget) { console.log(`Stopping before ${call.lemma} ${call.stage} ${call.variant}: $${spent.toFixed(3)} spent, budget $${budget}.`); break }
+      // The most this call can cost: its prompt at a generous 1.5 characters a token, and all of
+      // max_tokens (8000) as output. Never started unless that fits the budget (lib/spend.mjs rule).
+      const worst = (call.prompt.length / 1.5 * PRICE.input + 8000 * PRICE.output) / 1_000_000
+      if (spent + worst > budget) { console.log(`Stopping before ${call.lemma} ${call.stage} ${call.variant}: $${spent.toFixed(3)} spent, budget $${budget}.`); break }
       const started = Date.now()
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST', headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },

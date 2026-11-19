@@ -151,7 +151,7 @@ export function modelLine({ lemma, evidence }: { lemma: string; evidence: Eviden
   return `${how}${why ? `: ${why}` : ''}.`
 }
 // Why an answer counts less than in full, every reason it has (learner.ts WEIGHTS).
-function lessBecause({ what, weight }: Evidence) {
+export function lessBecause({ what, weight }: Evidence) {
   const reasons = [
     what.includes('primed') && 'the word was just shown',
     what.includes('choices') && 'it was chosen from options',

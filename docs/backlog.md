@@ -68,6 +68,15 @@ collection keeps improving; models are compared only as data allows (191 answers
   Unified ranking, Model checks. The by-part shadow score (score-v0) is retired: gone from screens,
   Model checks and new plans (which log the unified ranking, `rankingLog`); plans from 17–19/11
   keep it in the study log.
+- **C shipped 2026-11-19** (first version, below as planned): Learning Insights opens on the
+  Feed (`?feed=1`, server `lib/feed.ts`, feed-v0): last 7 days, newest first; each row what
+  happened (card, how asked, help, time; or a sentence read: how chosen, how long selected,
+  English on screen), then per word what the model took from it (skill and weight, or noted /
+  recorded, not counted) and its estimate before → after (learner.ts `estimate` on the evidence
+  the model holds now, at the moment of the evidence; "No change" when not counted). Reading: a
+  row a sentence, its lookups and saves on one line each (a save joins the lookup it came from),
+  and the saved words read past without a lookup in one line, recorded, never counted. A
+  priority still open: estimates use today's starting point (level from today's saves).
 - **C. Learning Feed, Study and Reader:** observed behaviour kept apart from inferred change. Each
   row a word (Hebrew, form, English): what happened; what the model took from it (which of
   exposure, recognition, comprehension, production, and how much; little or nothing when the
@@ -80,6 +89,22 @@ collection keeps improving; models are compared only as data allows (191 answers
   vocabulary exports, imports and clean-ups, Study's experimental options. "Back up my data"
   stays in Account for everyone. Retire Settings → Try → New sentences; remove only preferences
   whose in-context control does the same.
+- **Spending caps are enforced** (2026-11-19, Mike: "enforced, not just estimated"):
+  `scripts/lib/spend.mjs cappedBatch` counts each request's input exactly, takes output at its
+  `max_tokens`, and sends nothing unless that worst case fits `--cap <dollars>`; a request cut
+  short at `max_tokens` is written nothing. `backfill-distractors.mjs` and `check-blanks.mjs` use
+  it; the older paid scripts (backfill-alignment, -cues, -person-nouns, eval-forms, eval-writing,
+  repair-cards) refuse to run until moved onto it; `personalize.mjs compare` stops before a call
+  whose worst case would pass its budget.
+- **One defensible answer per fill in the blank** (2026-11-19, investigated; check not yet run):
+  `scripts/check-blanks.mjs` gives each sentence that can be a fill in the blank to a model as the
+  learner sees it (gap, four options, no English, not told which is meant) and has it judge each
+  option on its own; it passes only if the answer alone fits. The verdict is kept on the sentence
+  (`blankCheck`) and the phone asks a failed one as a flashcard. First run: 134 sentences on 66
+  studied words, at most $0.97 (hard cap), **waiting for Mike's approval**. For future cards, the
+  proposal is to check a sentence the same way, lazily, when it first becomes eligible for a fill
+  in the blank (like card word data, `card-words`), rather than at writing (most cards are never
+  studied); and to treat a wrong choice of the same distractor twice as a reason to check again.
 - **Not now:** Stage 2 probe cards (STUDY-2); theme classification and study packs (VOCAB-2,
   STUDY-3; existing classifications kept; packs, chosen or made by Mila, are a later direction);
   choosing Unified or the personalized writer as defaults (keep evaluating).

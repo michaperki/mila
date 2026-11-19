@@ -555,6 +555,10 @@ test('a meaning card is a fill in the blank only with distractors for the word a
   assert.equal(quizOf([verb([spelled]), other], { entry: verb([spelled]), form: spelled }, false, 'seed')!.answer, 'לִנְהֹג')
   // No distractors of its own: the other saved words might fit the sentence too, so a flashcard.
   assert.equal(quizOf([verb([form('meanings:sense1', { he: 'לִפְתֹּחַ', mark: 'לפתוח' })]), other, verb([], { id: 'c', lemma: 'לִסְגֹּר' }), verb([], { id: 'd', lemma: 'לִכְתֹּב' })], { entry: verb([form('meanings:sense1', { he: 'לִפְתֹּחַ', mark: 'לפתוח' })]), form: form('meanings:sense1', { he: 'לִפְתֹּחַ', mark: 'לפתוח' }) }, true, 'seed'), null)
+  // Judged to have another answer that fits too: a flashcard.
+  const twoFit = { ...natural, blankCheck: { v: 'blank-check-v1', ok: false, fits: ['שְׁלֵמָה', 'שְׁבוּרָה'], at: 1 } }
+  assert.equal(quizOf([verb([twoFit]), other], { entry: verb([twoFit]), form: twoFit }, false, 'seed'), null)
+  assert.ok(quizOf([verb([natural]), other], { entry: verb([natural]), form: { ...natural, blankCheck: { v: 'blank-check-v1', ok: true, fits: ['שְׁלֵמָה'], at: 1 } } }, false, 'seed'))
   // A new sentence's distractors are its own, never its card's.
   const varied = { ...spelled, variants: [{ he: 'לִנְהֹג', en: 'to drive', sentence: 'הוא נהג', mark: 'נהג', translation: 'He drove', writer: 'personal-v1', at: 1 }] }
   assert.equal(shownForm(varied, 1).distractors, undefined)

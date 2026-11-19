@@ -604,7 +604,7 @@ export const shownForm = (form: FormCard, variant = 0): FormCard => {
   const other = variant > 0 ? form.variants?.[variant - 1] : undefined
   // A sentence's glosses are its own: one written without them never takes its card's first one's.
   // So are its distractors, written for the word as it stands in that sentence.
-  return other ? { ...form, ...other, glosses: other.glosses, distractors: other.distractors, distractorsFor: other.distractorsFor, key: form.key, stage: form.stage, slot: form.slot } : form
+  return other ? { ...form, ...other, glosses: other.glosses, distractors: other.distractors, distractorsFor: other.distractorsFor, blankCheck: other.blankCheck, key: form.key, stage: form.stage, slot: form.slot } : form
 }
 // Which sentence a card is shown in, and why (logged with it, as `sentence`), from how it has
 // gone (its results, and which sentence each was given on, `on`, `seen`):
@@ -824,6 +824,8 @@ export type Quiz = { options: string[]; answer: string }
 // (spelling aside). Otherwise there is no fair choice to make (the sentence's English would be
 // needed to rule out other saved words), and the card is a flashcard.
 export function blankAnswer(form: FormCard): string | null {
+  // Judged to have more than one answer that fits, or not the one meant (FormCard.blankCheck).
+  if (form.blankCheck && !form.blankCheck.ok) return null
   if (form.distractorsFor) return form.distractors?.length === 3 ? form.distractorsFor : null
   return form.distractors?.length === 3 && sameSpelling(form.mark, form.he) ? form.he : null
 }

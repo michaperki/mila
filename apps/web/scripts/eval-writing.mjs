@@ -17,6 +17,10 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { createHash } from 'node:crypto'
 import { MongoClient } from 'mongodb'
 
+// Paid calls without the enforced cap (lib/spend.mjs, 2026-11-19): it refuses to run until it is
+// moved onto cappedBatch (or a hard cap like it), so no run can cost more than was approved.
+console.log('This script predates enforced spending caps: move it onto scripts/lib/spend.mjs cappedBatch before running it again.'); process.exit(1)
+
 const env = Object.fromEntries(readFileSync(new URL('../.env', import.meta.url), 'utf8').split('\n')
   .map(line => line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/)).filter(Boolean).map(([, key, value]) => [key, value.replace(/^['"]|['"]$/g, '')]))
 const arg = name => { const i = process.argv.indexOf(name); return i === -1 ? null : process.argv[i + 1] }

@@ -7,6 +7,7 @@ import { earlierResults, learnerState, lemmaKeyOf, levelFromSaves, MODEL_VERSION
 import { readingExposure } from './lib/exposure'
 import { MEMORY_VERSION, memoriesOf } from './lib/memory'
 import { relevanceOf } from './lib/relevance'
+import { FEED_VERSION, feedOf } from './lib/feed'
 import { finalAnswers, INSIGHTS_VERSION, modelChecks, predictionFor, sessionsOf, sessionStory, wordTrace, type Context, type Ev, type InsightEntry, type Prediction, type TextDoc } from './lib/insights'
 
 // Learning Insights for the developers (ADMIN_EMAILS, as Account → AI spend): their own study and
@@ -16,6 +17,7 @@ import { finalAnswers, INSIGHTS_VERSION, modelChecks, predictionFor, sessionsOf,
 // GET ?session=<id>    one session, told event by event
 // GET ?word=<id>       one word: knowledge, importance and scheduling, with the evidence
 // GET ?checks=1        the model's predictions of recent answers against what happened
+// GET ?feed=1          the Feed: what was done in the last `days` (7), and what the model made of it
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const DAY = 86_400_000
 // Time to spend working out predictions not yet kept, in one request; the rest come next time.
@@ -49,7 +51,7 @@ export const handler: Handler = async (event) => {
     const textsById = new Map(texts.map(text => [text.textId || text.id || '', text]))
     const learnerEntries = entries as unknown as LearnerEntry[]
 
-    if (!query.session && !query.word && !query.checks) {
+    if (!query.session && !query.word && !query.checks && !query.feed) {
       const days = Math.min(365, Number(query.days) || 30)
       const sessions = sessionsOf(events, textsById, now).filter(item => item.end > now - days * DAY)
       return reply(200, { version: VERSION, days, sessions, events: events.length, lastEventAt: events[events.length - 1]?.at ?? null })
@@ -61,6 +63,11 @@ export const handler: Handler = async (event) => {
     const recordedAt = new Map<string, number[]>()
     for (const answer of answers) recordedAt.set(answer.key as string, [...(recordedAt.get(answer.key as string) ?? []), answer.at])
     const earlier = earlierResults(learnerEntries, recordedAt)
+    if (query.feed) {
+      const days = Math.min(30, Number(query.days) || 7)
+      const state = learnerState(learnerEntries, events, levelFromSaves(learnerEntries), now, { earlier })
+      return reply(200, { version: `${MODEL_VERSION}/${FEED_VERSION}`, days, items: feedOf(events, entries, textsById, state, { now, days }) })
+    }
     const states = new Map<number, LearnerState>()
     const stateAt = (at: number) => {
       if (!states.has(at)) {
