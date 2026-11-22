@@ -121,10 +121,13 @@
     <section id="center">
       <div id="controls">
         <button id="modeTimeline" class="mode on">Timeline</button><button id="modeReplay" class="mode">Replay</button>
-        <button id="all">Whole session</button>
-        <span class="muted">Moment</span><input id="scrub" type="range" min="0" max="1000" value="0">
-        <span id="at" class="muted" style="min-width:96px"></span>
-        <span id="span" class="muted"></span>
+        <span id="timelineOnly" style="display:contents">
+          <button id="all">Whole session</button>
+          <span class="muted">Moment</span><input id="scrub" type="range" min="0" max="1000" value="0">
+          <span id="at" class="muted" style="min-width:96px"></span>
+          <span id="span" class="muted"></span>
+        </span>
+        <span id="replayNote" class="muted" hidden>The scrubber below moves the phone and the lookup’s path together.</span>
       </div>
       <div id="chart"><div id="axis"></div><div id="rows"></div><div id="cursor"></div></div>
       <div id="replay" hidden></div>
@@ -216,8 +219,10 @@ async function loadCapture(id, keep) {
   // An action's root: the action at the top of what set it off (a prefetch's, its selection's).
   for (const id of acts.keys()) { let a = acts.get(id), guard = 0; while (a.parent && acts.has(a.parent) && guard++ < 20) a = acts.get(a.parent); rootOf.set(id, a.action) }
   t0 = Math.min(...spans.map(s => s.start), data.capture.startedAt); t1 = Math.max(...spans.map(s => s.end), t0 + 1000)
-  if (!keep) { focus = null; chosen = null; expanded.clear(); w0 = t0; w1 = t1; cursor = t0 }
+  if (!keep) { focus = null; chosen = null; picked = null; replayAct = null; expanded.clear(); w0 = t0; w1 = t1; cursor = t0 }
+  else if (replayAct) { replayAct = acts.get(replayAct.action) ?? null; $('replay').dataset.act = '' }
   $('status').textContent = `${spans.length} spans · ${ms(t1 - t0)}${data.capture.prompts ? ' · with exact prompts' : ''}`
+  if (mode === 'replay' && !keep) { setMode('replay'); return }
   list(); setWindow(keep ? w0 : t0, keep ? w1 : t1)
 }
 
@@ -243,6 +248,7 @@ const windowOf = (from, work) => { const end = Math.max(from + 300, ...work.map(
 // The action list: each action whose root it is, its child actions beneath it, and background
 // work (no known action) in collapsed entries, gathered where it comes close together.
 function list() {
+  const replaying = mode === 'replay' ? replayAct?.action : null
   const roots = [...acts.values()].filter(a => rootOf.get(a.action) === a.action).sort((a, b) => a.start - b.start)
   const background = spans.filter(s => s.kind !== 'action' && s.kind !== 'state' && !rootFor(s)).sort((a, b) => a.start - b.start)
   const clusters = []
@@ -251,14 +257,17 @@ function list() {
   $('actions').innerHTML = entries.map(e => {
     if (e.kind === 'bg') return `<details class="bg"><summary>${time(e.c.start)} · Background · ${esc(summary(e.c.items, e.c.start))}</summary>${e.c.items.filter(s => s.side === 'phone' || s.kind === 'ai').slice(0, 40).map(s => `<div class="entry bg child" data-span="${s.i}">${esc(s.name)} <span class="sum">${ms(s.end - s.start)}${s.source ? ' · ' + esc(s.source) : ''}</span></div>`).join('')}</details>`
     const kids = [...acts.values()].filter(k => k.action !== e.a.action && rootOf.get(k.action) === e.a.action).sort((x, y) => x.start - y.start)
-    return `<div class="entry${focus === e.a.action ? ' on' : ''}" data-act="${e.a.action}"><div class="title">${esc(cap(e.a.name))} <span class="muted" style="font-weight:400">${time(e.a.start)}</span></div><div class="sum">${esc(summary(workOf(e.a.action), e.a.start))}</div></div>`
-      + kids.map(k => `<div class="entry child" data-act="${e.a.action}" data-kid="${k.action}"><span class="sum">↳ ${esc(k.name)} · ${esc(summary(spans.filter(s => s.action === k.action && s.kind !== 'action'), k.start))}</span></div>`).join('')
+    // In Replay, the entry of the lookup being replayed (it may be a child action); otherwise the focused root.
+    const on = id => (replaying ? replaying === id : focus === e.a.action && id === e.a.action)
+    return `<div class="entry${on(e.a.action) ? ' on' : ''}" data-act="${e.a.action}"><div class="title">${esc(cap(e.a.name))} <span class="muted" style="font-weight:400">${time(e.a.start)}</span></div><div class="sum">${esc(summary(workOf(e.a.action), e.a.start))}</div></div>`
+      + kids.map(k => `<div class="entry child${on(k.action) ? ' on' : ''}" data-act="${e.a.action}" data-kid="${k.action}"><span class="sum">↳ ${esc(k.name)} · ${esc(summary(spans.filter(s => s.action === k.action && s.kind !== 'action'), k.start))}</span></div>`).join('')
   }).join('') || '<div class="entry muted">No actions recorded.</div>'
   for (const el of $('actions').querySelectorAll('[data-act]')) el.onclick = () => {
-    const a = acts.get(el.dataset.act)
-    if (mode === 'replay' && LOOKUPS.has(a.name)) { openReplay(a); return }
-    focus = a.action; chosen = acts.get(el.dataset.kid || el.dataset.act); cursor = a.start; list(); setWindow(...windowOf(a.start, workOf(a.action)))
+    const a = acts.get(el.dataset.act), target = acts.get(el.dataset.kid || el.dataset.act)
+    if (mode === 'replay') { if (LOOKUPS.has(target.name)) { openReplay(target); return } setMode('timeline') }
+    focus = a.action; chosen = target; cursor = a.start; list(); setWindow(...windowOf(a.start, workOf(a.action)))
   }
+  $('actions').querySelector('.entry.on')?.scrollIntoView?.({ block: 'nearest' })
   for (const el of $('actions').querySelectorAll('[data-span]')) el.onclick = () => { const s = spans[Number(el.dataset.span)]; chosen = s; cursor = s.start; setWindow(...windowOf(s.start, [s])) }
   // A background entry opened shows its stretch too.
   $('actions').querySelectorAll('details.bg').forEach((d, k) => d.addEventListener('toggle', () => { if (d.open) { const c = clusters[k]; setWindow(...windowOf(c.start, c.items)) } }))
@@ -376,10 +385,14 @@ function side() {
   const screens = new Map(); for (const s of spans) if (s.kind === 'state' && s.start <= cursor) screens.set(s.name, s)
   const latest = [...screens.values()].sort((a, b) => b.start - a.start)
   const loading = spans.filter(s => s.end > s.start && s.start <= cursor && s.end > cursor && s.kind !== 'state')
-  let html = `<h2>At ${time(cursor)}</h2>`
+  // In Replay, the step clicked comes first, as it is at this moment.
+  const stepping = mode === 'replay' && replayAct && picked
+  let html = stepping ? stepDetails() : ''
+  html += `<h2>At ${time(cursor)}</h2>`
   html += latest.length ? latest.map(s => `<div style="margin-bottom:8px"><span class="pill">${esc(s.name)}</span> <span class="muted">since ${time(s.start)}</span>${kv((SCREEN_FIELDS[s.name] || (v => v))(s.state || {}))}</div>`).join('') : '<div class="muted">No screen recorded yet.</div>'
   html += `<h2>In progress (${loading.length})</h2>` + (loading.length ? loading.map(s => `<div class="item" data-i="${s.i}"><span class="pill">${s.kind}</span>${esc(s.name)} <span class="muted">${ms(cursor - s.start)} so far · ${esc(actionLine(s))}</span></div>`).join('') : '<div class="muted">Nothing.</div>')
-  if (chosen?.group) {
+  if (stepping) { /* shown above */ } else if (mode === 'replay' && !chosen) html += `<div class="muted" style="margin-top:12px">Click a step around the phone for what set it off, when it ran, its outcome and the data it sent.</div>`
+  else if (chosen?.group) {
     const g = chosen, active = activeStretches(g.items), busy = active.reduce((sum, a) => sum + (a.end - a.start), 0)
     const first = g.items[0].start, last = Math.max(...g.items.map(s => s.end))
     const cost = g.items.reduce((sum, s) => sum + (Number(s.fields?.cost) || 0), 0)
@@ -401,7 +414,7 @@ function side() {
   } else html += `<div class="muted" style="margin-top:12px">Choose an action on the left to fit the chart to it, or a bar to see what caused it, where its result came from and everything else its action did.</div>`
   $('side').innerHTML = html
   for (const el of $('side').querySelectorAll('[data-prompt]')) el.onclick = () => showPrompt(spans[Number(el.dataset.prompt)])
-  for (const el of $('side').querySelectorAll('[data-i]')) el.onclick = () => { chosen = spans[Number(el.dataset.i)]; cursor = chosen.start; if (cursor < w0 || cursor > w1) setWindow(...windowOf(chosen.start, [chosen])); else { draw(); side() } }
+  for (const el of $('side').querySelectorAll('[data-i]')) el.onclick = () => { picked = null; chosen = spans[Number(el.dataset.i)]; cursor = chosen.start; if (cursor < w0 || cursor > w1) setWindow(...windowOf(chosen.start, [chosen])); else { draw(); side() } }
 }
 // The most of a group's spans active at the same moment.
 function maxOverlap(items) {
@@ -425,17 +438,23 @@ function setMode(next) {
   mode = next
   $('modeTimeline').classList.toggle('on', next === 'timeline'); $('modeReplay').classList.toggle('on', next === 'replay')
   $('chart').hidden = next !== 'timeline'; $('replay').hidden = next !== 'replay'
+  // One scrubber per view: Replay's own moves the phone and the path; the chart's is hidden meanwhile.
+  $('timelineOnly').hidden = next === 'replay'; $('replayNote').hidden = next !== 'replay'
+  picked = null
   if (next === 'replay') {
-    const all = lookups()
-    const target = (focus && LOOKUPS.has(acts.get(focus)?.name) && acts.get(focus)) || replayAct || all.find(a => spans.some(s => s.kind === 'ai' && s.action === a.action)) || all[0]
-    if (target) openReplay(target); else $('replay').innerHTML = '<div class="rp-bar muted">No Reader word lookup in this capture: tap a word in the Reader while capturing.</div>'
-  } else draw()
+    const all = lookups(), was = chosen?.kind === 'action' ? chosen : focus ? acts.get(focus) : null
+    const target = (was && LOOKUPS.has(was.name) && was) || replayAct || all.find(a => spans.some(s => s.kind === 'ai' && s.action === a.action)) || all[0]
+    if (target) openReplay(target); else { $('replay').dataset.act = ''; $('replay').innerHTML = '<div class="rp-bar muted">No Reader word lookup in this capture: tap a word in the Reader while capturing.</div>'; list(); draw(); side() }
+  } else { list(); draw(); side() }
 }
 const lookupWork = a => spans.filter(s => s.action === a.action && s.kind !== 'action')
 // The selection the tap made (a word tapped in another sentence selects it first): its quick meanings.
 const selectionOf = a => [...acts.values()].find(x => x.name === 'select a sentence' && x.start <= a.start + 5 && a.start - x.start < 400)
+// Picking a lookup starts it over: the moment is its tap, its entry is marked on the left, and
+// whatever was being inspected before is cleared.
 function openReplay(a) {
-  replayAct = a; focus = a.action; picked = null; chosen = null
+  replayAct = a; focus = rootOf.get(a.action) ?? a.action; picked = null; chosen = null
+  $('replay').dataset.act = ''; $('side').scrollTop = 0
   const sel = selectionOf(a), work = [...lookupWork(a), ...(sel ? lookupWork(sel) : [])]
   // To just after this lookup's work ends, never into the next one.
   const next = lookups().find(x => x.start > a.start)?.start ?? Infinity
@@ -490,27 +509,26 @@ function step(dir) {
   const list = moments(), next = dir > 0 ? list.find(t => t > cursor + 0.5) : [...list].reverse().find(t => t < cursor - 0.5)
   if (next !== undefined) { cursor = next; draw(); side() }
 }
-function renderReplay() {
-  const a = replayAct
-  if (!a) return
+// The lookup's steps, from its spans: each one's span, what set it off, its state at the moment and its outcome.
+const relTo = (a, t) => (t >= a.start ? `+${ms(t - a.start)}` : `−${ms(a.start - t)}`)
+function replayModel(a) {
   const work = lookupWork(a), sel = selectionOf(a), selWork = sel ? lookupWork(sel) : []
   const get = (list, test) => list.find(test) || null
   const request = get(work, s => s.kind === 'net' && s.name === 'word-analysis')
   const n = {
-    tap: { title: 'Tap', span: a },
-    quick: { title: 'Quick meanings', span: get(selWork, s => s.kind === 'net' && s.name === 'sentence-glosses') || get(selWork, s => s.kind === 'phone'), note: 'for the sentence, asked when it was selected' },
-    phone: { title: 'On the phone', span: get(work, s => s.kind === 'phone') },
-    request: { title: 'Lookup request', span: request },
-    reply: { title: 'Reply to the drawer', span: request, at: request?.end },
-    server: { title: 'word-analysis function', span: get(work, s => s.kind === 'server' && s.name === 'word-analysis') },
-    memory: { title: 'Function memory', span: get(work, s => s.kind === 'server' && s.name === 'instance memory') },
-    cache: { title: 'Cache check', span: get(work, s => s.kind === 'db' && s.name.startsWith('aiCache.findOne')) },
-    spend: { title: 'Daily spend check', span: get(work, s => s.kind === 'db' && s.name.startsWith('aiUsage')) },
-    claude: { title: 'Claude', span: get(work, s => s.kind === 'ai') },
-    store: { title: 'Cache write', span: get(work, s => s.kind === 'db' && s.name.startsWith('aiCache.updateOne')) },
+    tap: { title: 'Tap', span: a, why: 'You tapped the word in the Reader' },
+    quick: { title: 'Quick meanings', span: get(selWork, s => s.kind === 'net' && s.name === 'sentence-glosses') || get(selWork, s => s.kind === 'phone'), why: sel ? `Selecting the sentence (“${sel.name}” at ${time(sel.start)}): its words’ quick meanings, asked once for the sentence` : 'Asked when the sentence was selected, before this tap' },
+    phone: { title: 'On the phone', span: get(work, s => s.kind === 'phone'), why: 'The tap, answered from what the phone already had' },
+    request: { title: 'Lookup request', span: request, why: 'The tap: the phone had no explanation of this word here' },
+    reply: { title: 'Reply to the drawer', span: request, why: 'The function’s answer arriving on the phone' },
+    server: { title: 'word-analysis function', span: get(work, s => s.kind === 'server' && s.name === 'word-analysis'), why: 'The lookup request reaching the server' },
+    memory: { title: 'Function memory', span: get(work, s => s.kind === 'server' && s.name === 'instance memory'), why: 'The function looks in what this instance already explained' },
+    cache: { title: 'Cache check', span: get(work, s => s.kind === 'db' && s.name.startsWith('aiCache.findOne')), why: 'The function looks for this word in this sentence in the shared cache' },
+    spend: { title: 'Daily spend check', span: get(work, s => s.kind === 'db' && s.name.startsWith('aiUsage')), why: 'Not in the cache: today’s AI spend is checked before asking Claude' },
+    claude: { title: 'Claude', span: get(work, s => s.kind === 'ai'), why: 'Not in the cache, and within today’s limit' },
+    store: { title: 'Cache write', span: get(work, s => s.kind === 'db' && s.name.startsWith('aiCache.updateOne')), why: 'Claude’s explanation, kept for next time' },
   }
   const st = key => { const node = n[key]; if (key === 'reply') return !request ? 'unused' : cursor < request.end ? 'waiting' : statusOf(request, cursor); return statusOf(node.span, cursor) }
-  const rel = t => (t >= a.start ? `+${ms(t - a.start)}` : `−${ms(a.start - t)}`)
   const outcome = key => {
     const s = n[key].span, f = s?.fields || {}
     if (!s) return key === 'phone' ? 'not needed' : key === 'memory' ? 'not this time' : 'not used'
@@ -528,6 +546,32 @@ function renderReplay() {
       case 'store': return 'kept for the next tap of this word here'
     }
   }
+  return { n, st, outcome, request, sel }
+}
+// The step clicked, as it is at the current moment (the side panel's top).
+function stepDetails() {
+  const a = replayAct, m = replayModel(a), node = m.n[picked], s = node.span, status = m.st(picked)
+  const when = picked === 'reply' ? s?.end : s?.start
+  let html = `<h2>Step · ${esc(node.title)}</h2>` + kv({
+    'right now': status === 'unused' ? 'not used for this tap' : status,
+    [status === 'unused' ? 'used when' : 'set off by']: node.why,
+    [picked === 'reply' ? 'arrived' : 'started']: s && when !== undefined ? `${relTo(a, when)} after the tap · ${time(when)}` : undefined,
+    took: s && picked !== 'tap' && picked !== 'reply' ? (s.end > s.start ? ms(s.end - s.start) : 'instant') : undefined,
+    outcome: m.outcome(picked),
+    'came from': s?.source,
+  })
+  const prompt = s && promptFor(s)
+  if (prompt) html += `<button class="promptbtn" data-prompt="${prompt.i}">View exact prompt</button>`
+  else if (picked === 'claude' && s) html += `<div class="muted">Exact prompt not kept: start a capture with “Exact AI prompts” on to keep it.</div>`
+  if (s?.kind === 'net' && s.fields?.sent && picked === 'request') html += `<h2>Data sent</h2>` + sentValues(s)
+  if (s?.fields) html += `<details><summary class="muted">All fields</summary>${kv(s.fields)}</details>`
+  return html
+}
+function renderReplay() {
+  const a = replayAct
+  if (!a) return
+  const { n, st, outcome, request } = replayModel(a)
+  const rel = t => relTo(a, t)
   const node = key => { const s = n[key].span, status = st(key), when = key === 'reply' ? request?.end : s?.start
     const prompt = key === 'claude' && s?.prompt
     return `<div class="node st-${status}${picked === key ? ' picked' : ''}" data-node="${key}" id="node-${key}">
@@ -553,26 +597,34 @@ function renderReplay() {
     ? `<div class="ph-drawer"><div class="dw">${esc(drawer.word)}</div>
        <div style="margin-top:6px">${drawer.explained ? '<strong>Explanation ready</strong><div class="muted" style="font-size:11px">Its text isn’t in the capture.</div>' : drawer.loading ? (state.quickMeanings === 'ready' ? 'Quick meaning shown · explanation loading…' : 'Loading…') : drawer.meaning ? 'Meaning shown' : ''}</div></div>`
     : `<div class="ph-drawer closed">${closedNote}</div>`
-  const all = lookups()
-  $('replay').innerHTML = `<div class="rp-bar">
-      <select id="rpPick">${all.map(x => { const w = readerStates().find(s => s.start >= x.start && s.state.drawer)?.state.drawer.word; return `<option value="${x.action}"${x === a ? ' selected' : ''}>${time(x.start)} · ${esc(w || x.name)}${spans.some(s => s.kind === 'ai' && s.action === x.action) ? ' · Claude' : ''}</option>` }).join('')}</select>
-      <button id="rpPrev" title="Previous step (←)">◀</button><input id="rpScrub" type="range" min="0" max="1000" value="${Math.round(((cursor - w0) / (w1 - w0)) * 1000)}"><button id="rpNext" title="Next step (→)">▶</button>
-      <span class="muted" style="min-width:150px">${rel(cursor)} after the tap</span></div>
-    <div class="rp-stage" id="rpStage"><svg class="rp-svg" id="rpSvg"></svg>
+  // The bar (lookup picker and the one scrubber) is built once per lookup, so dragging isn't cut
+  // short by a redraw; each move then redraws the phone and the path beneath it.
+  if ($('replay').dataset.act !== a.action || !$('rpScrub')) {
+    const all = lookups()
+    $('replay').innerHTML = `<div class="rp-bar">
+        <select id="rpPick" title="Lookup to replay">${all.map(x => { const w = readerStates().find(s => s.start >= x.start && s.state.drawer)?.state.drawer.word; return `<option value="${x.action}"${x === a ? ' selected' : ''}>${time(x.start)} · ${esc(w || x.name)}${spans.some(s => s.kind === 'ai' && s.action === x.action) ? ' · Claude' : ''}</option>` }).join('')}</select>
+        <button id="rpPrev" title="Previous step (←)">◀</button><input id="rpScrub" type="range" min="0" max="1000" title="Moment: moves the phone and the path"><button id="rpNext" title="Next step (→)">▶</button>
+        <span id="rpAt" class="muted" style="min-width:150px"></span></div>
+      <div id="rpBody"></div>
+      <div class="muted" style="padding:0 18px 16px">Arrows light up as the work reaches each step; dashed steps weren’t used for this tap. Click a step for its details, or ◀ ▶ (or the arrow keys) to go step by step.</div>`
+    $('replay').dataset.act = a.action
+    $('rpPick').onchange = () => openReplay(acts.get($('rpPick').value))
+    $('rpPrev').onclick = () => step(-1); $('rpNext').onclick = () => step(1)
+    $('rpScrub').oninput = () => { cursor = w0 + (w1 - w0) * Number($('rpScrub').value) / 1000; draw(); side() }
+  }
+  $('rpScrub').value = Math.round(((cursor - w0) / (w1 - w0)) * 1000)
+  $('rpAt').textContent = `${rel(cursor)} after the tap · ${time(cursor)}`
+  $('rpBody').innerHTML = `<div class="rp-stage" id="rpStage"><svg class="rp-svg" id="rpSvg"></svg>
       <div class="rp-col">${['tap', 'quick', 'phone', 'request', 'reply'].map(node).join('')}</div>
       <div class="phone" id="node-drawer"><div class="ph-top"><span>Reader · sentence ${state?.sentence ? state.sentence.index + 1 : '–'}</span><span>EN · ${esc(state?.english || '')}</span></div>
         <div class="ph-text">${text}</div><div class="ph-q">Quick meanings: ${esc(state?.quickMeanings || '–')}</div>${drawerHtml}</div>
       <div class="rp-col">${['server', 'memory', 'cache', 'spend', 'claude', 'store'].map(node).join('')}</div>
     </div>
-    <div class="muted" style="padding:0 18px 16px">Tapped word: ${esc(tappedWord) || '–'}. Arrows light up as the work reaches each step; dashed steps weren’t used for this tap. Click a step for its details, or ◀ ▶ (or the arrow keys) to go step by step.</div>`
-  $('rpPick').onchange = () => openReplay(acts.get($('rpPick').value))
-  $('rpPrev').onclick = () => step(-1); $('rpNext').onclick = () => step(1)
-  $('rpScrub').oninput = () => { cursor = w0 + (w1 - w0) * Number($('rpScrub').value) / 1000; draw(); side() }
-  for (const el of $('replay').querySelectorAll('[data-node]')) el.onclick = e => {
+    <div class="muted" style="padding:0 18px 6px">Tapped word: ${esc(tappedWord) || '–'}</div>`
+  // A step clicked shows its details on the right and stays chosen while scrubbing; the moment doesn't move.
+  for (const el of $('rpBody').querySelectorAll('[data-node]')) el.onclick = e => {
     if (e.target.dataset.promptNode) { showPrompt(n.claude.span); return }
-    const key = el.dataset.node, s = n[key].span
-    if (!s) return
-    picked = key; chosen = s; if (key === 'reply') cursor = Math.max(cursor, s.end); draw(); side()
+    picked = el.dataset.node; chosen = n[picked].span; $('side').scrollTop = 0; draw(); side()
   }
   // The path, in order, between the steps that exist: lit once the work has reached the next step.
   const path = n.phone.span && !request ? ['tap', 'phone', 'drawer'] : ['tap', 'request', 'server', ...(n.memory.span ? ['memory'] : []), 'cache', ...(n.claude.span ? ['spend', 'claude', 'store'] : []), 'reply', 'drawer']
