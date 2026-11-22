@@ -133,3 +133,10 @@ update it in the same commit. Numbers were measured on 2026-11-15 with `apps/web
   card's own history. Read-only; predictions are kept per model version in `insightPredictions`
   (derived, safe to drop). Time spent is derived (`IDLE_MS` caps a gap, an `app` background event
   ends it), never logged as a duration of its own.
+
+## Seeing what happens behind the scenes
+
+A developer can record a debug capture in Mila Preview (Account → Debug capture) and read it on a
+laptop at `/debug.html`: screen states, actions, requests, work done on the phone, server steps,
+database operations and AI calls on one timeline, linked by the action that caused them. See
+DEBUG-1 in the backlog. Outside a capture none of it runs.

@@ -850,6 +850,28 @@ before the cue check, or split the check into its own request.
 - **Failed AI calls aren't logged in `aiUsage`** (only in function logs). Add a `failed` row if
   failures become a question.
 
+### DEBUG-1 Debug capture and viewer
+**Done, first version** (2026-11-22, 9b03cd4). Account → Debug capture in Mila Preview (admins):
+start, use Reader or Study, open the capture at mila-hebrew.netlify.app/debug.html on a laptop.
+- Phone (`lib/trace.ts`): screen states (reader: sentence, quick meanings, drawer; study: card,
+  side, answer, English shown, held-word hint, drawer), actions passed explicitly through async
+  work (`Act`; a prefetch is its own action with the one that set it off as parent), requests
+  (`lib/api.ts`, with the action and a request id in headers), and work done on the phone with
+  where its result came from (phone memory, a request already on its way, saved with the word,
+  the card's own data, scored on the phone). Sent every few seconds while on.
+- Server (`lib/trace.ts`, `lib/trace-ai.ts`, AsyncLocalStorage): the request, instance memory,
+  `aiCache` reads and writes, the daily spend check, `vocab.updateOne` for a card's result, and
+  each model call with why, the inputs by name, tokens and cost; the exact request to the provider
+  only in a capture started with "Exact AI prompts". Wired into word-analysis, sentence-glosses,
+  card-words, word-forms and vocab. Nothing is recorded outside a capture; a capture stops after
+  two hours. Stored in `debugCaptures`, `debugSpans` (cleared with the account).
+- Viewer (`public/debug.html`): lanes Screen, Actions, Phone, Network, Server, Database, AI; zoom;
+  a moment slider with the screen then and what was still in progress; a click shows a span's
+  action, timing, source, fields, the rest of its action and, if kept, the exact prompt. Server
+  times are set inside their request (clocks differ). Manual refresh.
+- **Not yet:** other functions (insights, texts, speech, study-events) and the save path in the
+  drawer; live updating; reading `aiUsage` alongside.
+
 ## Smaller and older items
 
 - **Word speaker button, swipe between words in the drawer.** Exploratory (old P4,
