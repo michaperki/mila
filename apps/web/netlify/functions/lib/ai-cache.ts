@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { getDb } from './mongo'
+import { timed } from './trace'
 
 // Answers the model already gave, kept in MongoDB so the same question (a word in the same
 // sentence, a sentence's quick meanings) is never paid for twice: not after an app restart,
@@ -12,7 +13,7 @@ const answers = async () => (await getDb()).collection<Cached>('aiCache')
 
 export async function cachedAnswer<T>(kind: string, input: string): Promise<T | undefined> {
   try {
-    const found = await (await answers()).findOne({ _id: keyOf(kind, input) })
+    const found = await timed('db', `aiCache.findOne (${kind})`, async () => (await answers()).findOne({ _id: keyOf(kind, input) }), hit => ({ source: hit ? 'database: answered before' : 'database: not there', fields: { hit: !!hit } }))
     return found?.value as T | undefined
   } catch (error) {
     console.error('AI cache read failed', { kind, name: (error as Error).name })
@@ -22,7 +23,7 @@ export async function cachedAnswer<T>(kind: string, input: string): Promise<T | 
 
 export async function rememberAnswer(kind: string, input: string, value: unknown) {
   try {
-    await (await answers()).updateOne({ _id: keyOf(kind, input) }, { $set: { kind, value, at: new Date() } }, { upsert: true })
+    await timed('db', `aiCache.updateOne (${kind})`, async () => (await answers()).updateOne({ _id: keyOf(kind, input) }, { $set: { kind, value, at: new Date() } }, { upsert: true }), () => ({ source: 'database' }))
   } catch (error) {
     console.error('AI cache write failed', { kind, name: (error as Error).name })
   }

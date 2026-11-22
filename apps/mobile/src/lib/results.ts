@@ -1,6 +1,7 @@
 import { AppState, Platform } from 'react-native'
 import { File, Paths } from 'expo-file-system'
 import { ApiError, request } from './api'
+import type { Act } from './trace'
 import { drain, enqueue, type Outcome, type Pending, type ResultBody, withPending } from './result-queue'
 import type { VocabEntry } from './types'
 
@@ -24,9 +25,14 @@ const write = (next: Pending[]) => {
   try { file.write(JSON.stringify(next)) } catch { /* kept for this visit only */ }
 }
 
+// The answer each card's update was saved for, in a debug capture (lib/trace.ts), until it is sent.
+const actOf = new Map<string, Act>()
+const cardOf = (body: ResultBody) => `${body.id}:${body.form?.key ?? body.checkpoint?.stage ?? 'word'}`
 const deliver = (token: string) => async (body: ResultBody): Promise<Outcome> => {
+  const act = actOf.get(cardOf(body))
+  actOf.delete(cardOf(body))
   try {
-    await request('vocab', { token, method: 'PATCH', body })
+    await request('vocab', { token, method: 'PATCH', body, act })
     return 'sent'
   } catch (failure) {
     // The word was deleted: nothing to keep it on. Invalid: it never will be kept.
@@ -49,7 +55,8 @@ export function sendResults(owner: string, token: string): Promise<unknown> {
 }
 
 // An answer's update: kept, then sent.
-export function saveResult(owner: string, token: string, body: ResultBody) {
+export function saveResult(owner: string, token: string, body: ResultBody, act?: Act) {
+  if (act) actOf.set(cardOf(body), act)
   write(enqueue(read(), owner, body))
   void sendResults(owner, token)
 }

@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { verifyAuth } from './auth'
 import { checkDailySpend, type Feature, recordCacheHit, recordClaude } from './ai-usage'
 import { cachedAnswer, rememberAnswer } from './ai-cache'
+import { note, timed } from './trace'
+import { tracedModel } from './trace-ai'
 import type { Gloss } from './forms-writer'
 
 // The words of one sentence, each with its meaning there and, given the sentence's English, the
@@ -37,25 +39,29 @@ export async function sentenceWords({ sentence, words, translation }: { sentence
   const key = `${sentence}\u0000${words.join(' ')}${translation ? `\u0000${translation}` : ''}`
   const started = Date.now()
   // Kept as the meanings alone before `renders` (the unaligned kind still is).
-  const stored = cache.get(`${kind}\u0000${key}`) ?? await cachedAnswer<string[] | Answer>(kind, key)
+  const remembered = cache.get(`${kind}\u0000${key}`)
+  if (remembered) note({ kind: 'server', name: 'instance memory', start: started, end: Date.now(), source: 'this function instance’s memory' })
+  const stored = remembered ?? await cachedAnswer<string[] | Answer>(kind, key)
   if (stored) {
     await recordCacheHit(auth.userId, feature, Date.now() - started)
     return Array.isArray(stored) ? { meanings: stored } : stored
   }
-  await checkDailySpend(auth)
+  await timed('db', 'aiUsage.aggregate (daily spend check)', () => checkDailySpend(auth))
   client ??= new Anthropic()
-  const response = await client.beta.messages.create({
+  const params = {
     model: 'claude-opus-5-5',
     max_tokens: 3000,
     output_config: { effort: 'low', format: { type: 'json_schema', schema: schemaOf(!!translation) } },
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
     system: SYSTEM,
-    messages: [{ role: 'user', content: `Sentence: ${sentence}\n${translation ? `English translation: ${translation}\n` : ''}Words:\n${words.map((word, i) => `${i + 1}. ${word}`).join('\n')}` }],
-  }, { timeout: 20000, maxRetries: 1 })
+    messages: [{ role: 'user' as const, content: `Sentence: ${sentence}\n${translation ? `English translation: ${translation}\n` : ''}Words:\n${words.map((word, i) => `${i + 1}. ${word}`).join('\n')}` }],
+  }
+  const why = feature === 'glosses' ? 'a sentence selected (or the next one, ahead), its quick meanings not kept yet' : 'a card’s sentence needs its word data'
+  const response = await tracedModel(feature, why, translation ? ['sentence', 'its words', 'its English translation'] : ['sentence', 'its words'], params, () => client!.beta.messages.create(params as never, { timeout: 20000, maxRetries: 1 }) as Promise<Anthropic.Beta.Messages.BetaMessage>)
   await recordClaude(auth.userId, feature, response, Date.now() - started)
   if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') throw Object.assign(new Error('No meanings for this sentence.'), { statusCode: 422 })
-  const text = response.content.flatMap(block => (block.type === 'text' ? [block.text] : [])).join('')
+  const text = response.content.flatMap((block: { type: string; text?: string }) => (block.type === 'text' ? [block.text ?? ''] : [])).join('')
   const answer = (JSON.parse(text) as { meanings: { n: number; meaning: string; inTranslation?: string }[] }).meanings
   // One meaning per word, in the words' order; a word the model skipped gets ''.
   const meanings = words.map((_, i) => answer.find(item => item.n === i + 1)?.meaning.trim() || '')

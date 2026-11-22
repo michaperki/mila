@@ -25,6 +25,7 @@ import { useSession } from '../state/session'
 import { useVowels } from '../state/vowels'
 import { isVowelled, pageWithVowels, withVowels } from '../lib/vowels'
 import { useCursive, useHebrew } from '../state/script'
+import { type Act, act, screenState } from '../lib/trace'
 
 // Runs reflow (REFLOW) when a sentence is selected and its English opens beneath it.
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
@@ -117,6 +118,8 @@ export default function Reader() {
     return reading.current
   }
   const logRead: LogEvent = (type, fields) => startReading()?.log(type, fields) ?? ''
+  // The action that selected the sentence now active, in a debug capture (lib/trace.ts).
+  const selected_ = useRef<Act | undefined>(undefined)
   // The sentence selected now and since when, and the English setting (to log its end).
   const selectedSince = useRef<{ segment: number; at: number } | null>(null)
   const englishNow = useRef<EnglishMode>(english)
@@ -167,6 +170,16 @@ export default function Reader() {
   const lookup = useWordLookup(session, { quick: tapped ? quick[tapped.segment]?.[selected! - indexOfFirstWord[tapped.segment]] || '' : '', onLostError: setError, log: logRead })
   const { invalidate } = lookup
   useFocusEffect(useCallback(() => () => invalidate(), [invalidate]))
+  // The screen as a debug capture sees it, each time it changes: the sentence, its English setting,
+  // its quick meanings and the drawer (lib/trace.ts; nothing without a capture).
+  useEffect(() => {
+    screenState('reader', {
+      passage: docId.current, english,
+      sentence: active === null ? null : { index: active, text: segments[active]?.he ?? '' },
+      quickMeanings: active === null ? null : quick[active] ? 'ready' : 'loading',
+      drawer: lookup.tap ? { word: lookup.tap.text, loading: lookup.busy, meaning: !!lookup.gloss, explained: !!lookup.analysis } : null,
+    })
+  })
   // The sentence after this one that has words, where Next goes.
   const sentenceAfter = useCallback((segment: number) => {
     for (let i = segment + 1; i < segments.length; i++) if (indexOfFirstWord[i] !== undefined) return i
@@ -178,12 +191,15 @@ export default function Reader() {
   useEffect(() => {
     if (active === null || !session || indexOfFirstWord[active] === undefined) return
     let current = true
-    const meaningsOf = (segment: number) => quickMeanings(segments[segment].he, words.slice(indexOfFirstWord[segment], indexOfLastWord[segment] + 1).map(item => item.bare), session.token)
-    void meaningsOf(active).then(meanings => {
+    const meaningsOf = (segment: number, action?: Act) => quickMeanings(segments[segment].he, words.slice(indexOfFirstWord[segment], indexOfLastWord[segment] + 1).map(item => item.bare), session.token, action)
+    // In a debug capture, for the selection that made this sentence the active one, and the next
+    // sentence's as a prefetch of its own, set off by it.
+    const selection = selected_.current
+    void meaningsOf(active, selection).then(meanings => {
       if (!current) return
       if (meanings.length) setQuick(known => ({ ...known, [active]: meanings }))
       const next = sentenceAfter(active)
-      if (next !== undefined) void meaningsOf(next)
+      if (next !== undefined) void meaningsOf(next, act('prefetch the next sentence’s meanings', { segment: next }, selection))
     })
     return () => { current = false }
   }, [active, session, segments, words, indexOfFirstWord, indexOfLastWord, sentenceAfter])
@@ -284,6 +300,7 @@ export default function Reader() {
     if (segment === active) return
     endSelected(segment === null ? 'done' : via)
     if (segment !== null) {
+      selected_.current = act('select a sentence', { segment, via })
       logRead('select', { text: docId.current, segment, english, via })
       selectedSince.current = { segment, at: now() }
     }
@@ -300,6 +317,7 @@ export default function Reader() {
     if (first.segment !== active) { activate(first.segment, 'word'); remember(first.segment) }
     const segment = segments[first.segment]
     void lookup.open({
+      act: act(to > index ? 'select words' : 'tap a word', { segment: first.segment, place: index - indexOfFirstWord[first.segment] }),
       text: words.slice(index, to + 1).map(item => item.bare).join(' '), sentence: segment.he, translation: segment.en, phrase: to > index,
       source: () => (savedNow.current ? { textId: docId.current, chunkId: `${docId.current}-${first.segment}` } : undefined),
       context: { text: docId.current, segment: first.segment, place: index - indexOfFirstWord[first.segment] },

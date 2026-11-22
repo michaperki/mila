@@ -1,13 +1,14 @@
 import type { Handler } from '@netlify/functions'
 import { getDb } from './lib/mongo'
 import { verifyAuth } from './lib/auth'
+import { timed, traced } from './lib/trace'
 import type { LearnerEvent } from './lib/learner'
 import { relevanceOf } from './lib/relevance'
 import type { TextDoc } from './lib/exposure'
 import { organisationOf } from './lib/taxonomy'
 import { lemmaKeyOf } from './lib/lemma'
 
-const handler: Handler = async (event) => {
+const handler: Handler = traced('vocab', async (event) => {
   try {
     const auth = verifyAuth(event)
     const db = await getDb()
@@ -136,7 +137,9 @@ const handler: Handler = async (event) => {
         filter = { ...filter, ...noOlder('last', payload.last) }
         if (!payload.primed) unset = { primed: '' }
       } else return { statusCode: 400, body: JSON.stringify({ message: 'Invalid result' }) }
-      const result = await vocab.updateOne(filter, { $set: { ...set, updatedAt: Date.now() }, ...(unset ? { $unset: unset } : {}) }, options)
+      // Timed in a debug capture (lib/trace.ts): the representative database write of a Study answer.
+      const result = await timed('db', 'vocab.updateOne (a card’s result)', () => vocab.updateOne(filter, { $set: { ...set, updatedAt: Date.now() }, ...(unset ? { $unset: unset } : {}) }, options),
+        written => ({ source: 'database', fields: { matched: written.matchedCount, modified: written.modifiedCount, set: Object.keys(set) } }))
       // Not matched: the word is gone, or what is stored is newer than this.
       if (!result.matchedCount && !(await vocab.countDocuments({ userId: auth.userId, id }, { limit: 1 }))) return { statusCode: 404, body: JSON.stringify({ message: 'This word is no longer saved.' }) }
       return { statusCode: 204, body: '' }
@@ -166,7 +169,7 @@ const handler: Handler = async (event) => {
       body: JSON.stringify({ message: (error as Error).message || 'Unexpected error' }),
     }
   }
-}
+})
 
 export { handler }
 

@@ -1,4 +1,5 @@
 import { request } from './api'
+import type { Act } from './trace'
 import { missingStages } from './forms'
 import { sharing } from './shared'
 import type { FormCard, VocabEntry } from './types'
@@ -11,11 +12,11 @@ const varying = sharing<{ forms: FormCard[] }>()
 // Asks the server to write the cards for any open stage that has none yet (a word just saved,
 // a stage just unlocked) and returns the entry with them. A stage that fails is retried the
 // next time the word is opened or practiced.
-export async function ensureForms(entry: VocabEntry, token: string): Promise<VocabEntry> {
+export async function ensureForms(entry: VocabEntry, token: string, act?: Act): Promise<VocabEntry> {
   const missing = missingStages(entry)
   if (!missing.length) return entry
   const results = await Promise.allSettled(missing.map(stage =>
-    writing(`${entry.id}:${stage}`, () => request<{ forms: FormCard[] }>('word-forms', { token, body: { id: entry.id, stage }, timeoutMs: 50000 }))))
+    writing(`${entry.id}:${stage}`, () => request<{ forms: FormCard[] }>('word-forms', { token, body: { id: entry.id, stage }, timeoutMs: 50000, act }))))
   const known = new Set((entry.forms || []).map(form => form.key))
   const added = results.flatMap(result => (result.status === 'fulfilled' ? result.value.forms : [])).filter(form => !known.has(form.key))
   return added.length ? { ...entry, forms: [...(entry.forms || []), ...added] } : entry
@@ -26,8 +27,8 @@ export async function ensureForms(entry: VocabEntry, token: string): Promise<Voc
 // new sentences, freshPicks); `why` is kept with each. The server writes them for what the
 // learner knows and keeps them on the cards beside their own sentences (FormCard.variants).
 // Returns the entry with that stage's cards as they now are.
-export async function freshSentences(entry: VocabEntry, stage: string, token: string, { keys, why }: { keys?: string[]; why: string }): Promise<VocabEntry> {
-  const { forms } = await varying(`${entry.id}:${stage}`, () => request<{ forms: FormCard[] }>('word-forms', { token, body: { id: entry.id, stage, fresh: true, keys, why }, timeoutMs: 50000 }))
+export async function freshSentences(entry: VocabEntry, stage: string, token: string, { keys, why, act }: { keys?: string[]; why: string; act?: Act }): Promise<VocabEntry> {
+  const { forms } = await varying(`${entry.id}:${stage}`, () => request<{ forms: FormCard[] }>('word-forms', { token, body: { id: entry.id, stage, fresh: true, keys, why }, timeoutMs: 50000, act }))
   const byKey = new Map(forms.map(form => [form.key, form]))
   return { ...entry, forms: (entry.forms || []).map(form => (byKey.has(form.key) ? { ...form, variants: byKey.get(form.key)!.variants } : form)) }
 }
@@ -38,7 +39,7 @@ export async function freshSentences(entry: VocabEntry, stage: string, token: st
 // prepared, the rare fallback. A card asked for while one request for it is on its way shares it.
 type Prepared = { sentences: { variant: number; glosses: NonNullable<FormCard['glosses']> }[] }
 const preparing = sharing<Prepared>()
-export function cardWords(entry: VocabEntry, key: string, token: string, variant?: number): Promise<Prepared> {
+export function cardWords(entry: VocabEntry, key: string, token: string, variant?: number, act?: Act): Promise<Prepared> {
   return preparing(`${entry.id}:${key}:${variant ?? 'all'}`, () =>
-    request<Prepared>('card-words', { token, body: { id: entry.id, key, ...(variant !== undefined ? { variant } : {}) }, timeoutMs: 30000 }))
+    request<Prepared>('card-words', { token, body: { id: entry.id, key, ...(variant !== undefined ? { variant } : {}) }, timeoutMs: 30000, act }))
 }

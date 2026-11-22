@@ -18,6 +18,7 @@ import { stop as stopSpeaking } from '../lib/speech'
 import { noteActivity } from '../lib/tree'
 import { explainWord, quickMeanings } from '../lib/recognition'
 import type { LogEvent } from '../lib/study-log'
+import { type Act, act, onPhone } from '../lib/trace'
 import type { Built, Encounter, Phrase, Session, VocabEntry, WordAnalysis } from '../lib/types'
 import { constructionsOf, encountersOf, lemmaKey, patternLabel, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
@@ -36,6 +37,8 @@ export type Lookup = {
   card?: { meaning?: string; lemma?: string; words: string[]; at: number }
   // Where the tap was, kept with its `lookup` event (the passage and sentence, or the card).
   context?: Record<string, unknown>
+  // The tap as a debug capture's action (lib/trace.ts), which the work for it points to.
+  act?: Act
 }
 
 // When a save is written (read in the save handler, never while drawing).
@@ -110,20 +113,20 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       ...(next.card ? { place: next.card.at, ...(next.card.lemma ? { lemma: next.card.lemma } : {}), glossed: !!next.card.meaning } : {}),
     })
     const looked = lookedUp.current = id ? { id, at: now() } : null
-    if (known?.analysis) { setAnalysis(known.analysis); setGloss(known.analysis.meaning); setBusy(false); return }
+    if (known?.analysis) { onPhone(next.act, 'explanation', 'saved with the word from this sentence: no request'); setAnalysis(known.analysis); setGloss(known.analysis.meaning); setBusy(false); return }
     if (known) setGloss(known.meaning)
     // On a card: its own meaning for the word at once, or the sentence's quick meanings (asked
     // once per sentence and kept); the model explains it only on More or Save (explain, save).
     if (next.card) {
       const { meaning, words, at } = next.card
-      if (meaning) { setGloss(meaning); setBusy(false); return }
-      const quick = session ? await quickMeanings(next.sentence, words, session.token).then(meanings => meanings[at] || '') : ''
+      if (meaning) { onPhone(next.act, 'meaning on the card', 'the card’s own data: no request'); setGloss(meaning); setBusy(false); return }
+      const quick = session ? await quickMeanings(next.sentence, words, session.token, next.act).then(meanings => meanings[at] || '') : ''
       if (version.current !== current) return
       if (quick) setGloss(quick)
       setBusy(false); return
     }
     try {
-      const result = await explainWord(next.text, next.sentence, session?.token)
+      const result = await explainWord(next.text, next.sentence, session?.token, next.act)
       logExplained(looked, result.analysis, 'tap')
       if (version.current !== current) return
       setAnalysis(result.analysis); setGloss(result.gloss)
@@ -138,7 +141,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
     const current = version.current, looked = lookedUp.current
     setAsked(true); setBusy(true); setError(null)
     try {
-      const result = await explainWord(tap.text, tap.sentence, session?.token)
+      const result = await explainWord(tap.text, tap.sentence, session?.token, act('More on a word', { word: tap.text }))
       logExplained(looked, result.analysis, 'more')
       if (version.current !== current) return
       if (result.analysis) { setAnalysis(result.analysis); setGloss(result.gloss); setDetails(true) }

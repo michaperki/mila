@@ -1,4 +1,6 @@
 import type { Handler } from '@netlify/functions'
+import { note, timed, traced } from './lib/trace'
+import { tracedModel } from './lib/trace-ai'
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
@@ -178,7 +180,7 @@ const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { '
 const cache = new Map<string, WordAnalysis>()
 let client: Anthropic | null = null
 
-export const handler: Handler = async (event) => {
+export const handler: Handler = traced('word-analysis', async (event) => {
   const requestId = randomUUID()
   if (event.httpMethod !== 'POST') return reply(405, { message: 'Use POST.' })
   try {
@@ -196,19 +198,22 @@ export const handler: Handler = async (event) => {
     // then the shared cache, then the model.
     const key = `${word}\u0000${sentence}`
     const started = Date.now()
-    const cached = cache.get(key) ?? await cachedAnswer<WordAnalysis>(CACHE_KIND, key)
+    const remembered = cache.get(key)
+    if (remembered) note({ kind: 'server', name: 'instance memory', start: started, end: Date.now(), source: 'this function instance’s memory' })
+    const cached = remembered ?? await cachedAnswer<WordAnalysis>(CACHE_KIND, key)
     if (cached) {
       await recordCacheHit(auth.userId, 'word', Date.now() - started)
       return reply(200, cached)
     }
 
-    await checkDailySpend(auth)
+    await timed('db', 'aiUsage.aggregate (daily spend check)', () => checkDailySpend(auth))
     client ??= new Anthropic()
-    const response = await client.beta.messages.create(analysisRequest(word, sentence), { timeout: 15000, maxRetries: 1 })
+    const params = analysisRequest(word, sentence)
+    const response = await tracedModel('word', 'a word tapped, not explained before in this sentence', words > 1 ? ['selected words', 'sentence'] : ['tapped word', 'sentence'], params, () => client!.beta.messages.create(params, { timeout: 15000, maxRetries: 1 }) as Promise<Anthropic.Beta.Messages.BetaMessage>)
     await recordClaude(auth.userId, 'word', response, Date.now() - started)
 
     if (response.stop_reason === 'refusal') return reply(422, { message: 'This word could not be explained.', code: 'ANALYSIS_REFUSED', requestId })
-    const text = response.content.flatMap(block => (block.type === 'text' ? [block.text] : [])).join('')
+    const text = response.content.flatMap((block: { type: string; text?: string }) => (block.type === 'text' ? [block.text ?? ''] : [])).join('')
     const analysis = trustedConstructions(JSON.parse(text) as WordAnalysis)
     if (cache.size >= 500) cache.delete(cache.keys().next().value!)
     cache.set(key, analysis)
@@ -222,4 +227,4 @@ export const handler: Handler = async (event) => {
     console.error('Word analysis failed', { requestId, name: (error as Error).name, status: error instanceof Anthropic.APIError ? error.status : undefined })
     return reply(503, { message: 'Word explanation is unavailable right now.', code: 'ANALYSIS_UNAVAILABLE', requestId })
   }
-}
+})

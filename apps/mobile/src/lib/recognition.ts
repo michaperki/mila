@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto'
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator'
 import { ApiError, request } from './api'
+import { type Act, onPhone } from './trace'
 import { cleanOcr, segmentText } from './ocr-cleanup'
 import { segmentsFromPage, tailOf, usableTail, type PageRead, type PageTail } from './page'
 import type { CapturedImage, ReadingSegment, Recognition, WordAnalysis } from './types'
@@ -83,21 +84,25 @@ const explaining = new Map<string, Promise<{ analysis?: WordAnalysis; gloss: str
 // offline, refused) this degrades to a plain word translation rather than failing the tap.
 // A second call while the first is on its way (Save pressed before the explanation arrived)
 // shares that request rather than asking again.
-export function explainWord(word: string, sentence: string, token: string | undefined): Promise<{ analysis?: WordAnalysis; gloss: string }> {
+// `act`: the action it is for, in a debug capture (lib/trace.ts), which also records an answer
+// from memory or from a request already on its way.
+export function explainWord(word: string, sentence: string, token: string | undefined, act?: Act): Promise<{ analysis?: WordAnalysis; gloss: string }> {
   const key = `${word}\u0000${sentence}`
   const cached = analyses.get(key)
-  if (cached) return Promise.resolve({ analysis: cached, gloss: cached.meaning })
+  if (cached) { onPhone(act, 'explanation', 'phone memory: explained before in this sentence'); return Promise.resolve({ analysis: cached, gloss: cached.meaning }) }
   let pending = explaining.get(key)
-  if (!pending) {
-    pending = explain(word, sentence, token, key).finally(() => explaining.delete(key))
-    explaining.set(key, pending)
+  if (pending) {
+    const start = Date.now()
+    return pending.then(result => { onPhone(act, 'explanation', 'shared a request already on its way', start); return result })
   }
+  pending = explain(word, sentence, token, key, act).finally(() => explaining.delete(key))
+  explaining.set(key, pending)
   return pending
 }
-async function explain(word: string, sentence: string, token: string | undefined, key: string) {
+async function explain(word: string, sentence: string, token: string | undefined, key: string, act?: Act) {
   if (!token) return { gloss: await translate(word) }
   try {
-    const analysis = await request<WordAnalysis>('word-analysis', { token, body: { word, sentence } })
+    const analysis = await request<WordAnalysis>('word-analysis', { token, body: { word, sentence }, act })
     if (analyses.size >= 200) analyses.delete(analyses.keys().next().value!)
     analyses.set(key, analysis)
     return { analysis, gloss: analysis.meaning }
@@ -110,12 +115,17 @@ async function explain(word: string, sentence: string, token: string | undefined
 const quick = new Map<string, Promise<string[]>>()
 // A short meaning for every word of a sentence, fetched when the sentence is selected so a
 // tapped word can show its meaning before the full explanation arrives. Failures give [].
-export function quickMeanings(sentence: string, words: string[], token: string): Promise<string[]> {
+const quickDone = new Set<string>()
+export function quickMeanings(sentence: string, words: string[], token: string, act?: Act): Promise<string[]> {
   const key = `${sentence}\u0000${words.join(' ')}`
   let pending = quick.get(key)
+  if (pending) {
+    const start = Date.now(), done = quickDone.has(key)
+    return pending.then(meanings => { onPhone(act, 'quick meanings', done ? 'phone memory: asked before' : 'shared a request already on its way', start); return meanings })
+  }
   if (!pending) {
-    pending = request<{ meanings: string[] }>('sentence-glosses', { token, body: { sentence, words } })
-      .then(result => result.meanings, () => { quick.delete(key); return [] })
+    pending = request<{ meanings: string[] }>('sentence-glosses', { token, body: { sentence, words }, act })
+      .then(result => { quickDone.add(key); return result.meanings }, () => { quick.delete(key); return [] })
     if (quick.size >= 100) quick.delete(quick.keys().next().value!)
     quick.set(key, pending)
   }

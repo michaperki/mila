@@ -6,6 +6,7 @@ import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles, TextBut
 import { request } from '../lib/api'
 import { applyLatestUpdate, describeVersion, PRIVACY_URL } from '../lib/app-info'
 import { ChangePassword, ResetPassword } from '../components/Passwords'
+import { DebugCapture } from '../components/DebugCapture'
 import { useSession } from '../state/session'
 import { clearVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
@@ -183,6 +184,7 @@ export default function Account() {
       <Button secondary title="Open Learning Insights" onPress={() => router.push('/insights')} />
     </View>}
     {/* The spend summary answers only for the developers, so it also says who sees developer tools. */}
+    {session && !!usage && <DebugCapture session={session} />}
     {session && !!usage && <ResetPassword session={session} />}
     {session && <ChangePassword session={session} />}
     {session && <View style={styles.card}>

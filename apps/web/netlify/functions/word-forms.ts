@@ -1,4 +1,6 @@
 import type { Handler } from '@netlify/functions'
+import { traced } from './lib/trace'
+import { tracedModel } from './lib/trace-ai'
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
@@ -47,7 +49,7 @@ async function profileOf(db: Awaited<ReturnType<typeof getDb>>, userId: string):
   return learnerProfile(entries, events)
 }
 
-export const handler: Handler = async (event) => {
+export const handler: Handler = traced('word-forms', async (event) => {
   const requestId = randomUUID()
   if (event.httpMethod !== 'POST') return reply(405, { message: 'Use POST.' })
   try {
@@ -81,7 +83,7 @@ export const handler: Handler = async (event) => {
     client ??= new Anthropic()
     const ask: Ask = async ({ system, prompt, schema }) => {
       const started = Date.now()
-      const response = await client!.beta.messages.create({
+      const params = {
         model: 'claude-opus-5-5',
         max_tokens: 8000,
         output_config: { effort: 'low', format: { type: 'json_schema', schema } },
@@ -89,7 +91,12 @@ export const handler: Handler = async (event) => {
         fallbacks: 'default',
         system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: prompt }],
-      } as never, { timeout: 40000, maxRetries: 1 })
+      }
+      // What goes in: the word (dictionary form, meanings, part of speech, constructions), the stage's
+      // forms to write and, for the personal writer, what the learner knows (lib/profile.ts).
+      const response = await tracedModel(fresh ? 'variation' : 'forms', fresh ? 'new sentences for a word being learned' : 'cards for a stage of a word about to be studied',
+        ['word and its meanings', 'forms to write', ...(prompt.includes('About this learner') ? ['learner profile: words known and looked up'] : [])], params,
+        () => client!.beta.messages.create(params as never, { timeout: 40000, maxRetries: 1 }) as Promise<Anthropic.Beta.Messages.BetaMessage>)
       await recordClaude(auth.userId, fresh ? 'variation' : 'forms', response, Date.now() - started)
       return response
     }
@@ -136,4 +143,4 @@ export const handler: Handler = async (event) => {
     console.error('Word forms failed', { requestId, name: (error as Error).name, status: error instanceof Anthropic.APIError ? error.status : undefined })
     return reply(503, { message: 'Word practice is unavailable right now.', requestId })
   }
-}
+})

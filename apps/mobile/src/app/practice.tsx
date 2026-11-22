@@ -12,7 +12,7 @@ import { APPEAR, CARD_BACK_IN, CARD_IN, DISAPPEAR } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
-import { ago, assess, type Card, planRound, type Plan, cardKey, type ChoiceMode, checkpointGroup, exerciseOf, freshCards, freshPicks, freshRound, justAfterItsWord, onSentence, type Sentence, sentenceFor, shownForm, wantsSentence, writerOf, checkpointRecord, cuedTranslation, exposureOf, firstSense, followUps, frontFor, type Include, mayFollow, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
+import { ago, assess, type Card, cardName, planRound, type Plan, cardKey, type ChoiceMode, checkpointGroup, exerciseOf, freshCards, freshPicks, freshRound, justAfterItsWord, onSentence, type Sentence, sentenceFor, shownForm, wantsSentence, writerOf, checkpointRecord, cuedTranslation, exposureOf, firstSense, followUps, frontFor, type Include, mayFollow, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
 import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, type Planner, setPref } from '../lib/prefs'
@@ -28,6 +28,7 @@ import { askBeforeResuming, resumeRound, roundToSave } from '../lib/rounds'
 import { clearRound, loadRound, saveRound } from '../lib/saved-round'
 import { fingerprint, sendStudyLog, studySession } from '../lib/study-log'
 import { planUnified, rankingLog, unifiedRanking } from '../lib/scoring'
+import { type Act, act, onPhone, screenState } from '../lib/trace'
 import { saveResult, sendResults } from '../lib/results'
 import type { ResultBody } from '../lib/result-queue'
 import { appInfo } from '../lib/app-info'
@@ -120,12 +121,14 @@ export default function Practice() {
     if (!session) return Promise.resolve([])
     const wanted = new Map([...cards.map(card => card.entry), ...upcoming(all, include)].map(entry => [entry.id, entry]))
     const missing = [...wanted.values()].filter(entry => missingStages(entry).length)
-    const ready = Promise.all(missing.map(entry => ensureForms(entry, session.token)))
+    // In a debug capture, everything written ahead points to this (lib/trace.ts).
+    const ahead = act('prepare the round ahead', { cards: cards.length, writing: missing.length })
+    const ready = Promise.all(missing.map(entry => ensureForms(entry, session.token, ahead)))
     void ready.then(written => written.forEach(item => { share(session, item); keep(item) }))
-    varyAhead(cards, all)
+    varyAhead(cards, all, ahead)
     // Again once new words' cards are written, for those (each card is asked once).
-    wordsAhead(cards, include)
-    void ready.then(() => wordsAhead(cards, include), () => undefined)
+    wordsAhead(cards, include, ahead)
+    void ready.then(() => wordsAhead(cards, include, ahead), () => undefined)
     return ready
   }
   // Word data for the round's older cards (lib/english-help.ts): asked for in the background, in
@@ -133,7 +136,7 @@ export default function Practice() {
   // Study waits for it; kept on the card by the server. Each card once a visit. Then the other
   // cards of the round's words that an answer may bring in behind them (lib/forms.ts mayFollow).
   const wordsAsked = useRef<Set<string>>(new Set())
-  const wordsAhead = (cards: Card[], include: Include) => {
+  const wordsAhead = (cards: Card[], include: Include, ahead?: Act) => {
     if (!session) return
     const latest = new Map((cachedVocab(session) ?? []).map(entry => [entry.id, entry]))
     const entries = [...new Map(cards.map(card => [card.entry.id, latest.get(card.entry.id) ?? card.entry])).values()]
@@ -149,7 +152,7 @@ export default function Practice() {
     })
     const next = (): Promise<void> => {
       const item = queue.shift()
-      return !item ? Promise.resolve() : cardWords(item.entry, item.key, session.token)
+      return !item ? Promise.resolve() : cardWords(item.entry, item.key, session.token, undefined, ahead)
         .then(({ sentences }) => mergeWords(item.entry.id, item.key, sentences), () => undefined).then(next)
     }
     void next(); void next()
@@ -165,7 +168,7 @@ export default function Practice() {
   // so the card shows it when it comes up, this round or the next. A few words a visit at most
   // (word-forms.ts caps the day too); nothing is written for a card that doesn't need it.
   const varied = useRef<Set<string>>(new Set())
-  const varyAhead = (cards: Card[], all: VocabEntry[]) => {
+  const varyAhead = (cards: Card[], all: VocabEntry[], ahead?: Act) => {
     if (!session) return
     const latest = new Map(all.map(entry => [entry.id, entry]))
     const asks = new Map<string, { entry: VocabEntry; stage: string; keys: string[]; why: string }>()
@@ -182,7 +185,7 @@ export default function Practice() {
     for (const ask of [...asks.entries()].slice(0, Math.max(0, VARY_PER_VISIT - varied.current.size))) {
       varied.current.add(ask[0])
       const { entry, stage, keys, why } = ask[1]
-      void freshSentences(entry, stage, session.token, { keys, why }).then(ready => {
+      void freshSentences(entry, stage, session.token, { keys, why, act: ahead }).then(ready => {
         setWords(current => ({ ...current, [entry.id]: withVariants(current[entry.id], ready) }))
         putEntry(session, withVariants(cachedVocab(session)?.find(item => item.id === entry.id), ready))
       }, () => undefined)
@@ -243,6 +246,7 @@ export default function Practice() {
   const holdWord = async (card: Card, entry: VocabEntry, form: FormCard, variant: number, index: number) => {
     if (!session) return
     const here = position, started = Date.now()
+    const held = act('hold an English word', { key: cardKey(card), index })
     feel('select')
     setHolding(index)
     const show = (text: string | null, note = false) => setWordHint(current => (current[here] && current[here].index !== index ? current : { ...current, [here]: { index, text, note } }))
@@ -252,8 +256,9 @@ export default function Practice() {
     const words = form.sentence.split(/\s+/).filter(Boolean)
     const ready = hasWords(form)
     let glosses = ready ? form.glosses! : null
+    if (ready) onPhone(held, 'Hebrew for the English word', 'the card’s own data: no request', started)
     if (!glosses) {
-      const done = await cardWords(entry, form.key, session.token, variant - 1).catch(() => null)
+      const done = await cardWords(entry, form.key, session.token, variant - 1, held).catch(() => null)
       if (done) mergeWords(entry.id, form.key, done.sentences)
       glosses = done?.sentences.find(item => item.variant === variant - 1)?.glosses ?? null
     }
@@ -426,6 +431,22 @@ export default function Practice() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [done])
 
+  // The screen as a debug capture sees it, each time it changes (lib/trace.ts; nothing without a
+  // capture): the card, which side, its answer, help shown or loading, and the word drawer.
+  useEffect(() => {
+    const shown = deck?.[position]
+    if (!shown || !settings) { screenState('study', { card: null, done }); return }
+    const entry = words[shown.entry.id] || shown.entry
+    const form = shown.form ? entry.forms?.find(item => item.key === shown.form!.key) ?? shown.form : null
+    screenState('study', {
+      at: position - roundStart + 1, of: deck!.length - roundStart, done,
+      card: { key: cardKey(shown), word: entry.lemmaPlain || entry.lemma, name: cardName(shown), sentence: form?.sentence ?? null },
+      side: flipped ? 'answer' : 'question', answered: answers[position] ?? null, picked: picks[position] ?? null, pausing,
+      englishShown: !!helped[position]?.includes('english'), asAsked: asAsked === position,
+      hint: wordHint[position] ? (wordHint[position].text === null ? 'loading' : 'shown') : null,
+      drawer: lookup.tap ? { word: lookup.tap.text, loading: lookup.busy, meaning: !!lookup.gloss, explained: !!lookup.analysis } : null,
+    })
+  })
   if (!session) return <Page><Text style={styles.copy}>Sign in to study your saved words.</Text></Page>
   if (!deck || !settings) return <Page>{error ? <ErrorNotice message={error} /> : <Loading />}</Page>
   if (!Object.keys(words).length) return <Page>
@@ -581,6 +602,8 @@ export default function Practice() {
   // shown and the one chosen, and no side first, since it is neither recalled from the Hebrew nor
   // said from the English.
   const answer = (knew: boolean, felt = false, chosen?: string) => {
+    const answering = act('answer a card', { key: cardKey(card), knew, exercise: choices ? 'fill in the blank' : 'flashcard', ...(chosen ? { chosen: true } : {}) })
+    const scoredFrom = Date.now()
     if (!felt) feel(knew ? 'gotIt' : 'graded')
     void noteStudyDay()
     // Only a card's first answer here counts toward the tree; changing it on going back doesn't.
@@ -613,7 +636,8 @@ export default function Practice() {
         ? [{ id: entry.id, form: { key: form.key, ...recorded } }, { ...entry, forms: (entry.forms || []).map(item => (item.key === form.key ? { ...item, ...recorded } : item)) }]
         : [{ id: entry.id, ...result }, { ...entry, ...result }]
     // Kept on the phone until the server has it (lib/results.ts); the round doesn't wait.
-    saveResult(session.user.id, session.token, body as ResultBody)
+    onPhone(answering, 'score the answer', 'worked out on the phone', scoredFrom)
+    saveResult(session.user.id, session.token, body as ResultBody, answering)
     const opened = recommendedStages(entry).map(item => item.key)
     setWords(current => ({ ...current, [entry.id]: updated })); putEntry(session, updated)
     // A stage Mila now brings in: have its cards written for next time, and note it for the
@@ -626,7 +650,7 @@ export default function Practice() {
         setUnlocked(current => [...current, ...news.map(item => `${v(entry.lemma)}: ${item.label}`)])
         setTimeout(() => feel('unlock'), 250)
       }
-      void ensureForms(updated, session.token).then(ready => { share(session, ready); keep(ready) })
+      void ensureForms(updated, session.token, answering).then(ready => { share(session, ready); keep(ready) })
     }
     // The round in front of the learner isn't reordered by an answer, except that in smart order a
     // word still being learned brings its next cards in right behind it (lib/forms.ts followUps),
@@ -637,6 +661,7 @@ export default function Practice() {
       // This round as answered, with this card as it was just before the answer (the deck's copy may be older).
       const asAnswered = deck.slice(roundStart).map((item, at) => (at === position - roundStart ? { ...item, entry } : item))
       const more = followUps(asAnswered, position - roundStart, updated, knew, start, settings.include)
+      if (more.length) onPhone(answering, 'bring the word’s next cards in behind it', 'worked out on the phone', Date.now(), { cards: more.map(cardKey) })
       const keys = new Set(more.map(cardKey))
       if (more.length) setDeck(current => current && [...current.slice(0, position + 1), ...more, ...current.slice(position + 1).filter(item => !keys.has(cardKey(item)))])
       added = more.length
@@ -661,6 +686,7 @@ export default function Practice() {
     if (helped[position]?.includes('english')) return
     feel('tick')
     study.current?.log('hint', { key: cardKey(card), position, kind: 'english' })
+    onPhone(act('show the English', { key: cardKey(card), position }), 'the sentence’s English', 'the card’s own data: no request')
     setHelped(current => ({ ...current, [position]: [...(current[position] ?? []), 'english'] }))
   }
   const side = (english: boolean, answerSide: boolean) => <ScriptContext.Provider value={answerSide ? 'answers' : 'print'}>
@@ -901,7 +927,7 @@ function SentenceSide({ entry, form, english, answer: answerSide, position, fron
     feel('select')
     const gloss = own ? { en: form.en, lemma: entry.lemmaPlain || entry.lemma } : form.glosses?.find(item => item.i === at)
     const words = form.sentence.split(/\s+/).filter(Boolean).map(bareWord)
-    void lookup.open({ text: word, sentence: form.sentence, translation: form.translation, card: { meaning: gloss?.en, lemma: gloss?.lemma || undefined, words, at }, context: { key: `${entry.id}:${form.key}`, own, position, side: answerSide ? 'back' : 'front', front } })
+    void lookup.open({ act: act('tap a word on a card', { at, own }), text: word, sentence: form.sentence, translation: form.translation, card: { meaning: gloss?.en, lemma: gloss?.lemma || undefined, words, at }, context: { key: `${entry.id}:${form.key}`, own, position, side: answerSide ? 'back' : 'front', front } })
   })
   const looked = lookup?.tap?.sentence === form.sentence ? lookup.tap.card?.at : undefined
   const hebrew = <Text style={[practice.sentence, he]}><MarkedHebrew sentence={v(form.sentence)} mark={form.mark} form={blankAs ?? form.he} blank={hideMark} onWord={onWord} looked={looked} /></Text>

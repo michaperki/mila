@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions'
+import { traced } from './lib/trace'
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'node:crypto'
 import { verifyAuth } from './lib/auth'
@@ -20,7 +21,7 @@ type Sentence = { sentence?: string; translation?: string; mark?: string; glosse
 type Card = Sentence & { key: string; variants?: Sentence[] }
 export const prepared = (item: Sentence) => !!item.glosses?.some(gloss => 't' in gloss)
 
-export const handler: Handler = async (event) => {
+export const handler: Handler = traced('card-words', async (event) => {
   const requestId = randomUUID()
   if (event.httpMethod !== 'POST') return reply(405, { message: 'Use POST.' })
   try {
@@ -59,4 +60,4 @@ export const handler: Handler = async (event) => {
     console.error('Card words failed', { requestId, name: (error as Error).name, status: error instanceof Anthropic.APIError ? error.status : undefined })
     return reply(503, { message: 'Word meanings are unavailable right now.', requestId })
   }
-}
+})

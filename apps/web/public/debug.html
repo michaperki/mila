@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Mila debug viewer</title>
+<style>
+  :root { --ink: #1d2a22; --muted: #6b7a70; --line: #dfe6e0; --paper: #f7f9f6; --green: #2f7d4f; --red: #b3412f; --lane: 132px; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--paper); }
+  header { display: flex; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); background: #fff; position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; }
+  button, select, input { font: inherit; }
+  button { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  button:hover { border-color: var(--green); }
+  .muted { color: var(--muted); }
+  #login { max-width: 320px; margin: 60px auto; background: #fff; padding: 20px; border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 8px; }
+  #login input { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
+  main { display: grid; grid-template-columns: 1fr 380px; height: calc(100vh - 50px); }
+  #left { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--line); }
+  #controls { display: flex; gap: 10px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); background: #fff; }
+  #controls input[type=range] { flex: 1; }
+  #scroll { overflow: auto; flex: 1; position: relative; background: #fff; }
+  #timeline { position: relative; }
+  .lane { position: relative; border-bottom: 1px solid var(--line); }
+  .lane-name { position: sticky; left: 0; width: var(--lane); background: #fbfcfb; border-right: 1px solid var(--line); padding: 4px 8px; font-weight: 600; z-index: 2; height: 100%; position: absolute; }
+  .bar { position: absolute; height: 18px; border-radius: 4px; font-size: 11px; line-height: 18px; padding: 0 4px; overflow: hidden; white-space: nowrap; color: #fff; cursor: pointer; min-width: 3px; opacity: .9; }
+  .bar.tick { width: 3px !important; padding: 0; border-radius: 1px; }
+  .bar.dim { opacity: .18; }
+  .bar.chosen { outline: 2px solid var(--ink); opacity: 1; }
+  #axis { position: sticky; top: 0; height: 22px; background: #fff; border-bottom: 1px solid var(--line); z-index: 3; }
+  .tickmark { position: absolute; top: 0; height: 22px; border-left: 1px solid var(--line); font-size: 10px; color: var(--muted); padding-left: 3px; }
+  #cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--red); z-index: 4; pointer-events: none; }
+  aside { overflow: auto; padding: 12px 16px; }
+  aside h2 { font-size: 13px; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 2px 8px; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+  .he { direction: rtl; font-size: 15px; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #f2f5f2; padding: 8px; border-radius: 6px; max-height: 360px; overflow: auto; font-size: 11px; }
+  .item { padding: 4px 0; border-bottom: 1px dashed var(--line); cursor: pointer; }
+  .pill { display: inline-block; padding: 0 6px; border-radius: 999px; background: #eef3ef; font-size: 11px; margin-right: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mila debug viewer</h1>
+  <span id="who" class="muted"></span>
+  <select id="captures" hidden></select>
+  <button id="refresh" hidden>Refresh</button>
+  <span id="status" class="muted"></span>
+  <span style="flex:1"></span>
+  <button id="signout" hidden>Sign out</button>
+</header>
+<form id="login" hidden>
+  <strong>Sign in with your Mila developer account</strong>
+  <input id="email" type="email" placeholder="Email" autocomplete="username" required>
+  <input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
+  <button type="submit">Sign in</button>
+  <span id="loginError" style="color:var(--red)"></span>
+</form>
+<main id="app" hidden>
+  <section id="left">
+    <div id="controls">
+      <span class="muted">Zoom</span><input id="zoom" type="range" min="0" max="100" value="40" style="max-width:160px">
+      <span class="muted">Moment</span><input id="scrub" type="range" min="0" max="1000" value="0">
+      <span id="at" class="muted" style="min-width:110px"></span>
+    </div>
+    <div id="scroll"><div id="axis"></div><div id="timeline"></div><div id="cursor"></div></div>
+  </section>
+  <aside id="side"></aside>
+</main>
+<script>
+// Reads one debug capture (functions/debug-trace.ts) and lays it out on a timeline: what the phone
+// showed (Screen), what was done (Actions), work on the phone (Phone), requests (Network), what the
+// functions did (Server), their database operations (Database) and AI calls (AI). Server times are
+// set inside the request they belong to (the phone's and the server's clocks differ). A click
+// chooses a span and every span of its action; the moment slider shows the screen then and what
+// was still loading.
+const API = '/.netlify/functions/'
+const LANES = [['state', 'Screen'], ['action', 'Actions'], ['phone', 'Phone'], ['net', 'Network'], ['server', 'Server'], ['db', 'Database'], ['ai', 'AI']]
+const $ = id => document.getElementById(id)
+let token = sessionStorage.getItem('milaDebugToken')
+let data = null, spans = [], t0 = 0, t1 = 0, cursor = 0, chosen = null, pxPerMs = 0.2
+
+async function api(path, init = {}) {
+  const response = await fetch(API + path, { ...init, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
+  const body = await response.json().catch(() => ({}))
+  if (response.status === 401) { signOut(); throw new Error('Signed out: sign in again.') }
+  if (!response.ok) throw new Error(body.message || `Failed (${response.status})`)
+  return body
+}
+function signOut() { token = null; sessionStorage.removeItem('milaDebugToken'); show() }
+async function show() {
+  $('login').hidden = !!token; $('app').hidden = !token
+  for (const id of ['captures', 'refresh', 'signout']) $(id).hidden = !token
+  if (token) await loadList().catch(error => { $('status').textContent = error.message })
+}
+$('login').onsubmit = async event => {
+  event.preventDefault(); $('loginError').textContent = ''
+  try {
+    const result = await api('auth', { method: 'POST', body: JSON.stringify({ email: $('email').value, password: $('password').value, mode: 'login' }) })
+    token = result.token; sessionStorage.setItem('milaDebugToken', token); $('who').textContent = result.user.email; show()
+  } catch (error) { $('loginError').textContent = error.message }
+}
+$('signout').onclick = signOut
+$('refresh').onclick = () => loadList(true)
+$('captures').onchange = () => loadCapture($('captures').value)
+
+const time = at => { const d = new Date(at); return d.toLocaleTimeString([], { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0') }
+const ms = n => (n < 1000 ? `${Math.round(n)} ms` : `${(n / 1000).toFixed(2)} s`)
+async function loadList(keep) {
+  const { captures } = await api('debug-trace')
+  const was = $('captures').value
+  $('captures').innerHTML = captures.map(c => `<option value="${c.id}">${new Date(c.startedAt).toLocaleString()} · ${c.id} · ${c.spans} spans${c.prompts ? ' · prompts' : ''}${c.stoppedAt ? '' : ' · on'}</option>`).join('')
+  if (!captures.length) { $('status').textContent = 'No captures yet: start one in Mila Preview, Account → Debug capture.'; return }
+  const id = keep && captures.some(c => c.id === was) ? was : captures[0].id
+  $('captures').value = id
+  await loadCapture(id)
+}
+
+// Server spans (server clock) placed inside the phone's request they belong to.
+function align(list) {
+  const nets = new Map(list.filter(s => s.kind === 'net' && s.request).map(s => [s.request, s]))
+  const offsets = new Map(), all = []
+  for (const s of list) if (s.side === 'server' && s.kind === 'server' && nets.has(s.request)) {
+    const n = nets.get(s.request), off = (n.start + n.end) / 2 - (s.start + s.end) / 2
+    offsets.set(s.request, off); all.push(off)
+  }
+  all.sort((a, b) => a - b)
+  const usual = all.length ? all[Math.floor(all.length / 2)] : 0
+  return list.map(s => (s.side === 'server' ? { ...s, start: s.start + (offsets.get(s.request) ?? usual), end: s.end + (offsets.get(s.request) ?? usual), aligned: offsets.has(s.request) } : s))
+}
+async function loadCapture(id) {
+  $('status').textContent = 'Loading…'
+  data = await api(`debug-trace?capture=${encodeURIComponent(id)}`)
+  spans = align(data.spans).map((s, i) => ({ ...s, i, end: s.end ?? s.start }))
+  t0 = Math.min(...spans.map(s => s.start), data.capture.startedAt); t1 = Math.max(...spans.map(s => s.end), t0 + 1000)
+  cursor = t1; chosen = null
+  $('status').textContent = `${spans.length} spans · ${ms(t1 - t0)}${data.capture.prompts ? ' · with exact prompts' : ''}`
+  draw(); side()
+}
+
+const actions = () => new Map(spans.filter(s => s.kind === 'action').map(s => [s.action, s]))
+const hue = id => { let h = 7; for (const c of String(id || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360 }
+const colorOf = s => (s.kind === 'state' ? '#8a9a90' : s.action ? `hsl(${hue(s.action)} 55% 42%)` : '#9aa59e')
+const x = at => 132 + (at - t0) * pxPerMs
+function draw() {
+  pxPerMs = 0.02 * Math.pow(1.07, Number($('zoom').value))
+  const width = x(t1) + 200
+  const timeline = $('timeline'); timeline.innerHTML = ''; timeline.style.width = width + 'px'
+  const related = chosen ? new Set([chosen.action, ...[...actions().values()].filter(a => a.parent === chosen.action || a.action === actions().get(chosen.action)?.parent).map(a => a.action)]) : null
+  for (const [kind, name] of LANES) {
+    const mine = spans.filter(s => (s.kind === kind))
+    // Overlapping spans each get a row of their own.
+    const rows = []
+    for (const s of mine) { let r = rows.findIndex(end => end <= s.start - 1 / pxPerMs * 4); if (r < 0) { r = rows.length; rows.push(0) } rows[r] = Math.max(s.end, s.start + 60 / pxPerMs); s.row = r }
+    const lane = document.createElement('div'); lane.className = 'lane'; lane.style.height = Math.max(1, rows.length) * 22 + 8 + 'px'
+    lane.innerHTML = `<div class="lane-name">${name}</div>`
+    for (const s of mine) {
+      const bar = document.createElement('div')
+      const instant = s.end - s.start < 1 / pxPerMs * 3
+      bar.className = 'bar' + (instant ? ' tick' : '') + (related && !related.has(s.action) ? ' dim' : '') + (chosen && chosen.i === s.i ? ' chosen' : '')
+      bar.style.left = x(s.start) + 'px'; bar.style.top = 4 + s.row * 22 + 'px'; bar.style.background = colorOf(s)
+      if (!instant) bar.style.width = Math.max(3, (s.end - s.start) * pxPerMs) + 'px'
+      bar.textContent = instant ? '' : `${s.name}${s.source && s.kind !== 'net' ? ' · ' + s.source : ''}`
+      bar.title = `${s.name} · ${ms(s.end - s.start)}${s.source ? ' · ' + s.source : ''}`
+      bar.onclick = event => { event.stopPropagation(); chosen = s; cursor = s.start; draw(); side() }
+      lane.appendChild(bar)
+    }
+    timeline.appendChild(lane)
+  }
+  const axis = $('axis'); axis.innerHTML = ''; axis.style.width = width + 'px'
+  const step = [10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000].find(n => n * pxPerMs >= 90) || 60000
+  for (let at = Math.ceil(t0 / step) * step; at <= t1; at += step) axis.insertAdjacentHTML('beforeend', `<div class="tickmark" style="left:${x(at)}px">${time(at)}</div>`)
+  $('scrub').value = Math.round(((cursor - t0) / (t1 - t0)) * 1000)
+  $('cursor').style.left = x(cursor) + 'px'
+  $('at').textContent = time(cursor)
+}
+$('zoom').oninput = () => { draw() }
+$('scrub').oninput = () => { cursor = t0 + (t1 - t0) * Number($('scrub').value) / 1000; $('cursor').style.left = x(cursor) + 'px'; $('at').textContent = time(cursor); side() }
+$('timeline').onclick = event => {
+  const rect = $('timeline').getBoundingClientRect()
+  const at = t0 + (event.clientX - rect.left - 132) / pxPerMs
+  if (at >= t0) { cursor = at; chosen = null; draw(); side() }
+}
+
+const esc = text => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const kv = obj => `<div class="kv">${Object.entries(obj).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `<div>${esc(k)}</div><div${/[֐-׿]/.test(String(v)) ? ' class="he"' : ''}>${esc(typeof v === 'object' ? JSON.stringify(v) : v)}</div>`).join('')}</div>`
+const SCREEN_FIELDS = { reader: s => ({ sentence: s.sentence ? `#${s.sentence.index + 1}: ${s.sentence.text}` : 'none selected', English: s.english, 'quick meanings': s.quickMeanings, drawer: s.drawer ? `${s.drawer.word}${s.drawer.loading ? ' · loading' : ''}${s.drawer.explained ? ' · explained' : s.drawer.meaning ? ' · quick meaning' : ''}` : 'closed' }),
+  study: s => (!s.card ? { card: 'none' } : { card: `${s.at} of ${s.of} · ${s.card.word} · ${s.card.name}`, sentence: s.card.sentence, side: s.side, answered: s.answered === null ? 'not yet' : s.answered ? 'knew it' : 'didn’t', chosen: s.picked, 'English shown': s.englishShown ? 'yes (hint)' : 'no', 'held-word hint': s.hint || 'none', 'shown as asked': s.asAsked ? 'yes' : undefined, drawer: s.drawer ? `${s.drawer.word}${s.drawer.loading ? ' · loading' : ''}` : 'closed' }) }
+function side() {
+  if (!data) return
+  const acts = actions()
+  const before = spans.filter(s => s.kind === 'state' && s.start <= cursor)
+  const screens = new Map(); for (const s of before) screens.set(s.name, s)
+  const latest = [...screens.values()].sort((a, b) => b.start - a.start)
+  const loading = spans.filter(s => s.end > s.start && s.start <= cursor && s.end > cursor && s.kind !== 'state')
+  const actionLine = s => { const a = acts.get(s.action); if (!a) return s.action ? s.action : 'no action (background)'; const p = a.parent ? acts.get(a.parent) : null; return `${a.name} at ${time(a.start)}${p ? ` (set off by “${p.name}”)` : ''}` }
+  let html = `<h2>At ${time(cursor)}</h2>`
+  html += latest.length ? latest.map(s => `<div style="margin-bottom:8px"><span class="pill">${esc(s.name)}</span> <span class="muted">since ${time(s.start)}</span>${kv((SCREEN_FIELDS[s.name] || (v => v))(s.state || {}))}</div>`).join('') : '<div class="muted">No screen recorded yet.</div>'
+  html += `<h2>Still in progress (${loading.length})</h2>` + (loading.length ? loading.map(s => `<div class="item" data-i="${s.i}"><span class="pill">${s.kind}</span>${esc(s.name)} <span class="muted">${ms(cursor - s.start)} so far · ${esc(actionLine(s))}</span></div>`).join('') : '<div class="muted">Nothing.</div>')
+  if (chosen) {
+    const s = chosen
+    html += `<h2>Selected</h2>` + kv({ what: s.name, lane: s.kind, side: s.side, 'caused by': actionLine(s), started: time(s.start), ended: s.end > s.start ? time(s.end) : undefined, took: s.end > s.start ? ms(s.end - s.start) : 'instant', 'came from': s.source, request: s.request, placement: s.side === 'server' ? (s.aligned ? 'inside its request' : 'estimated (its request isn’t in yet)') : undefined })
+    if (s.fields) html += `<h2>Fields</h2>` + kv(s.fields)
+    if (s.state) html += `<h2>Screen</h2>` + kv((SCREEN_FIELDS[s.name] || (v => v))(s.state))
+    const same = spans.filter(o => o.action && o.action === s.action && o.i !== s.i)
+    if (same.length) html += `<h2>Same action (${same.length})</h2>` + same.map(o => `<div class="item" data-i="${o.i}"><span class="pill">${o.kind}</span>${esc(o.name)} <span class="muted">${o.end > o.start ? ms(o.end - o.start) : 'instant'}${o.source ? ' · ' + esc(o.source) : ''}</span></div>`).join('')
+    if (s.prompt) html += `<h2>Exact request sent to the AI</h2><pre>${esc(JSON.stringify(s.prompt, null, 2))}</pre>`
+    else if (s.kind === 'ai') html += `<div class="muted" style="margin-top:8px">Exact prompt not kept: start a capture with “Exact AI prompts” on to keep it.</div>`
+  } else html += `<div class="muted" style="margin-top:12px">Click a span to see what caused it, where its result came from and everything else its action did.</div>`
+  $('side').innerHTML = html
+  for (const el of $('side').querySelectorAll('[data-i]')) el.onclick = () => { chosen = spans[Number(el.dataset.i)]; cursor = chosen.start; draw(); side() }
+}
+show()
+</script>
+</body>
+</html>
