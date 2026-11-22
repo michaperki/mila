@@ -63,6 +63,37 @@
   .he { direction: rtl; font-size: 15px; }
   pre { white-space: pre-wrap; word-break: break-word; background: #eef2ee; padding: 8px; border-radius: 6px; max-height: 360px; overflow: auto; font-size: 11px; }
   .item { padding: 4px 0; border-bottom: 1px dashed var(--line); cursor: pointer; }
+  .mode { border-radius: 6px; }
+  .mode.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  /* Replay: Mila's Reader as recorded, with the lookup's data flow around it. */
+  #replay { flex: 1; overflow: auto; background: #fff; display: flex; flex-direction: column; }
+  .rp-bar { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .rp-bar input[type=range] { flex: 1; }
+  .rp-stage { position: relative; display: grid; grid-template-columns: 1fr 300px 1fr; gap: 28px; padding: 22px 18px; align-items: start; min-height: 520px; }
+  .rp-col { display: flex; flex-direction: column; gap: 14px; position: relative; z-index: 2; }
+  .rp-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+  .node { border: 1.5px solid var(--line); border-radius: 10px; padding: 7px 10px; background: #fff; cursor: pointer; transition: border-color .15s, background .15s; }
+  .node .nt { font-weight: 700; font-size: 12px; }
+  .node .ns { font-size: 12px; color: var(--muted); }
+  .node .nm { font-size: 11px; color: var(--muted); }
+  .node.st-waiting { opacity: .45; }
+  .node.st-unused { opacity: .3; border-style: dashed; }
+  .node.st-running { border-color: #c9892b; background: #fff7e8; }
+  .node.st-done { border-color: var(--green); background: #f0f8f2; }
+  .node.st-failed { border-color: var(--red); background: #fbefec; }
+  .node.picked { box-shadow: 0 0 0 2px var(--ink); }
+  .promptbtn { margin-top: 6px; background: #8a5aa8; color: #fff; border-color: #8a5aa8; font-weight: 600; }
+  .phone { position: relative; z-index: 2; border: 2px solid var(--ink); border-radius: 26px; padding: 14px 14px 0; background: #fbfcfa; min-height: 480px; display: flex; flex-direction: column; overflow: hidden; }
+  .ph-top { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; margin-bottom: 10px; }
+  .ph-text { direction: rtl; font-size: 19px; line-height: 1.8; padding: 8px; border-radius: 8px; background: #eef6ef; }
+  .ph-text .w.tapped { background: #2f7d4f; color: #fff; border-radius: 4px; padding: 0 3px; }
+  .ph-q { font-size: 11px; color: var(--muted); margin: 8px 2px; }
+  .ph-drawer { margin-top: auto; border-top: 1px solid var(--line); background: #fff; margin-left: -14px; margin-right: -14px; padding: 12px 16px 18px; border-radius: 16px 16px 0 0; box-shadow: 0 -4px 12px rgba(0,0,0,.06); min-height: 120px; }
+  .ph-drawer .dw { direction: rtl; font-size: 22px; font-weight: 700; }
+  .ph-drawer.closed { background: transparent; box-shadow: none; color: var(--muted); font-size: 12px; }
+  #modal { position: fixed; inset: 0; background: rgba(20,30,24,.45); z-index: 20; display: flex; align-items: center; justify-content: center; }
+  #modal .box { background: #fff; width: min(900px, 92vw); max-height: 86vh; overflow: auto; border-radius: 12px; padding: 16px 20px; }
+  #modal pre { max-height: none; }
   .pill { display: inline-block; padding: 0 6px; border-radius: 999px; background: #e6eee8; font-size: 11px; margin-right: 4px; }
 </style>
 </head>
@@ -89,16 +120,19 @@
     <nav id="actions"></nav>
     <section id="center">
       <div id="controls">
+        <button id="modeTimeline" class="mode on">Timeline</button><button id="modeReplay" class="mode">Replay</button>
         <button id="all">Whole session</button>
         <span class="muted">Moment</span><input id="scrub" type="range" min="0" max="1000" value="0">
         <span id="at" class="muted" style="min-width:96px"></span>
         <span id="span" class="muted"></span>
       </div>
       <div id="chart"><div id="axis"></div><div id="rows"></div><div id="cursor"></div></div>
+      <div id="replay" hidden></div>
     </section>
     <aside id="side"></aside>
   </div>
 </div>
+<div id="modal" hidden></div>
 <script>
 // Reads one debug capture (functions/debug-trace.ts). Above, the whole session (where activity
 // is, and the stretch the chart shows); left, what was done, in order, each action with the work it
@@ -220,7 +254,11 @@ function list() {
     return `<div class="entry${focus === e.a.action ? ' on' : ''}" data-act="${e.a.action}"><div class="title">${esc(cap(e.a.name))} <span class="muted" style="font-weight:400">${time(e.a.start)}</span></div><div class="sum">${esc(summary(workOf(e.a.action), e.a.start))}</div></div>`
       + kids.map(k => `<div class="entry child" data-act="${e.a.action}" data-kid="${k.action}"><span class="sum">↳ ${esc(k.name)} · ${esc(summary(spans.filter(s => s.action === k.action && s.kind !== 'action'), k.start))}</span></div>`).join('')
   }).join('') || '<div class="entry muted">No actions recorded.</div>'
-  for (const el of $('actions').querySelectorAll('[data-act]')) el.onclick = () => { const a = acts.get(el.dataset.act); focus = a.action; chosen = acts.get(el.dataset.kid || el.dataset.act); cursor = a.start; list(); setWindow(...windowOf(a.start, workOf(a.action))) }
+  for (const el of $('actions').querySelectorAll('[data-act]')) el.onclick = () => {
+    const a = acts.get(el.dataset.act)
+    if (mode === 'replay' && LOOKUPS.has(a.name)) { openReplay(a); return }
+    focus = a.action; chosen = acts.get(el.dataset.kid || el.dataset.act); cursor = a.start; list(); setWindow(...windowOf(a.start, workOf(a.action)))
+  }
   for (const el of $('actions').querySelectorAll('[data-span]')) el.onclick = () => { const s = spans[Number(el.dataset.span)]; chosen = s; cursor = s.start; setWindow(...windowOf(s.start, [s])) }
   // A background entry opened shows its stretch too.
   $('actions').querySelectorAll('details.bg').forEach((d, k) => d.addEventListener('toggle', () => { if (d.open) { const c = clusters[k]; setWindow(...windowOf(c.start, c.items)) } }))
@@ -322,6 +360,7 @@ function draw() {
     chosen = { group: key, kind, name: g.name, items: g.items }; cursor = atChart(e.clientX); draw(); side()
   }
   overview()
+  if (mode === 'replay') renderReplay()
 }
 const atChart = clientX => { const r = $('chart').getBoundingClientRect(); return w0 + Math.max(0, clientX - r.left - 190) / pxPerMs }
 $('rows').onclick = e => { if (e.target.closest('.label')) return; const at = atChart(e.clientX); if (at >= w0) { cursor = at; draw(); side() } }
@@ -350,6 +389,9 @@ function side() {
   } else if (chosen) {
     const s = chosen
     html += `<h2>Selected</h2>` + kv({ what: s.name, lane: s.kind, side: s.side, 'caused by': actionLine(s), started: time(s.start), ended: s.end > s.start ? time(s.end) : undefined, took: s.end > s.start ? ms(s.end - s.start) : 'instant', 'came from': s.source, request: s.request, placement: s.side === 'server' ? (s.aligned ? 'inside its request' : 'estimated (its request isn’t in yet)') : undefined })
+    const prompt = promptFor(s)
+    if (prompt) html += `<button class="promptbtn" data-prompt="${prompt.i}">View exact prompt</button>`
+    if (s.kind === 'net' && s.fields?.sent) html += `<h2>Data sent</h2>` + sentValues(s)
     if (s.fields) html += `<h2>Fields</h2>` + kv(s.fields)
     if (s.state) html += `<h2>Screen</h2>` + kv((SCREEN_FIELDS[s.name] || (v => v))(s.state))
     const same = spans.filter(o => o.action && o.action === s.action && o.i !== s.i)
@@ -358,6 +400,7 @@ function side() {
     else if (s.kind === 'ai') html += `<div class="muted" style="margin-top:8px">Exact prompt not kept: start a capture with “Exact AI prompts” on to keep it.</div>`
   } else html += `<div class="muted" style="margin-top:12px">Choose an action on the left to fit the chart to it, or a bar to see what caused it, where its result came from and everything else its action did.</div>`
   $('side').innerHTML = html
+  for (const el of $('side').querySelectorAll('[data-prompt]')) el.onclick = () => showPrompt(spans[Number(el.dataset.prompt)])
   for (const el of $('side').querySelectorAll('[data-i]')) el.onclick = () => { chosen = spans[Number(el.dataset.i)]; cursor = chosen.start; if (cursor < w0 || cursor > w1) setWindow(...windowOf(chosen.start, [chosen])); else { draw(); side() } }
 }
 // The most of a group's spans active at the same moment.
@@ -365,6 +408,192 @@ function maxOverlap(items) {
   const edges = items.flatMap(s => [[s.start, 1], [s.end, -1]]).sort((a, b) => a[0] - b[0] || a[1] - b[1])
   let now = 0, most = 0; for (const [, d] of edges) { now += d; most = Math.max(most, now) }
   return most
+}
+
+// ---- Replay (prototype): one Reader word lookup, Mila's Reader as recorded at the chosen moment,
+// and the lookup's path around it: the tap, the sentence's quick meanings, the request, the
+// function, its memory and cache, the spend check, Claude, the cache write and the reply to the
+// drawer. Each node is waiting, running, done or not used at that moment, from the spans the
+// capture has; arrows light up as the work reaches each node. The returned explanation's text
+// isn't in captures yet (the screen state says only that it is ready).
+const LOOKUPS = new Set(['tap a word', 'select words'])
+let mode = 'timeline', replayAct = null, picked = null
+const lookups = () => [...acts.values()].filter(a => LOOKUPS.has(a.name)).sort((a, b) => a.start - b.start)
+$('modeTimeline').onclick = () => setMode('timeline')
+$('modeReplay').onclick = () => setMode('replay')
+function setMode(next) {
+  mode = next
+  $('modeTimeline').classList.toggle('on', next === 'timeline'); $('modeReplay').classList.toggle('on', next === 'replay')
+  $('chart').hidden = next !== 'timeline'; $('replay').hidden = next !== 'replay'
+  if (next === 'replay') {
+    const all = lookups()
+    const target = (focus && LOOKUPS.has(acts.get(focus)?.name) && acts.get(focus)) || replayAct || all.find(a => spans.some(s => s.kind === 'ai' && s.action === a.action)) || all[0]
+    if (target) openReplay(target); else $('replay').innerHTML = '<div class="rp-bar muted">No Reader word lookup in this capture: tap a word in the Reader while capturing.</div>'
+  } else draw()
+}
+const lookupWork = a => spans.filter(s => s.action === a.action && s.kind !== 'action')
+// The selection the tap made (a word tapped in another sentence selects it first): its quick meanings.
+const selectionOf = a => [...acts.values()].find(x => x.name === 'select a sentence' && x.start <= a.start + 5 && a.start - x.start < 400)
+function openReplay(a) {
+  replayAct = a; focus = a.action; picked = null; chosen = null
+  const sel = selectionOf(a), work = [...lookupWork(a), ...(sel ? lookupWork(sel) : [])]
+  // To just after this lookup's work ends, never into the next one.
+  const next = lookups().find(x => x.start > a.start)?.start ?? Infinity
+  const end = Math.min(next - 1, Math.max(a.start + 800, ...work.map(s => s.end)) + 400)
+  cursor = a.start
+  list(); setWindow(a.start - 400, end)
+}
+const readerStates = () => spans.filter(s => s.kind === 'state' && s.name === 'reader')
+const statusOf = (span, at, end = span?.end) => (!span ? 'unused' : span.start > at ? 'waiting' : end > at ? 'running' : span.fields?.status && !/^2\d\d$/.test(String(span.fields.status)) ? 'failed' : 'done')
+const bare = text => String(text || '').replace(/[\u0591-\u05C7]/g, '').replace(/[^\u05D0-\u05EA]/g, '')
+function promptFor(s) {
+  if (s.prompt) return s
+  if (s.kind === 'net' || s.kind === 'server') return spans.find(o => o.kind === 'ai' && o.prompt && o.request && o.request === s.request) || null
+  return null
+}
+// What a request carried: from the exact prompt when kept (the model's input names them), otherwise
+// what was on screen then, which is what the phone sends (word-analysis: word, sentence).
+function sentValues(s) {
+  const p = promptFor(s)
+  const user = p?.prompt?.messages?.find(m => m.role === 'user')
+  const text = typeof user?.content === 'string' ? user.content : Array.isArray(user?.content) ? user.content.map(c => c.text || '').join('\n') : ''
+  if (text) return `<div class="muted">From the exact prompt:</div><pre class="he" style="direction:rtl">${esc(text)}</pre>`
+  const state = [...readerStates()].filter(x => x.start <= s.end + 50).pop()?.state
+  const names = (s.fields?.sent || []).join(', ')
+  if (s.name === 'word-analysis' && state) return kv({ fields: names, word: state.drawer?.word, sentence: state.sentence?.text }) + '<div class="muted">Values as on screen then: the request’s own aren’t kept without “Exact AI prompts”.</div>'
+  return kv({ fields: names }) + '<div class="muted">Values aren’t kept in captures, only field names.</div>'
+}
+function showPrompt(s) {
+  const p = s.prompt || {}
+  const user = (p.messages || []).map(m => `${m.role}:\n${typeof m.content === 'string' ? m.content : JSON.stringify(m.content, null, 2)}`).join('\n\n')
+  const system = Array.isArray(p.system) ? p.system.map(x => x.text || '').join('\n') : p.system || ''
+  $('modal').innerHTML = `<div class="box"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Exact request sent to Claude · ${esc(s.name)} · ${time(s.start)}</strong><button id="closeModal">Close</button></div>
+    ${kv({ model: p.model, 'max tokens': p.max_tokens, why: s.fields?.why, cost: s.fields?.cost != null ? `$${Number(s.fields.cost).toFixed(4)}` : undefined })}
+    <h2>Message</h2><pre style="direction:rtl;text-align:right">${esc(user)}</pre>
+    <details><summary>System prompt (${system.length} characters)</summary><pre>${esc(system)}</pre></details>
+    <details><summary>Everything, as sent</summary><pre>${esc(JSON.stringify(p, null, 2))}</pre></details></div>`
+  $('modal').hidden = false
+  $('closeModal').onclick = () => { $('modal').hidden = true }
+}
+$('modal').onclick = e => { if (e.target === $('modal')) $('modal').hidden = true }
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape') $('modal').hidden = true
+  if (mode !== 'replay' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return
+  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); step(e.key === 'ArrowRight' ? 1 : -1) }
+})
+// The moments worth stopping at: each start and end in the lookup, and each change of the Reader.
+function moments() {
+  const a = replayAct, sel = selectionOf(a), work = [...lookupWork(a), ...(sel ? lookupWork(sel) : [])]
+  return [...new Set([a.start, ...work.flatMap(s => [s.start, s.end]), ...readerStates().map(s => s.start)].filter(t => t >= w0 && t <= w1))].sort((x, y) => x - y)
+}
+function step(dir) {
+  const list = moments(), next = dir > 0 ? list.find(t => t > cursor + 0.5) : [...list].reverse().find(t => t < cursor - 0.5)
+  if (next !== undefined) { cursor = next; draw(); side() }
+}
+function renderReplay() {
+  const a = replayAct
+  if (!a) return
+  const work = lookupWork(a), sel = selectionOf(a), selWork = sel ? lookupWork(sel) : []
+  const get = (list, test) => list.find(test) || null
+  const request = get(work, s => s.kind === 'net' && s.name === 'word-analysis')
+  const n = {
+    tap: { title: 'Tap', span: a },
+    quick: { title: 'Quick meanings', span: get(selWork, s => s.kind === 'net' && s.name === 'sentence-glosses') || get(selWork, s => s.kind === 'phone'), note: 'for the sentence, asked when it was selected' },
+    phone: { title: 'On the phone', span: get(work, s => s.kind === 'phone') },
+    request: { title: 'Lookup request', span: request },
+    reply: { title: 'Reply to the drawer', span: request, at: request?.end },
+    server: { title: 'word-analysis function', span: get(work, s => s.kind === 'server' && s.name === 'word-analysis') },
+    memory: { title: 'Function memory', span: get(work, s => s.kind === 'server' && s.name === 'instance memory') },
+    cache: { title: 'Cache check', span: get(work, s => s.kind === 'db' && s.name.startsWith('aiCache.findOne')) },
+    spend: { title: 'Daily spend check', span: get(work, s => s.kind === 'db' && s.name.startsWith('aiUsage')) },
+    claude: { title: 'Claude', span: get(work, s => s.kind === 'ai') },
+    store: { title: 'Cache write', span: get(work, s => s.kind === 'db' && s.name.startsWith('aiCache.updateOne')) },
+  }
+  const st = key => { const node = n[key]; if (key === 'reply') return !request ? 'unused' : cursor < request.end ? 'waiting' : statusOf(request, cursor); return statusOf(node.span, cursor) }
+  const rel = t => (t >= a.start ? `+${ms(t - a.start)}` : `−${ms(a.start - t)}`)
+  const outcome = key => {
+    const s = n[key].span, f = s?.fields || {}
+    if (!s) return key === 'phone' ? 'not needed' : key === 'memory' ? 'not this time' : 'not used'
+    switch (key) {
+      case 'tap': return `word ${s.fields?.place != null ? s.fields.place + 1 : ''} of sentence ${s.fields?.segment != null ? s.fields.segment + 1 : ''}`
+      case 'quick': return s.kind === 'phone' ? s.source : `${f.status ?? ''} · ${ms(s.end - s.start)}`
+      case 'phone': return s.source
+      case 'request': return `sends ${(f.sent || []).join(', ') || '—'}`
+      case 'reply': return st('reply') === 'waiting' ? 'not back yet' : `${f.status} · ${f.bytes ? Math.round(f.bytes / 100) / 10 + ' kB' : ''}`
+      case 'server': return `status ${f.status ?? '…'}`
+      case 'memory': return 'answered from this instance’s memory'
+      case 'cache': return f.hit ? 'answered before: no AI needed' : 'not there: ask Claude'
+      case 'spend': return 'within today’s limit'
+      case 'claude': return f.failed ? `failed: ${f.failed}` : `${f.inputTokens ?? '?'} in · ${f.outputTokens ?? '?'} out${f.cacheWriteTokens ? ` · ${f.cacheWriteTokens} cached` : ''} · $${Number(f.cost || 0).toFixed(4)}`
+      case 'store': return 'kept for the next tap of this word here'
+    }
+  }
+  const node = key => { const s = n[key].span, status = st(key), when = key === 'reply' ? request?.end : s?.start
+    const prompt = key === 'claude' && s?.prompt
+    return `<div class="node st-${status}${picked === key ? ' picked' : ''}" data-node="${key}" id="node-${key}">
+      <div class="nt">${n[key].title} <span class="nm">${status === 'unused' ? '' : status}</span></div>
+      <div class="ns">${esc(outcome(key) || '')}</div>
+      ${s && when !== undefined ? `<div class="nm">${rel(when)}${key !== 'reply' && key !== 'tap' && s.end > s.start ? ` · took ${ms(s.end - s.start)}` : ''}</div>` : ''}
+      ${prompt ? `<button class="promptbtn" data-prompt-node="claude">View exact prompt</button>` : ''}</div>` }
+  // The Reader as recorded at this moment.
+  const state = [...readerStates()].filter(s => s.start <= cursor).pop()?.state
+  const tappedWord = (readerStates().find(s => s.start >= a.start && s.state.drawer)?.state.drawer?.word) || ''
+  const drawer = state?.drawer
+  const tokens = String(state?.sentence?.text || '').split(/(\s+)/)
+  const text = state?.sentence ? tokens.map(t => (/^\s+$/.test(t) ? t : `<span class="w${drawer && bare(t) && bare(t) === bare(drawer.word) ? ' tapped' : ''}">${esc(t)}</span>`)).join('') : '<span class="muted">No sentence selected</span>'
+  const replyAt = request?.end
+  // When this tap's drawer first showed, and when it closed again (screen states after the tap).
+  const after = readerStates().filter(x => x.start >= a.start)
+  const openedAt = after.find(x => x.state.drawer)?.start
+  const closedAt = openedAt !== undefined ? after.find(x => x.start > openedAt && !x.state.drawer)?.start : undefined
+  const closedNote = cursor < (openedAt ?? Infinity) ? 'Opening the drawer…'
+    : closedAt !== undefined && replyAt !== undefined && closedAt < replyAt ? (cursor < replyAt ? 'Drawer closed before the explanation came back' : 'The explanation came back after the drawer was closed: kept for the next tap of this word here')
+      : 'Drawer closed'
+  const drawerHtml = drawer && cursor >= (openedAt ?? Infinity)
+    ? `<div class="ph-drawer"><div class="dw">${esc(drawer.word)}</div>
+       <div style="margin-top:6px">${drawer.explained ? '<strong>Explanation ready</strong><div class="muted" style="font-size:11px">Its text isn’t in the capture.</div>' : drawer.loading ? (state.quickMeanings === 'ready' ? 'Quick meaning shown · explanation loading…' : 'Loading…') : drawer.meaning ? 'Meaning shown' : ''}</div></div>`
+    : `<div class="ph-drawer closed">${closedNote}</div>`
+  const all = lookups()
+  $('replay').innerHTML = `<div class="rp-bar">
+      <select id="rpPick">${all.map(x => { const w = readerStates().find(s => s.start >= x.start && s.state.drawer)?.state.drawer.word; return `<option value="${x.action}"${x === a ? ' selected' : ''}>${time(x.start)} · ${esc(w || x.name)}${spans.some(s => s.kind === 'ai' && s.action === x.action) ? ' · Claude' : ''}</option>` }).join('')}</select>
+      <button id="rpPrev" title="Previous step (←)">◀</button><input id="rpScrub" type="range" min="0" max="1000" value="${Math.round(((cursor - w0) / (w1 - w0)) * 1000)}"><button id="rpNext" title="Next step (→)">▶</button>
+      <span class="muted" style="min-width:150px">${rel(cursor)} after the tap</span></div>
+    <div class="rp-stage" id="rpStage"><svg class="rp-svg" id="rpSvg"></svg>
+      <div class="rp-col">${['tap', 'quick', 'phone', 'request', 'reply'].map(node).join('')}</div>
+      <div class="phone" id="node-drawer"><div class="ph-top"><span>Reader · sentence ${state?.sentence ? state.sentence.index + 1 : '–'}</span><span>EN · ${esc(state?.english || '')}</span></div>
+        <div class="ph-text">${text}</div><div class="ph-q">Quick meanings: ${esc(state?.quickMeanings || '–')}</div>${drawerHtml}</div>
+      <div class="rp-col">${['server', 'memory', 'cache', 'spend', 'claude', 'store'].map(node).join('')}</div>
+    </div>
+    <div class="muted" style="padding:0 18px 16px">Tapped word: ${esc(tappedWord) || '–'}. Arrows light up as the work reaches each step; dashed steps weren’t used for this tap. Click a step for its details, or ◀ ▶ (or the arrow keys) to go step by step.</div>`
+  $('rpPick').onchange = () => openReplay(acts.get($('rpPick').value))
+  $('rpPrev').onclick = () => step(-1); $('rpNext').onclick = () => step(1)
+  $('rpScrub').oninput = () => { cursor = w0 + (w1 - w0) * Number($('rpScrub').value) / 1000; draw(); side() }
+  for (const el of $('replay').querySelectorAll('[data-node]')) el.onclick = e => {
+    if (e.target.dataset.promptNode) { showPrompt(n.claude.span); return }
+    const key = el.dataset.node, s = n[key].span
+    if (!s) return
+    picked = key; chosen = s; if (key === 'reply') cursor = Math.max(cursor, s.end); draw(); side()
+  }
+  // The path, in order, between the steps that exist: lit once the work has reached the next step.
+  const path = n.phone.span && !request ? ['tap', 'phone', 'drawer'] : ['tap', 'request', 'server', ...(n.memory.span ? ['memory'] : []), 'cache', ...(n.claude.span ? ['spend', 'claude', 'store'] : []), 'reply', 'drawer']
+  const lit = key => key === 'drawer' ? (request ? cursor >= request.end : !!n.phone.span && cursor >= n.phone.span.start) : !['waiting', 'unused'].includes(st(key))
+  requestAnimationFrame(() => {
+    const stage = $('rpStage'), svg = $('rpSvg')
+    if (!stage || !svg) return
+    const box = stage.getBoundingClientRect()
+    const centre = (key, side) => { const r = $(`node-${key}`)?.getBoundingClientRect(); if (!r) return null; const y = key === 'drawer' ? r.bottom - box.top - 60 : r.top - box.top + r.height / 2; return { x: (side === 'right' ? r.right : side === 'left' ? r.left : r.left + r.width / 2) - box.left, y, r } }
+    let lines = '<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#2f7d4f"/></marker><marker id="ag" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#c7d0c9"/></marker></defs>'
+    const column = key => (['tap', 'quick', 'phone', 'request', 'reply'].includes(key) ? 'left' : key === 'drawer' ? 'centre' : 'right')
+    for (let i = 0; i < path.length - 1; i++) {
+      const from = path[i], to = path[i + 1], cf = column(from), ct = column(to)
+      const a1 = centre(from, cf === ct ? 'centre' : cf === 'left' ? 'right' : 'left'), b1 = centre(to, cf === ct ? 'centre' : ct === 'left' ? 'right' : ct === 'right' ? 'left' : cf === 'left' ? 'left' : 'right')
+      if (!a1 || !b1) continue
+      const on = lit(to)
+      const d = cf === ct ? `M${a1.x},${a1.r.bottom - box.top} L${b1.x},${b1.r.top - box.top - 2}` : `M${a1.x},${a1.y} C${(a1.x + b1.x) / 2},${a1.y} ${(a1.x + b1.x) / 2},${b1.y} ${b1.x},${b1.y}`
+      lines += `<path d="${d}" fill="none" stroke="${on ? '#2f7d4f' : '#c7d0c9'}" stroke-width="${on ? 2.5 : 1.5}" ${on ? '' : 'stroke-dasharray="4 4"'} marker-end="url(#${on ? 'ah' : 'ag'})"/>`
+    }
+    svg.innerHTML = lines
+  })
 }
 show()
 </script>
