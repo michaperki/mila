@@ -6,40 +6,64 @@
 <meta name="robots" content="noindex">
 <title>Mila debug viewer</title>
 <style>
-  :root { --ink: #1d2a22; --muted: #6b7a70; --line: #dfe6e0; --paper: #f7f9f6; --green: #2f7d4f; --red: #b3412f; --lane: 132px; }
+  :root { --ink: #1d2a22; --muted: #6b7a70; --line: #dfe6e0; --paper: #f7f9f6; --green: #2f7d4f; --red: #b3412f; --label: 190px; }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--paper); }
-  header { display: flex; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); background: #fff; position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+  /* The page's own display rules must never show what `hidden` hides (the sign-in form did). */
+  [hidden] { display: none !important; }
+  body { margin: 0; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--paper); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  header { display: flex; gap: 12px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); background: #fff; flex-wrap: wrap; }
   header h1 { font-size: 15px; margin: 0 8px 0 0; }
   button, select, input { font: inherit; }
-  button { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  button { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 3px 10px; cursor: pointer; }
   button:hover { border-color: var(--green); }
   .muted { color: var(--muted); }
   #login { max-width: 320px; margin: 60px auto; background: #fff; padding: 20px; border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 8px; }
   #login input { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
-  main { display: grid; grid-template-columns: 1fr 380px; height: calc(100vh - 50px); }
-  #left { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--line); }
-  #controls { display: flex; gap: 10px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); background: #fff; }
+  #app { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  /* The whole session, always in view: where activity is, which stretch the chart shows. */
+  #overview { position: relative; height: 74px; background: #fff; border-bottom: 1px solid var(--line); cursor: crosshair; user-select: none; }
+  #overview .row { position: absolute; left: var(--label); right: 12px; }
+  #overview .name { position: absolute; left: 12px; font-size: 11px; color: var(--muted); }
+  #overview .bin { position: absolute; bottom: 0; }
+  #overview .act { position: absolute; top: 0; width: 2px; height: 10px; }
+  #window { position: absolute; top: 2px; bottom: 2px; border: 1.5px solid var(--ink); background: rgba(47,125,79,.08); border-radius: 3px; pointer-events: none; }
+  #ocursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--red); pointer-events: none; }
+  #body { flex: 1; display: grid; grid-template-columns: 300px 1fr 380px; min-height: 0; }
+  #actions { overflow: auto; border-right: 1px solid var(--line); background: #fff; }
+  .entry { padding: 7px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .entry:hover { background: #f4f8f5; }
+  .entry.on { background: #e8f2ea; }
+  .entry .title { font-weight: 600; }
+  .entry .sum { color: var(--muted); font-size: 12px; }
+  .entry.child { padding-left: 26px; }
+  .entry.bg { color: var(--muted); }
+  details.bg > summary { list-style: none; padding: 6px 12px; border-bottom: 1px solid var(--line); cursor: pointer; color: var(--muted); font-size: 12px; }
+  details.bg > summary::before { content: '▸ '; }
+  details.bg[open] > summary::before { content: '▾ '; }
+  #center { display: flex; flex-direction: column; min-width: 0; }
+  #controls { display: flex; gap: 10px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); background: #fff; }
   #controls input[type=range] { flex: 1; }
-  #scroll { overflow: auto; flex: 1; position: relative; background: #fff; }
-  #timeline { position: relative; }
-  .lane { position: relative; border-bottom: 1px solid var(--line); }
-  .lane-name { position: sticky; left: 0; width: var(--lane); background: #fbfcfb; border-right: 1px solid var(--line); padding: 4px 8px; font-weight: 600; z-index: 2; height: 100%; position: absolute; }
-  .bar { position: absolute; height: 18px; border-radius: 4px; font-size: 11px; line-height: 18px; padding: 0 4px; overflow: hidden; white-space: nowrap; color: #fff; cursor: pointer; min-width: 3px; opacity: .9; }
-  .bar.tick { width: 3px !important; padding: 0; border-radius: 1px; }
-  .bar.dim { opacity: .18; }
+  #chart { flex: 1; overflow-y: auto; overflow-x: hidden; position: relative; background: #fff; }
+  #axis { position: sticky; top: 0; height: 20px; background: #fff; border-bottom: 1px solid var(--line); z-index: 3; }
+  .tickmark { position: absolute; top: 0; height: 20px; border-left: 1px solid var(--line); font-size: 10px; color: var(--muted); padding-left: 3px; white-space: nowrap; }
+  .lane-head { padding: 3px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); background: #fbfcfb; border-bottom: 1px solid var(--line); }
+  .row { position: relative; height: 22px; border-bottom: 1px solid #f0f3f0; }
+  .row .label { position: absolute; left: 0; width: var(--label); padding: 0 8px 0 12px; height: 22px; line-height: 22px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; cursor: pointer; background: #fff; z-index: 1; border-right: 1px solid var(--line); }
+  .row .label:hover { color: var(--green); }
+  .row.member .label { padding-left: 28px; color: var(--muted); }
+  .bar { position: absolute; top: 3px; height: 16px; border-radius: 3px; min-width: 2px; opacity: .88; cursor: pointer; font-size: 10px; line-height: 16px; color: #fff; padding: 0 3px; overflow: hidden; white-space: nowrap; }
+  .bar.tick { width: 2px !important; padding: 0; }
+  .bar.dim { opacity: .15; }
   .bar.chosen { outline: 2px solid var(--ink); opacity: 1; }
-  #axis { position: sticky; top: 0; height: 22px; background: #fff; border-bottom: 1px solid var(--line); z-index: 3; }
-  .tickmark { position: absolute; top: 0; height: 22px; border-left: 1px solid var(--line); font-size: 10px; color: var(--muted); padding-left: 3px; }
-  #cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--red); z-index: 4; pointer-events: none; }
-  aside { overflow: auto; padding: 12px 16px; }
-  aside h2 { font-size: 13px; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  #cursor { position: absolute; top: 0; width: 1px; background: var(--red); z-index: 4; pointer-events: none; }
+  aside { overflow: auto; padding: 10px 16px; border-left: 1px solid var(--line); background: var(--paper); }
+  aside h2 { font-size: 12px; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
   .kv { display: grid; grid-template-columns: 110px 1fr; gap: 2px 8px; }
   .kv div:nth-child(odd) { color: var(--muted); }
   .he { direction: rtl; font-size: 15px; }
-  pre { white-space: pre-wrap; word-break: break-word; background: #f2f5f2; padding: 8px; border-radius: 6px; max-height: 360px; overflow: auto; font-size: 11px; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #eef2ee; padding: 8px; border-radius: 6px; max-height: 360px; overflow: auto; font-size: 11px; }
   .item { padding: 4px 0; border-bottom: 1px dashed var(--line); cursor: pointer; }
-  .pill { display: inline-block; padding: 0 6px; border-radius: 999px; background: #eef3ef; font-size: 11px; margin-right: 4px; }
+  .pill { display: inline-block; padding: 0 6px; border-radius: 999px; background: #e6eee8; font-size: 11px; margin-right: 4px; }
 </style>
 </head>
 <body>
@@ -59,56 +83,74 @@
   <button type="submit">Sign in</button>
   <span id="loginError" style="color:var(--red)"></span>
 </form>
-<main id="app" hidden>
-  <section id="left">
-    <div id="controls">
-      <span class="muted">Zoom</span><input id="zoom" type="range" min="0" max="100" value="40" style="max-width:160px">
-      <span class="muted">Moment</span><input id="scrub" type="range" min="0" max="1000" value="0">
-      <span id="at" class="muted" style="min-width:110px"></span>
-    </div>
-    <div id="scroll"><div id="axis"></div><div id="timeline"></div><div id="cursor"></div></div>
-  </section>
-  <aside id="side"></aside>
-</main>
+<div id="app" hidden>
+  <div id="overview" title="The whole session: click to move the chart here, drag to choose a stretch"></div>
+  <div id="body">
+    <nav id="actions"></nav>
+    <section id="center">
+      <div id="controls">
+        <button id="all">Whole session</button>
+        <span class="muted">Moment</span><input id="scrub" type="range" min="0" max="1000" value="0">
+        <span id="at" class="muted" style="min-width:96px"></span>
+        <span id="span" class="muted"></span>
+      </div>
+      <div id="chart"><div id="axis"></div><div id="rows"></div><div id="cursor"></div></div>
+    </section>
+    <aside id="side"></aside>
+  </div>
+</div>
 <script>
-// Reads one debug capture (functions/debug-trace.ts) and lays it out on a timeline: what the phone
-// showed (Screen), what was done (Actions), work on the phone (Phone), requests (Network), what the
-// functions did (Server), their database operations (Database) and AI calls (AI). Server times are
-// set inside the request they belong to (the phone's and the server's clocks differ). A click
-// chooses a span and every span of its action; the moment slider shows the screen then and what
-// was still loading.
+// Reads one debug capture (functions/debug-trace.ts). Above, the whole session (where activity
+// is, and the stretch the chart shows); left, what was done, in order, each action with the work it
+// set off summed up beneath it, and work with no known action in collapsed entries; centre, the
+// chart of the chosen stretch fitted to its width, its spans grouped by lane and operation (a
+// group's bar is when any of it was active, so idle gaps show), each group expandable to its
+// spans; right, the screen at the chosen moment, what was in progress, and the chosen span's or
+// group's details. Server times are set inside the request they belong to (the clocks differ).
 const API = '/.netlify/functions/'
 const LANES = [['state', 'Screen'], ['action', 'Actions'], ['phone', 'Phone'], ['net', 'Network'], ['server', 'Server'], ['db', 'Database'], ['ai', 'AI']]
 const $ = id => document.getElementById(id)
 let token = sessionStorage.getItem('milaDebugToken')
-let data = null, spans = [], t0 = 0, t1 = 0, cursor = 0, chosen = null, pxPerMs = 0.2
+let data = null, spans = [], t0 = 0, t1 = 1, w0 = 0, w1 = 1, cursor = 0, chosen = null, focus = null
+const expanded = new Set()
+const acts = new Map(), rootOf = new Map()
 
 async function api(path, init = {}) {
   const response = await fetch(API + path, { ...init, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
   const body = await response.json().catch(() => ({}))
-  if (response.status === 401) { signOut(); throw new Error('Signed out: sign in again.') }
+  if (response.status === 401 && token) { signOut(); throw new Error('Signed out: sign in again.') }
   if (!response.ok) throw new Error(body.message || `Failed (${response.status})`)
   return body
 }
-function signOut() { token = null; sessionStorage.removeItem('milaDebugToken'); show() }
+function signOut() { token = null; sessionStorage.removeItem('milaDebugToken'); sessionStorage.removeItem('milaDebugWho'); show() }
 async function show() {
-  $('login').hidden = !!token; $('app').hidden = !token
-  for (const id of ['captures', 'refresh', 'signout']) $(id).hidden = !token
-  if (token) await loadList().catch(error => { $('status').textContent = error.message })
+  const signedIn = !!token
+  $('login').hidden = signedIn
+  $('app').hidden = !signedIn
+  for (const id of ['captures', 'refresh', 'signout']) $(id).hidden = !signedIn
+  $('who').textContent = signedIn ? sessionStorage.getItem('milaDebugWho') || '' : ''
+  if (signedIn) await loadList().catch(error => { $('status').textContent = error.message })
 }
 $('login').onsubmit = async event => {
   event.preventDefault(); $('loginError').textContent = ''
   try {
     const result = await api('auth', { method: 'POST', body: JSON.stringify({ email: $('email').value, password: $('password').value, mode: 'login' }) })
-    token = result.token; sessionStorage.setItem('milaDebugToken', token); $('who').textContent = result.user.email; show()
+    token = result.token
+    sessionStorage.setItem('milaDebugToken', token); sessionStorage.setItem('milaDebugWho', result.user.email)
+    $('password').value = ''
+    await show()
   } catch (error) { $('loginError').textContent = error.message }
 }
 $('signout').onclick = signOut
 $('refresh').onclick = () => loadList(true)
 $('captures').onchange = () => loadCapture($('captures').value)
+$('all').onclick = () => { focus = null; setWindow(t0, t1); list() }
 
 const time = at => { const d = new Date(at); return d.toLocaleTimeString([], { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0') }
-const ms = n => (n < 1000 ? `${Math.round(n)} ms` : `${(n / 1000).toFixed(2)} s`)
+const ms = n => (n < 1000 ? `${Math.round(n)} ms` : n < 120000 ? `${(n / 1000).toFixed(1)} s` : `${Math.round(n / 60000)} min`)
+const esc = text => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const cap = text => String(text).charAt(0).toUpperCase() + String(text).slice(1)
+
 async function loadList(keep) {
   const { captures } = await api('debug-trace')
   const was = $('captures').value
@@ -116,7 +158,7 @@ async function loadList(keep) {
   if (!captures.length) { $('status').textContent = 'No captures yet: start one in Mila Preview, Account → Debug capture.'; return }
   const id = keep && captures.some(c => c.id === was) ? was : captures[0].id
   $('captures').value = id
-  await loadCapture(id)
+  await loadCapture(id, keep)
 }
 
 // Server spans (server clock) placed inside the phone's request they belong to.
@@ -131,87 +173,198 @@ function align(list) {
   const usual = all.length ? all[Math.floor(all.length / 2)] : 0
   return list.map(s => (s.side === 'server' ? { ...s, start: s.start + (offsets.get(s.request) ?? usual), end: s.end + (offsets.get(s.request) ?? usual), aligned: offsets.has(s.request) } : s))
 }
-async function loadCapture(id) {
+async function loadCapture(id, keep) {
   $('status').textContent = 'Loading…'
   data = await api(`debug-trace?capture=${encodeURIComponent(id)}`)
-  spans = align(data.spans).map((s, i) => ({ ...s, i, end: s.end ?? s.start }))
+  spans = align(data.spans).map((s, i) => ({ ...s, i, end: Math.max(s.end ?? s.start, s.start) }))
+  acts.clear(); rootOf.clear()
+  for (const s of spans) if (s.kind === 'action') acts.set(s.action, s)
+  // An action's root: the action at the top of what set it off (a prefetch's, its selection's).
+  for (const id of acts.keys()) { let a = acts.get(id), guard = 0; while (a.parent && acts.has(a.parent) && guard++ < 20) a = acts.get(a.parent); rootOf.set(id, a.action) }
   t0 = Math.min(...spans.map(s => s.start), data.capture.startedAt); t1 = Math.max(...spans.map(s => s.end), t0 + 1000)
-  cursor = t1; chosen = null
+  if (!keep) { focus = null; chosen = null; expanded.clear(); w0 = t0; w1 = t1; cursor = t0 }
   $('status').textContent = `${spans.length} spans · ${ms(t1 - t0)}${data.capture.prompts ? ' · with exact prompts' : ''}`
-  draw(); side()
+  list(); setWindow(keep ? w0 : t0, keep ? w1 : t1)
 }
 
-const actions = () => new Map(spans.filter(s => s.kind === 'action').map(s => [s.action, s]))
+// What a span belongs to: its action's root, or none (background work).
+// (A server span whose phone action hasn't arrived yet still belongs to that action.)
+const rootFor = s => (s.action ? rootOf.get(s.action) ?? s.action : null)
+const workOf = root => spans.filter(s => s.kind !== 'action' && s.kind !== 'state' && rootFor(s) === root)
 const hue = id => { let h = 7; for (const c of String(id || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360 }
-const colorOf = s => (s.kind === 'state' ? '#8a9a90' : s.action ? `hsl(${hue(s.action)} 55% 42%)` : '#9aa59e')
-const x = at => 132 + (at - t0) * pxPerMs
-function draw() {
-  pxPerMs = 0.02 * Math.pow(1.07, Number($('zoom').value))
-  const width = x(t1) + 200
-  const timeline = $('timeline'); timeline.innerHTML = ''; timeline.style.width = width + 'px'
-  const related = chosen ? new Set([chosen.action, ...[...actions().values()].filter(a => a.parent === chosen.action || a.action === actions().get(chosen.action)?.parent).map(a => a.action)]) : null
-  for (const [kind, name] of LANES) {
-    const mine = spans.filter(s => (s.kind === kind))
-    // Overlapping spans each get a row of their own.
-    const rows = []
-    for (const s of mine) { let r = rows.findIndex(end => end <= s.start - 1 / pxPerMs * 4); if (r < 0) { r = rows.length; rows.push(0) } rows[r] = Math.max(s.end, s.start + 60 / pxPerMs); s.row = r }
-    const lane = document.createElement('div'); lane.className = 'lane'; lane.style.height = Math.max(1, rows.length) * 22 + 8 + 'px'
-    lane.innerHTML = `<div class="lane-name">${name}</div>`
-    for (const s of mine) {
-      const bar = document.createElement('div')
-      const instant = s.end - s.start < 1 / pxPerMs * 3
-      bar.className = 'bar' + (instant ? ' tick' : '') + (related && !related.has(s.action) ? ' dim' : '') + (chosen && chosen.i === s.i ? ' chosen' : '')
-      bar.style.left = x(s.start) + 'px'; bar.style.top = 4 + s.row * 22 + 'px'; bar.style.background = colorOf(s)
-      if (!instant) bar.style.width = Math.max(3, (s.end - s.start) * pxPerMs) + 'px'
-      bar.textContent = instant ? '' : `${s.name}${s.source && s.kind !== 'net' ? ' · ' + s.source : ''}`
-      bar.title = `${s.name} · ${ms(s.end - s.start)}${s.source ? ' · ' + s.source : ''}`
-      bar.onclick = event => { event.stopPropagation(); chosen = s; cursor = s.start; draw(); side() }
-      lane.appendChild(bar)
-    }
-    timeline.appendChild(lane)
-  }
-  const axis = $('axis'); axis.innerHTML = ''; axis.style.width = width + 'px'
-  const step = [10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000].find(n => n * pxPerMs >= 90) || 60000
-  for (let at = Math.ceil(t0 / step) * step; at <= t1; at += step) axis.insertAdjacentHTML('beforeend', `<div class="tickmark" style="left:${x(at)}px">${time(at)}</div>`)
-  $('scrub').value = Math.round(((cursor - t0) / (t1 - t0)) * 1000)
-  $('cursor').style.left = x(cursor) + 'px'
-  $('at').textContent = time(cursor)
+const colorOf = root => (root ? `hsl(${hue(root)} 55% 42%)` : '#98a39c')
+const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`
+// A short account of work: requests by operation, AI calls and their cost, work done on the phone.
+function summary(work, from) {
+  const nets = work.filter(s => s.kind === 'net'), ai = work.filter(s => s.kind === 'ai'), phone = work.filter(s => s.kind === 'phone')
+  const byName = new Map(); for (const s of nets) byName.set(s.name, (byName.get(s.name) || 0) + 1)
+  const parts = [...byName].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${n} ${name}`)
+  if (ai.length) { const cost = ai.reduce((sum, s) => sum + (Number(s.fields?.cost) || 0), 0); parts.push(`${plural(ai.length, 'AI call')}${cost ? ` ($${cost.toFixed(3)})` : ''}`) }
+  if (phone.length) parts.push(`${phone.length} on the phone`)
+  const end = Math.max(from, ...work.map(s => s.end))
+  return `${parts.join(' · ') || 'nothing more'}${work.length ? ` · ${ms(end - from)}` : ''}`
 }
-$('zoom').oninput = () => { draw() }
-$('scrub').oninput = () => { cursor = t0 + (t1 - t0) * Number($('scrub').value) / 1000; $('cursor').style.left = x(cursor) + 'px'; $('at').textContent = time(cursor); side() }
-$('timeline').onclick = event => {
-  const rect = $('timeline').getBoundingClientRect()
-  const at = t0 + (event.clientX - rect.left - 132) / pxPerMs
-  if (at >= t0) { cursor = at; chosen = null; draw(); side() }
+const windowOf = (from, work) => { const end = Math.max(from + 300, ...work.map(s => s.end)); const pad = Math.max(150, (end - from) * 0.06); return [from - pad, end + pad] }
+
+// The action list: each action whose root it is, its child actions beneath it, and background
+// work (no known action) in collapsed entries, gathered where it comes close together.
+function list() {
+  const roots = [...acts.values()].filter(a => rootOf.get(a.action) === a.action).sort((a, b) => a.start - b.start)
+  const background = spans.filter(s => s.kind !== 'action' && s.kind !== 'state' && !rootFor(s)).sort((a, b) => a.start - b.start)
+  const clusters = []
+  for (const s of background) { const last = clusters[clusters.length - 1]; if (last && s.start - last.end < 15000) { last.items.push(s); last.end = Math.max(last.end, s.end) } else clusters.push({ start: s.start, end: s.end, items: [s] }) }
+  const entries = [...roots.map(a => ({ at: a.start, kind: 'action', a })), ...clusters.map(c => ({ at: c.start, kind: 'bg', c }))].sort((x, y) => x.at - y.at)
+  $('actions').innerHTML = entries.map(e => {
+    if (e.kind === 'bg') return `<details class="bg"><summary>${time(e.c.start)} · Background · ${esc(summary(e.c.items, e.c.start))}</summary>${e.c.items.filter(s => s.side === 'phone' || s.kind === 'ai').slice(0, 40).map(s => `<div class="entry bg child" data-span="${s.i}">${esc(s.name)} <span class="sum">${ms(s.end - s.start)}${s.source ? ' · ' + esc(s.source) : ''}</span></div>`).join('')}</details>`
+    const kids = [...acts.values()].filter(k => k.action !== e.a.action && rootOf.get(k.action) === e.a.action).sort((x, y) => x.start - y.start)
+    return `<div class="entry${focus === e.a.action ? ' on' : ''}" data-act="${e.a.action}"><div class="title">${esc(cap(e.a.name))} <span class="muted" style="font-weight:400">${time(e.a.start)}</span></div><div class="sum">${esc(summary(workOf(e.a.action), e.a.start))}</div></div>`
+      + kids.map(k => `<div class="entry child" data-act="${e.a.action}" data-kid="${k.action}"><span class="sum">↳ ${esc(k.name)} · ${esc(summary(spans.filter(s => s.action === k.action && s.kind !== 'action'), k.start))}</span></div>`).join('')
+  }).join('') || '<div class="entry muted">No actions recorded.</div>'
+  for (const el of $('actions').querySelectorAll('[data-act]')) el.onclick = () => { const a = acts.get(el.dataset.act); focus = a.action; chosen = acts.get(el.dataset.kid || el.dataset.act); cursor = a.start; list(); setWindow(...windowOf(a.start, workOf(a.action))) }
+  for (const el of $('actions').querySelectorAll('[data-span]')) el.onclick = () => { const s = spans[Number(el.dataset.span)]; chosen = s; cursor = s.start; setWindow(...windowOf(s.start, [s])) }
+  // A background entry opened shows its stretch too.
+  $('actions').querySelectorAll('details.bg').forEach((d, k) => d.addEventListener('toggle', () => { if (d.open) { const c = clusters[k]; setWindow(...windowOf(c.start, c.items)) } }))
 }
 
-const esc = text => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+function setWindow(a, b) { w0 = Math.max(t0 - 1000, a); w1 = Math.min(t1 + 1000, Math.max(b, w0 + 50)); if (cursor < w0 || cursor > w1) cursor = w0; draw(); side() }
+
+// The whole session: bars where requests and AI calls were active (by how much of each slice of
+// time), a mark for each action, the stretch the chart shows and the moment.
+function overview() {
+  const el = $('overview'), width = el.clientWidth - 190 - 12, bins = Math.max(60, Math.min(400, Math.floor(width / 3)))
+  const busy = (kinds) => { const out = new Array(bins).fill(0); const per = (t1 - t0) / bins; for (const s of spans) if (kinds.includes(s.kind)) { for (let b = Math.max(0, Math.floor((s.start - t0) / per)); b < bins && t0 + b * per < s.end; b++) out[b] += Math.min(s.end, t0 + (b + 1) * per) - Math.max(s.start, t0 + b * per) } return out.map(v => Math.min(1, v / per)) }
+  const rows = [['Actions', null, 6], ['Requests', ['net'], 26], ['AI', ['ai'], 50]]
+  let html = ''
+  for (const [name, kinds, top] of rows) {
+    html += `<div class="name" style="top:${top}px">${name}</div><div class="row" style="top:${top}px;height:20px">`
+    if (!kinds) html += [...acts.values()].map(a => `<div class="act" style="left:${((a.start - t0) / (t1 - t0)) * 100}%;background:${colorOf(rootOf.get(a.action))}"></div>`).join('')
+    else busy(kinds).forEach((v, b) => { if (v > 0) html += `<div class="bin" style="left:${(b / bins) * 100}%;width:${100 / bins}%;height:${Math.max(2, v * 18)}px;background:${kinds[0] === 'ai' ? '#8a5aa8' : '#2f7d4f'}"></div>` })
+    html += '</div>'
+  }
+  const pct = at => `calc(190px + (100% - 202px) * ${(at - t0) / (t1 - t0)})`
+  html += `<div id="window" style="left:${pct(w0)};width:calc((100% - 202px) * ${(w1 - w0) / (t1 - t0)})"></div><div id="ocursor" style="left:${pct(cursor)}"></div>`
+  el.innerHTML = html
+}
+let drag = null
+const atX = (el, clientX) => { const r = el.getBoundingClientRect(); return t0 + Math.max(0, Math.min(1, (clientX - r.left - 190) / (r.width - 202))) * (t1 - t0) }
+$('overview').onmousedown = e => { drag = { x: e.clientX, at: atX($('overview'), e.clientX) } }
+window.addEventListener('mouseup', e => {
+  if (!drag) return
+  const at = atX($('overview'), e.clientX), from = drag
+  drag = null
+  if (Math.abs(e.clientX - from.x) > 4) { focus = null; list(); setWindow(Math.min(from.at, at), Math.max(from.at, at)) }
+  else { const half = Math.min((w1 - w0) / 2, (t1 - t0) / 2 > 15000 ? 10000 : (t1 - t0) / 2); cursor = at; setWindow(at - half, at + half) }
+})
+
+// The chart rows: per lane, a row per operation (its bar where any of it was active, coloured by
+// the action each stretch belongs to), and, expanded, a row per span (packed where they don't overlap).
+function groupsIn(kind) {
+  const mine = spans.filter(s => s.kind === kind && s.end >= w0 && s.start <= w1)
+  const by = new Map()
+  for (const s of mine) { const key = `${kind}:${kind === 'state' ? s.name : kind === 'action' ? 'actions' : s.name}`; (by.get(key) || by.set(key, []).get(key)).push(s) }
+  return [...by].map(([key, items]) => ({ key, kind, name: kind === 'action' ? 'actions' : items[0].name, items: items.sort((a, b) => a.start - b.start) })).sort((a, b) => a.items[0].start - b.items[0].start)
+}
+// When any of the group was active, per action: merged intervals.
+function activeStretches(items) {
+  const out = []
+  for (const s of [...items].sort((a, b) => a.start - b.start)) {
+    const root = rootFor(s), last = out[out.length - 1]
+    if (last && last.root === root && s.start <= last.end) { last.end = Math.max(last.end, s.end); last.n++ } else out.push({ start: s.start, end: s.end, root, n: 1 })
+  }
+  return out
+}
+let pxPerMs = 1
+const xOf = at => (at - w0) * pxPerMs
+function draw() {
+  const chart = $('chart'), width = chart.clientWidth - 190 - 8
+  pxPerMs = width / (w1 - w0)
+  const focusRoots = focus ? new Set([focus]) : null
+  const bar = (start, end, root, label, attrs, title) => {
+    const left = 190 + Math.max(0, xOf(start)), right = 190 + Math.min(width, xOf(end)), instant = right - left < 3
+    const dim = focusRoots && !focusRoots.has(root) ? ' dim' : ''
+    return `<div class="bar${instant ? ' tick' : ''}${dim}" ${attrs} style="left:${left}px;${instant ? '' : `width:${right - left}px;`}background:${colorOf(root)}" title="${esc(title)}">${instant || right - left < 40 ? '' : esc(label)}</div>`
+  }
+  let html = ''
+  for (const [kind, laneName] of LANES) {
+    const groups = groupsIn(kind)
+    if (!groups.length) continue
+    html += `<div class="lane-head">${laneName}</div>`
+    for (const g of groups) {
+      const open = expanded.has(g.key), active = activeStretches(g.items)
+      html += `<div class="row"><div class="label" data-toggle="${esc(g.key)}" title="${open ? 'Collapse' : 'Expand'}">${open ? '▾' : '▸'} ${esc(g.name)} <span class="muted">×${g.items.length}</span></div>`
+      html += kind === 'state' || kind === 'action'
+        ? g.items.map(s => bar(s.start, s.start, rootFor(s) ?? (kind === 'action' ? rootOf.get(s.action) : null), '', `data-span="${s.i}"`, `${s.name} · ${time(s.start)}`)).join('')
+        : active.map(a => bar(a.start, a.end, a.root, a.n > 1 ? `${g.name} ×${a.n}` : g.name, `data-group="${esc(g.key)}"`, `${g.name}: ${a.n} active ${ms(a.end - a.start)}`)).join('')
+      html += '</div>'
+      if (open) {
+        const packed = []
+        for (const s of g.items) { let r = packed.findIndex(end => end <= s.start); if (r < 0) { r = packed.length; packed.push(0) } packed[r] = Math.max(s.end, s.start + 4 / pxPerMs); s.packRow = r }
+        for (let r = 0; r < packed.length; r++) html += `<div class="row member"><div class="label">${r === 0 ? `${g.items.length} ${g.items.length === 1 ? 'span' : 'spans'}` : ''}</div>${g.items.filter(s => s.packRow === r).map(s => bar(s.start, s.end, rootFor(s), `${ms(s.end - s.start)}${s.source && s.kind !== 'net' ? ' · ' + s.source : ''}`, `data-span="${s.i}"`, `${s.name} · ${ms(s.end - s.start)}${s.source ? ' · ' + s.source : ''}`)).join('')}</div>`
+      }
+    }
+  }
+  $('rows').innerHTML = html || '<div class="lane-head">Nothing in this stretch.</div>'
+  // Chosen span or group, marked.
+  if (chosen?.i !== undefined) $('rows').querySelectorAll(`[data-span="${chosen.i}"]`).forEach(el => el.classList.add('chosen'))
+  if (chosen?.group) $('rows').querySelectorAll(`[data-group="${CSS.escape(chosen.group)}"]`).forEach(el => el.classList.add('chosen'))
+  const step = [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 15000, 30000, 60000, 120000, 300000].find(n => n * pxPerMs >= 80) || 600000
+  let axis = ''
+  for (let at = Math.ceil(w0 / step) * step; at <= w1; at += step) axis += `<div class="tickmark" style="left:${190 + xOf(at)}px">${step < 1000 ? `+${Math.round(at - Math.ceil(w0 / step) * step)} ms` : time(at).slice(0, step < 60000 ? 8 : 5)}</div>`
+  $('axis').innerHTML = axis
+  $('cursor').style.left = 190 + xOf(cursor) + 'px'; $('cursor').style.height = Math.max(chart.scrollHeight, chart.clientHeight) + 'px'
+  $('scrub').value = Math.round(((cursor - w0) / (w1 - w0)) * 1000)
+  $('at').textContent = time(cursor); $('span').textContent = `showing ${ms(w1 - w0)}`
+  for (const el of $('rows').querySelectorAll('[data-toggle]')) el.onclick = () => { const k = el.dataset.toggle; expanded.has(k) ? expanded.delete(k) : expanded.add(k); draw() }
+  for (const el of $('rows').querySelectorAll('[data-span]')) el.onclick = e => { e.stopPropagation(); chosen = spans[Number(el.dataset.span)]; cursor = chosen.start; draw(); side() }
+  for (const el of $('rows').querySelectorAll('[data-group]')) el.onclick = e => {
+    e.stopPropagation()
+    const key = el.dataset.group, [kind] = key.split(':'), g = groupsIn(kind).find(x => x.key === key)
+    chosen = { group: key, kind, name: g.name, items: g.items }; cursor = atChart(e.clientX); draw(); side()
+  }
+  overview()
+}
+const atChart = clientX => { const r = $('chart').getBoundingClientRect(); return w0 + Math.max(0, clientX - r.left - 190) / pxPerMs }
+$('rows').onclick = e => { if (e.target.closest('.label')) return; const at = atChart(e.clientX); if (at >= w0) { cursor = at; draw(); side() } }
+$('scrub').oninput = () => { cursor = w0 + (w1 - w0) * Number($('scrub').value) / 1000; draw(); side() }
+window.addEventListener('resize', () => { if (data) draw() })
+
 const kv = obj => `<div class="kv">${Object.entries(obj).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `<div>${esc(k)}</div><div${/[֐-׿]/.test(String(v)) ? ' class="he"' : ''}>${esc(typeof v === 'object' ? JSON.stringify(v) : v)}</div>`).join('')}</div>`
 const SCREEN_FIELDS = { reader: s => ({ sentence: s.sentence ? `#${s.sentence.index + 1}: ${s.sentence.text}` : 'none selected', English: s.english, 'quick meanings': s.quickMeanings, drawer: s.drawer ? `${s.drawer.word}${s.drawer.loading ? ' · loading' : ''}${s.drawer.explained ? ' · explained' : s.drawer.meaning ? ' · quick meaning' : ''}` : 'closed' }),
   study: s => (!s.card ? { card: 'none' } : { card: `${s.at} of ${s.of} · ${s.card.word} · ${s.card.name}`, sentence: s.card.sentence, side: s.side, answered: s.answered === null ? 'not yet' : s.answered ? 'knew it' : 'didn’t', chosen: s.picked, 'English shown': s.englishShown ? 'yes (hint)' : 'no', 'held-word hint': s.hint || 'none', 'shown as asked': s.asAsked ? 'yes' : undefined, drawer: s.drawer ? `${s.drawer.word}${s.drawer.loading ? ' · loading' : ''}` : 'closed' }) }
+const actionLine = s => { const a = acts.get(s.action); if (!a) return s.action ? s.action : 'no action (background)'; const p = a.parent ? acts.get(a.parent) : null; return `${a.name} at ${time(a.start)}${p ? ` (set off by “${p.name}”)` : ''}` }
 function side() {
   if (!data) return
-  const acts = actions()
-  const before = spans.filter(s => s.kind === 'state' && s.start <= cursor)
-  const screens = new Map(); for (const s of before) screens.set(s.name, s)
+  const screens = new Map(); for (const s of spans) if (s.kind === 'state' && s.start <= cursor) screens.set(s.name, s)
   const latest = [...screens.values()].sort((a, b) => b.start - a.start)
   const loading = spans.filter(s => s.end > s.start && s.start <= cursor && s.end > cursor && s.kind !== 'state')
-  const actionLine = s => { const a = acts.get(s.action); if (!a) return s.action ? s.action : 'no action (background)'; const p = a.parent ? acts.get(a.parent) : null; return `${a.name} at ${time(a.start)}${p ? ` (set off by “${p.name}”)` : ''}` }
   let html = `<h2>At ${time(cursor)}</h2>`
   html += latest.length ? latest.map(s => `<div style="margin-bottom:8px"><span class="pill">${esc(s.name)}</span> <span class="muted">since ${time(s.start)}</span>${kv((SCREEN_FIELDS[s.name] || (v => v))(s.state || {}))}</div>`).join('') : '<div class="muted">No screen recorded yet.</div>'
-  html += `<h2>Still in progress (${loading.length})</h2>` + (loading.length ? loading.map(s => `<div class="item" data-i="${s.i}"><span class="pill">${s.kind}</span>${esc(s.name)} <span class="muted">${ms(cursor - s.start)} so far · ${esc(actionLine(s))}</span></div>`).join('') : '<div class="muted">Nothing.</div>')
-  if (chosen) {
+  html += `<h2>In progress (${loading.length})</h2>` + (loading.length ? loading.map(s => `<div class="item" data-i="${s.i}"><span class="pill">${s.kind}</span>${esc(s.name)} <span class="muted">${ms(cursor - s.start)} so far · ${esc(actionLine(s))}</span></div>`).join('') : '<div class="muted">Nothing.</div>')
+  if (chosen?.group) {
+    const g = chosen, active = activeStretches(g.items), busy = active.reduce((sum, a) => sum + (a.end - a.start), 0)
+    const first = g.items[0].start, last = Math.max(...g.items.map(s => s.end))
+    const cost = g.items.reduce((sum, s) => sum + (Number(s.fields?.cost) || 0), 0)
+    const byAct = new Map(); for (const s of g.items) { const k = rootFor(s); byAct.set(k, (byAct.get(k) || 0) + 1) }
+    html += `<h2>Group</h2>` + kv({ what: `${g.name} ×${g.items.length}`, lane: g.kind, from: time(first), to: time(last), 'active for': `${ms(busy)} of ${ms(last - first)}${active.length > 1 ? `, in ${active.length} stretches` : ''}`, 'most at once': maxOverlap(g.items), cost: cost ? `$${cost.toFixed(4)}` : undefined, 'caused by': [...byAct].map(([k, n]) => `${k ? acts.get(k)?.name : 'background'} (${n})`).join(', ') })
+    html += `<h2>Spans (${g.items.length})</h2>` + g.items.slice(0, 80).map(s => `<div class="item" data-i="${s.i}">${time(s.start)} <span class="muted">${ms(s.end - s.start)}${s.source ? ' · ' + esc(s.source) : ''}${s.fields?.status ? ' · ' + esc(s.fields.status) : ''}</span></div>`).join('')
+  } else if (chosen) {
     const s = chosen
     html += `<h2>Selected</h2>` + kv({ what: s.name, lane: s.kind, side: s.side, 'caused by': actionLine(s), started: time(s.start), ended: s.end > s.start ? time(s.end) : undefined, took: s.end > s.start ? ms(s.end - s.start) : 'instant', 'came from': s.source, request: s.request, placement: s.side === 'server' ? (s.aligned ? 'inside its request' : 'estimated (its request isn’t in yet)') : undefined })
     if (s.fields) html += `<h2>Fields</h2>` + kv(s.fields)
     if (s.state) html += `<h2>Screen</h2>` + kv((SCREEN_FIELDS[s.name] || (v => v))(s.state))
     const same = spans.filter(o => o.action && o.action === s.action && o.i !== s.i)
-    if (same.length) html += `<h2>Same action (${same.length})</h2>` + same.map(o => `<div class="item" data-i="${o.i}"><span class="pill">${o.kind}</span>${esc(o.name)} <span class="muted">${o.end > o.start ? ms(o.end - o.start) : 'instant'}${o.source ? ' · ' + esc(o.source) : ''}</span></div>`).join('')
+    if (same.length) html += `<h2>Same action (${same.length})</h2>` + same.slice(0, 80).map(o => `<div class="item" data-i="${o.i}"><span class="pill">${o.kind}</span>${esc(o.name)} <span class="muted">${o.end > o.start ? ms(o.end - o.start) : 'instant'}${o.source ? ' · ' + esc(o.source) : ''}</span></div>`).join('')
     if (s.prompt) html += `<h2>Exact request sent to the AI</h2><pre>${esc(JSON.stringify(s.prompt, null, 2))}</pre>`
     else if (s.kind === 'ai') html += `<div class="muted" style="margin-top:8px">Exact prompt not kept: start a capture with “Exact AI prompts” on to keep it.</div>`
-  } else html += `<div class="muted" style="margin-top:12px">Click a span to see what caused it, where its result came from and everything else its action did.</div>`
+  } else html += `<div class="muted" style="margin-top:12px">Choose an action on the left to fit the chart to it, or a bar to see what caused it, where its result came from and everything else its action did.</div>`
   $('side').innerHTML = html
-  for (const el of $('side').querySelectorAll('[data-i]')) el.onclick = () => { chosen = spans[Number(el.dataset.i)]; cursor = chosen.start; draw(); side() }
+  for (const el of $('side').querySelectorAll('[data-i]')) el.onclick = () => { chosen = spans[Number(el.dataset.i)]; cursor = chosen.start; if (cursor < w0 || cursor > w1) setWindow(...windowOf(chosen.start, [chosen])); else { draw(); side() } }
+}
+// The most of a group's spans active at the same moment.
+function maxOverlap(items) {
+  const edges = items.flatMap(s => [[s.start, 1], [s.end, -1]]).sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  let now = 0, most = 0; for (const [, d] of edges) { now += d; most = Math.max(most, now) }
+  return most
 }
 show()
 </script>
