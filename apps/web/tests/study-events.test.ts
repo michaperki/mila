@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 const insertMany = vi.fn()
 const createIndex = vi.fn()
-vi.mock('../netlify/functions/lib/mongo', () => ({ getDb: async () => ({ collection: () => ({ insertMany, createIndex }) }) }))
+const named = vi.fn()
+vi.mock('../netlify/functions/lib/mongo', () => ({ getDb: async () => ({ collection: (name: string) => { named(name); return { insertMany: (...args: unknown[]) => insertMany(...args, name), createIndex } } }) }))
 vi.mock('../netlify/functions/lib/auth', () => ({ verifyAuth: () => ({ userId: 'user' }) }))
 import { handler } from '../netlify/functions/study-events'
 
@@ -16,6 +17,15 @@ describe('study events', () => {
     const [docs, options] = insertMany.mock.calls[0]
     expect(docs).toEqual([expect.objectContaining({ id: 's:0', userId: 'user', key: 'w:word' }), expect.objectContaining({ id: 's:1', knew: true, primed: false, userId: 'user' })])
     expect(options).toEqual({ ordered: false })
+  })
+  it('keeps usage events apart, so nothing reading study events sees them', async () => {
+    const response = await post({ events: [event(0), event(1, { type: 'nav', to: 'camera', how: 'back' }), event(2, { type: 'offer', surface: 'read', options: ['photo'] }), event(3, { type: 'pick', surface: 'read', option: 'photo' }), event(4, { type: 'outcome', surface: 'camera', outcome: 'no text' })] })
+    expect(JSON.parse(response.body)).toEqual({ kept: 5 })
+    const [[study, , studyName], [usage, , usageName]] = insertMany.mock.calls
+    expect(studyName).toBe('studyEvents')
+    expect(study.map((item: { type: string }) => item.type)).toEqual(['show'])
+    expect(usageName).toBe('usageEvents')
+    expect(usage.map((item: { type: string }) => item.type)).toEqual(['nav', 'offer', 'pick', 'outcome'])
   })
   it('keeps reading and lookup events too', async () => {
     const reading = ['read', 'select', 'lookup', 'explained', 'save', 'unsave'].map((type, seq) => event(seq, { type }))

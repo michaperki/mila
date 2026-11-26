@@ -95,11 +95,43 @@
   #modal .box { background: #fff; width: min(900px, 92vw); max-height: 86vh; overflow: auto; border-radius: 12px; padding: 16px 20px; }
   #modal pre { max-height: none; }
   .pill { display: inline-block; padding: 0 6px; border-radius: 999px; background: #e6eee8; font-size: 11px; margin-right: 4px; }
+  /* Usage: how Mila is used, from the always-on usage events (debug-usage.js). */
+  #usage { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 420px; min-height: 0; }
+  #usageMain { overflow: auto; padding: 0 16px 40px; }
+  #usageSide { overflow: auto; padding: 10px 16px; border-left: 1px solid var(--line); background: var(--paper); }
+  .u-bar { position: sticky; top: 0; z-index: 2; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 8px 0; background: var(--paper); border-bottom: 1px solid var(--line); }
+  .u-bar label { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+  .u-bar input[type=number] { width: 60px; }
+  .u-coverage { margin: 12px 0; padding: 10px 12px; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+  .u-coverage summary { cursor: pointer; color: var(--muted); margin-top: 4px; }
+  .u-section { margin-top: 18px; }
+  .u-section h2 { font-size: 13px; margin: 0 0 2px; }
+  .u-section .note { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  table.u { border-collapse: collapse; width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+  table.u th { text-align: left; font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  table.u td { padding: 4px 8px; border-bottom: 1px solid #f0f3f0; vertical-align: top; }
+  table.u tr.click { cursor: pointer; }
+  table.u tr.click:hover td { background: #f4f8f5; }
+  table.u tr.on td { background: #e8f2ea; }
+  table.u td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .meter { display: inline-block; width: 60px; height: 6px; background: #e6eee8; border-radius: 3px; vertical-align: middle; margin-left: 6px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--green); }
+  .zero { color: var(--red); font-weight: 600; }
+  .seq { font-size: 12px; }
+  .seq .ev { display: grid; grid-template-columns: 64px 52px 1fr; gap: 6px; padding: 3px 4px; border-bottom: 1px dashed var(--line); }
+  .seq .ev.here { background: #fff4d6; border-radius: 4px; }
+  .seq .t { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .seq .k { color: var(--muted); }
+  .times { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0; }
+  .times span { padding: 0 5px; border-radius: 4px; background: #e6eee8; font-size: 11px; cursor: pointer; }
+  .times span.hit { background: var(--red); color: #fff; }
+  .times span.other { background: #f0f0f0; color: var(--muted); }
 </style>
 </head>
 <body>
 <header>
   <h1>Mila debug viewer</h1>
+  <span id="views" hidden><button id="viewCaptures" class="mode on">Captures</button><button id="viewUsage" class="mode">Usage</button></span>
   <span id="who" class="muted"></span>
   <select id="captures" hidden></select>
   <button id="refresh" hidden>Refresh</button>
@@ -135,6 +167,7 @@
     <aside id="side"></aside>
   </div>
 </div>
+<div id="usage" hidden><section id="usageMain"></section><aside id="usageSide"></aside></div>
 <div id="modal" hidden></div>
 <script>
 // Reads one debug capture (functions/debug-trace.ts). Above, the whole session (where activity
@@ -148,6 +181,9 @@ const API = '/.netlify/functions/'
 const LANES = [['state', 'Screen'], ['action', 'Actions'], ['phone', 'Phone'], ['net', 'Network'], ['server', 'Server'], ['db', 'Database'], ['ai', 'AI']]
 const $ = id => document.getElementById(id)
 let token = sessionStorage.getItem('milaDebugToken')
+// Captures (one debug capture, below) or Usage (the always-on usage events, debug-usage.js).
+let view = sessionStorage.getItem('milaDebugView') === 'usage' ? 'usage' : 'captures'
+let listed = false
 let data = null, spans = [], t0 = 0, t1 = 1, w0 = 0, w1 = 1, cursor = 0, chosen = null, focus = null
 const expanded = new Set()
 const acts = new Map(), rootOf = new Map()
@@ -163,11 +199,22 @@ function signOut() { token = null; sessionStorage.removeItem('milaDebugToken'); 
 async function show() {
   const signedIn = !!token
   $('login').hidden = signedIn
-  $('app').hidden = !signedIn
-  for (const id of ['captures', 'refresh', 'signout']) $(id).hidden = !signedIn
+  for (const id of ['signout', 'views']) $(id).hidden = !signedIn
   $('who').textContent = signedIn ? sessionStorage.getItem('milaDebugWho') || '' : ''
-  if (signedIn) await loadList().catch(error => { $('status').textContent = error.message })
+  if (!signedIn) { listed = false; $('app').hidden = true; $('usage').hidden = true; for (const id of ['captures', 'refresh']) $(id).hidden = true; return }
+  await setView(view)
 }
+async function setView(next) {
+  view = next; sessionStorage.setItem('milaDebugView', view)
+  $('viewCaptures').classList.toggle('on', view === 'captures'); $('viewUsage').classList.toggle('on', view === 'usage')
+  $('app').hidden = view !== 'captures'; $('usage').hidden = view !== 'usage'
+  for (const id of ['captures', 'refresh']) $(id).hidden = view !== 'captures'
+  $('status').textContent = ''
+  if (view === 'usage') { await window.showUsage?.(); return }
+  if (!listed) { listed = true; await loadList().catch(error => { listed = false; $('status').textContent = error.message }) }
+}
+$('viewCaptures').onclick = () => setView('captures')
+$('viewUsage').onclick = () => setView('usage')
 $('login').onsubmit = async event => {
   event.preventDefault(); $('loginError').textContent = ''
   try {
@@ -647,6 +694,10 @@ function renderReplay() {
     svg.innerHTML = lines
   })
 }
+</script>
+<script type="module">
+// The Usage view loads before the page is shown, so a page opened on Usage draws it.
+import './debug-usage.js'
 show()
 </script>
 </body>

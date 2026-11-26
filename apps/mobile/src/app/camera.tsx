@@ -10,6 +10,7 @@ import { APPEAR } from '../lib/motion'
 import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles } from '../components/ui'
 import { ScanShimmer } from '../components/Motion'
 import { FeedbackButton } from '../components/Feedback'
+import { outcome, useOffer, useVisit } from '../lib/usage'
 import { useSession } from '../state/session'
 import { recognizeImage } from '../lib/recognition'
 import { createLiveSession, skip } from '../lib/live-session'
@@ -63,7 +64,7 @@ export default function Camera() {
     return () => subscription.remove()
   }, [stopLive])
   // Every camera passage the learner opens is kept in their library automatically.
-  const openReader = (value: Recognition) => { setRecognition(value.library === 'saved' ? value : { ...value, library: 'auto' }); router.push('/reader') }
+  const openReader = (value: Recognition) => { outcome('camera', 'opened reader', { from: value.source === 'page' ? 'page' : 'live' }); setRecognition(value.library === 'saved' ? value : { ...value, library: 'auto' }); router.push('/reader') }
   const present = (value: Recognition) => {
     setResult(value.text ? value : null)
     setMessage(value.text ? 'Translation of the last sampled image.' : 'No text found. Move closer and hold steady.')
@@ -99,6 +100,7 @@ export default function Camera() {
       if (!mine()) return
       if (fallback) { if (scan.id) dropScan(scan.id); openReader(fallback); return }
       const message = (failure as Error).message
+      outcome('camera', failure instanceof NoText ? 'no text' : 'read failed', { kept: !!scan.id })
       setError(failure instanceof NoText || !scan.id ? message : `${message} The photo is kept in your Library and will be read again when you're back.`)
     } finally { if (mine()) { scanning.current = null; setReading(null); setBusy(false); setMessage('Point at a short Hebrew passage.') } }
   }
@@ -122,6 +124,7 @@ export default function Camera() {
   }
   // Stops a page read in progress, lets its photo go and brings the camera back.
   const cancelReading = () => {
+    cameraPick('cancel')
     if (scanning.current) dropScan(scanning.current)
     scanning.current = null
     setReading(null); setBusy(false); setCapturing(false); setMessage('Point at a short Hebrew passage.')
@@ -167,6 +170,13 @@ export default function Camera() {
     } catch (failure) { setError((failure as Error).message) }
   }
 
+  // Usage (lib/usage.ts): the camera's controls each visit, as they are offered.
+  const visit = useVisit()
+  const granted = !!permission?.granted
+  const cameraPick = useOffer('camera', session ? visit : null, granted
+    ? [reading ? 'cancel' : 'capture', !reading && 'choose a photo', !reading && 'paste', !reading && 'live', !reading && 'about', !!result && !reading && 'read this passage']
+    : ['enable camera', 'choose a photo', 'paste'])
+
   if (!session) return <Page>
     <Text style={styles.eyebrow}>FROM SEEING TO UNDERSTANDING</Text><Text style={styles.title}>Hebrew, in focus.</Text>
     <AccountGate />
@@ -174,9 +184,9 @@ export default function Camera() {
 
   if (!permission?.granted) return <Page>
     <Text style={styles.eyebrow}>FROM SEEING TO UNDERSTANDING</Text><Text style={styles.title}>Hebrew, in focus.</Text>
-    <View style={styles.card}><Text style={styles.heading}>Look at the world in Hebrew</Text><Text style={styles.copy}>Allow camera access to point at text. You can also choose a photo.</Text><Button title={permission?.canAskAgain === false ? 'Open camera settings' : 'Enable camera'} onPress={() => { void (permission?.canAskAgain === false ? Linking.openSettings() : askPermission()) }} /></View>
-    <Button secondary title="Choose a photo" onPress={() => void importPhoto()} />
-    <Button secondary title="Paste Hebrew text" onPress={() => router.push('/compose')} />
+    <View style={styles.card}><Text style={styles.heading}>Look at the world in Hebrew</Text><Text style={styles.copy}>Allow camera access to point at text. You can also choose a photo.</Text><Button title={permission?.canAskAgain === false ? 'Open camera settings' : 'Enable camera'} onPress={() => { cameraPick('enable camera'); void (permission?.canAskAgain === false ? Linking.openSettings() : askPermission()) }} /></View>
+    <Button secondary title="Choose a photo" onPress={() => { cameraPick('choose a photo'); void importPhoto() }} />
+    <Button secondary title="Paste Hebrew text" onPress={() => { cameraPick('paste'); router.push('/compose') }} />
   </Page>
 
   // Full-bleed viewfinder: the shutter and live-preview controls float over the
@@ -194,13 +204,13 @@ export default function Camera() {
     </> : <View pointerEvents="none" style={cameraStyles.guide} />}
 
     {!reading && <>
-    <Pressable accessibilityRole="switch" accessibilityLabel="Live preview" accessibilityState={{ checked: live }} disabled={!cameraReady || (!live && busy)} onPress={toggleLive} style={[cameraStyles.livePill, live && cameraStyles.livePillOn]}>
+    <Pressable accessibilityRole="switch" accessibilityLabel="Live preview" accessibilityState={{ checked: live }} disabled={!cameraReady || (!live && busy)} onPress={() => { cameraPick('live', { value: live ? 'off' : 'on' }); toggleLive() }} style={[cameraStyles.livePill, live && cameraStyles.livePillOn]}>
       <View style={[cameraStyles.liveDot, live && { backgroundColor: colors.lime }]} />
       <Text style={cameraStyles.livePillText}>{live ? 'Live on' : 'Live off'}</Text>
     </Pressable>
     <View style={cameraStyles.topRight}>
       <FeedbackButton variant="overlay" screen="camera" context={() => ({ message, error, live, result: result && { raw: result.raw, segments: result.segments } })} />
-      <Pressable accessibilityRole="button" accessibilityLabel="About camera translation" onPress={() => setInfo(value => !value)} style={cameraStyles.infoButton}>
+      <Pressable accessibilityRole="button" accessibilityLabel="About camera translation" onPress={() => { if (!info) cameraPick('about'); setInfo(value => !value) }} style={cameraStyles.infoButton}>
         <Ionicons name="information-circle-outline" size={22} color={colors.white} />
       </Pressable>
     </View>
@@ -218,16 +228,16 @@ export default function Camera() {
       {result && <Animated.View entering={APPEAR} style={cameraStyles.resultCard}>
         <Text style={cameraStyles.hebrewCompact} numberOfLines={2}>{result.text}</Text>
         <Text style={cameraStyles.translationCompact} numberOfLines={2}>{result.translation}</Text>
-        <Button title="Read this passage" busy={busy && !live} onPress={() => void readPassage(result)} />
+        <Button title="Read this passage" busy={busy && !live} onPress={() => { cameraPick('read this passage'); void readPassage(result) }} />
       </Animated.View>}
       <View style={cameraStyles.controls}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Choose a photo" disabled={busy && !live} onPress={() => void importPhoto()} style={cameraStyles.sideButton}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Choose a photo" disabled={busy && !live} onPress={() => { cameraPick('choose a photo'); void importPhoto() }} style={cameraStyles.sideButton}>
           <Ionicons name="images-outline" size={24} color={colors.white} /><Text style={cameraStyles.sideLabel}>Photo</Text>
         </Pressable>
-        <Pressy moment="shutter" depth={0.88} accessibilityRole="button" accessibilityLabel="Capture" accessibilityState={{ disabled: !cameraReady || capturing, busy: capturing }} disabled={!cameraReady || capturing} onPress={() => void capture()} style={[cameraStyles.shutter, !cameraReady && { opacity: 0.6 }]}>
+        <Pressy moment="shutter" depth={0.88} accessibilityRole="button" accessibilityLabel="Capture" accessibilityState={{ disabled: !cameraReady || capturing, busy: capturing }} disabled={!cameraReady || capturing} onPress={() => { cameraPick('capture'); void capture() }} style={[cameraStyles.shutter, !cameraReady && { opacity: 0.6 }]}>
           {capturing ? <ActivityIndicator color={colors.green} /> : <View style={cameraStyles.shutterInner} />}
         </Pressy>
-        <Pressable accessibilityRole="button" accessibilityLabel="Paste Hebrew text" onPress={() => router.push('/compose')} style={cameraStyles.sideButton}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Paste Hebrew text" onPress={() => { cameraPick('paste'); router.push('/compose') }} style={cameraStyles.sideButton}>
           <Ionicons name="clipboard-outline" size={24} color={colors.white} /><Text style={cameraStyles.sideLabel}>Paste</Text>
         </Pressable>
       </View>

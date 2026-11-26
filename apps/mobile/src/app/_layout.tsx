@@ -15,10 +15,14 @@ import { identify, reportCrash, startCrashReporting, wrapRoot } from '../lib/cra
 import { watchScans } from '../lib/scans'
 import { sendStudyLogInBackground } from '../lib/study-log'
 import { sendResultsOnChange } from '../lib/results'
+import { NavigationUsage, startUsage } from '../lib/usage'
 
 startCrashReporting()
 function Navigator() {
   const { ready, session } = useSession()
+  // Usage (lib/usage.ts) is kept for the account signed in; set while drawing, so the first screen
+  // change, recorded by NavigationUsage's effect (which runs before this one's), has it.
+  startUsage(session?.user.id ?? null)
   useEffect(() => identify(session?.user.id ?? null), [session?.user.id])
   // Photos of pages not read yet are read again now and whenever Mila comes back (lib/scans.ts).
   useEffect(() => (session ? watchScans(session) : undefined), [session])
@@ -28,7 +32,7 @@ function Navigator() {
   // Study answers not yet on the server go as soon as they can (lib/results.ts).
   useEffect(() => (session ? sendResultsOnChange(session.user.id, session.token) : undefined), [session])
   if (!ready) return <View style={{ flex: 1, justifyContent: 'center', backgroundColor: colors.paper }}><ActivityIndicator color={colors.green} /></View>
-  return <><StatusBar style="dark" /><Stack screenOptions={{ headerTintColor: colors.ink, headerStyle: { backgroundColor: colors.paper }, headerShadowVisible: false, headerBackButtonDisplayMode: 'minimal', contentStyle: { backgroundColor: colors.paper }, orientation: 'portrait_up' }}>
+  return <><StatusBar style="dark" /><NavigationUsage /><Stack screenOptions={{ headerTintColor: colors.ink, headerStyle: { backgroundColor: colors.paper }, headerShadowVisible: false, headerBackButtonDisplayMode: 'minimal', contentStyle: { backgroundColor: colors.paper }, orientation: 'portrait_up' }}>
     {/* Home is the tree with Read and Study; everything else opens from it. */}
     <Stack.Screen name="index" options={{ headerShown: false, title: 'Home' }} />
     <Stack.Screen name="library" options={{ title: 'Library' }} />

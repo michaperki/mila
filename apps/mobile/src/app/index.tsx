@@ -21,6 +21,7 @@ import { type LastRead, parseLastRead } from '../lib/today'
 import { lastShown, loadTree, rememberTree, SAPLING, takeTended, type Tree, treeLine } from '../lib/tree'
 import type { TextDoc } from '../lib/types'
 import { useSession } from '../state/session'
+import { useOffer, useVisit } from '../lib/usage'
 import { useVocab } from '../state/vocab'
 
 // Home: the learner's bonsai, and the two things to do here, Read and Study. The tree is the
@@ -127,6 +128,11 @@ export default function Home() {
     } catch (failure) { setOpenError((failure as Error).message) } finally { setOpening(false) }
   }
   const go = (path: '/camera' | '/compose' | '/library') => { setReading(false); router.push(path) }
+  // Usage (lib/usage.ts): Home's controls, and the Read sheet's choices each time it is open.
+  const shownNow = useVisit()
+  const homePick = useOffer('home', shownNow, ['read', 'library', 'study', 'your words', 'account'])
+  const starters = !!session && !lastRead
+  const readPick = useOffer('read', reading ? shownNow : null, [starters && 'starters', 'photo', 'paste', !!session && !!lastRead && 'continue', 'dismiss'])
   const touched = useCallback((part: BonsaiPart) => feel(part === 'foliage' ? 'tick' : 'select'), [])
 
   // Said only once it is known, so it never shows a young tree's line that then changes;
@@ -145,7 +151,7 @@ export default function Home() {
         <Text style={home.greeting}>{greeting(new Date().getHours())}</Text>
       </View>
       <Pressy moment="tick" depth={0.92} accessibilityRole="button" accessibilityLabel="Account and settings" hitSlop={10}
-        onPress={() => router.push('/account')} style={home.corner}>
+        onPress={() => { homePick('account'); router.push('/account') }} style={home.corner}>
         <Ionicons name="person-circle-outline" size={28} color={colors.ink} />
       </Pressy>
     </View>
@@ -155,22 +161,23 @@ export default function Home() {
       <ErrorNotice message={openError} />
       <View style={home.actions}>
         <View style={home.action}>
-          <Button secondary title="Read" style={home.button} onPress={() => setReading(true)} />
-          <TextButton title="Library" onPress={() => router.push('/library')} />
+          <Button secondary title="Read" style={home.button} onPress={() => { homePick('read'); setReading(true) }} />
+          <TextButton title="Library" onPress={() => { homePick('library'); router.push('/library') }} />
         </View>
         <View style={home.action}>
           {/* Green when Mila has something new to suggest: information, never a badge. */}
           <Button secondary={!next && !round} title="Study" style={home.button}
             detail={session && round ? `Continue · ${round.at} of ${round.of}${round.since ? ` · ${round.since}` : ''}` : session && next ? `${next.label} · ${next.entry.lemma}`
               : session && entries.length ? `${pool.started.length} words started · ${pool.unstarted.length} not yet` : undefined}
-            onPress={() => router.push(session ? '/practice' : '/login')} />
-          <TextButton title="Your words" onPress={() => router.push('/vocabulary')} />
+            onPress={() => { homePick('study'); router.push(session ? '/practice' : '/login') }} />
+          <TextButton title="Your words" onPress={() => { homePick('your words'); router.push('/vocabulary') }} />
         </View>
       </View>
     </View>
 
-    {reading && <ReadSheet lastRead={session ? lastRead : null} opening={opening} onClose={() => setReading(false)}
-      onCamera={() => go('/camera')} onPaste={() => go('/compose')} onStarters={session && !lastRead ? () => go('/library') : undefined} onContinue={() => void continueReading()} />}
+    {reading && <ReadSheet lastRead={session ? lastRead : null} opening={opening} onClose={() => { readPick('dismiss'); setReading(false) }}
+      onCamera={() => { readPick('photo'); go('/camera') }} onPaste={() => { readPick('paste'); go('/compose') }} onStarters={starters ? () => { readPick('starters'); go('/library') } : undefined}
+      onContinue={() => { readPick('continue'); void continueReading() }} />}
   </View>
 }
 

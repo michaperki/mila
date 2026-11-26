@@ -13,6 +13,8 @@ import { getDb } from './lib/mongo'
 // POST { op: 'spans', capture, spans }     the phone's spans, in batches
 // GET                                      the last captures, with how many spans each
 // GET ?capture=<id>                        one capture and every span in it, phone's and server's
+// GET ?usage=<days>                        the Usage view: this account's usage events (always on,
+//                                          study-events.ts) of the last `days`, and when they began
 const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 const MAX_SPANS = 400
 const MAX_BYTES = 2_000_000
@@ -30,6 +32,15 @@ export const handler: Handler = async (event) => {
     const now = Date.now()
     await captures.updateMany({ userId: auth.userId, stoppedAt: null, startedAt: { $lt: now - LONGEST } }, { $set: { stoppedAt: now, stoppedBy: 'time' } })
 
+    if (event.httpMethod === 'GET' && event.queryStringParameters?.usage !== undefined) {
+      const days = Math.min(Math.max(Number(event.queryStringParameters.usage) || 30, 1), 365)
+      const usage = db.collection('usageEvents')
+      const [events, first] = await Promise.all([
+        usage.find({ userId: auth.userId, at: { $gte: now - days * 86_400_000 } }, { projection: { _id: 0, userId: 0, owner: 0, receivedAt: 0 } }).sort({ at: 1, seq: 1 }).limit(100_000).toArray(),
+        usage.find({ userId: auth.userId }, { projection: { _id: 0, at: 1 } }).sort({ at: 1 }).limit(1).toArray(),
+      ])
+      return reply(200, { days, since: now - days * 86_400_000, began: first[0]?.at ?? null, events })
+    }
     if (event.httpMethod === 'GET') {
       const id = event.queryStringParameters?.capture
       if (id) {

@@ -19,6 +19,8 @@ import { request } from './api'
 // divided and each card's part of it and rank: lib/forms.ts planRound). Waiting events are sent while the app is in use
 // too (every SEND_EVERY events or SEND_AFTER), not only when it is left.
 export type StudyEventType = 'start' | 'show' | 'reveal' | 'answer' | 'end' | 'read' | 'select' | 'lookup' | 'explained' | 'save' | 'unsave' | 'app' | 'view' | 'closed' | 'hold' | 'plan' | 'hint' | 'deselect'
+  // Usage events (lib/usage.ts), kept apart from these by the server.
+  | 'nav' | 'offer' | 'pick' | 'outcome'
 export type LogEvent = (type: StudyEventType, fields?: Record<string, unknown>) => string
 export type StudyEvent = { id: string; session: string; seq: number; at: number; type: StudyEventType; owner: string } & Record<string, unknown>
 

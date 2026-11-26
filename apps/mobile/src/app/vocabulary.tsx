@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useOffer, useVisit } from '../lib/usage'
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { router } from 'expo-router'
 import { AccountGate, Button, colors, ErrorNotice, Loading, Page, Pill, Pressy, styles } from '../components/ui'
@@ -37,6 +38,11 @@ export default function Vocabulary() {
   const visible = useMemo(() => entries.filter(entry => matches(entry, query) && (filter === 'all' || statusOf(entry) === filter) && (!theme || inTheme(entry, theme))), [entries, query, filter, theme])
 
   const empty = !session || (loaded && !error && entries.length === 0)
+  // Usage (lib/usage.ts): the list's controls each visit, once there are words to show. A search
+  // is one pick when it starts, not one per letter.
+  const visit = useVisit()
+  const listPick = useOffer('your words', !empty && loaded ? visit : null, ['study', 'search', 'status filter', themes.themes.length > 0 && 'theme', 'open a word'])
+  const search = (text: string) => { if (!query && text) listPick('search'); setQuery(text) }
   return <Page onRefresh={reload}>
     {empty && <><Text style={styles.eyebrow}>MAKE WORDS YOUR OWN</Text><Text style={styles.title}>Words worth keeping.</Text></>}
     {!session ? <AccountGate /> : <>
@@ -46,23 +52,23 @@ export default function Vocabulary() {
       {!empty && loaded && <>
         <Text style={vocab.summary}>{counts.saved} {counts.saved === 1 ? 'word' : 'words'} · {pool.started.length} started · {pool.unstarted.length} not started yet · {counts.mastered} mastered</Text>
         {/* One way in: study whenever and as much as you like. */}
-        <Button title="Study" onPress={() => router.push('/practice')} />
-        <TextInput value={query} onChangeText={setQuery} placeholder="Search Hebrew or English" placeholderTextColor={colors.muted} style={[styles.input, { minHeight: 44, paddingVertical: 10 }]}
+        <Button title="Study" onPress={() => { listPick('study'); router.push('/practice') }} />
+        <TextInput value={query} onChangeText={search} placeholder="Search Hebrew or English" placeholderTextColor={colors.muted} style={[styles.input, { minHeight: 44, paddingVertical: 10 }]}
           autoCorrect={false} autoCapitalize="none" clearButtonMode="while-editing" returnKeyType="search" />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -22, flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 22 }}>
-          {FILTERS.map(item => <Pill key={item.key} label={item.label} active={filter === item.key} onPress={() => setFilter(item.key)}
+          {FILTERS.map(item => <Pill key={item.key} label={item.label} active={filter === item.key} onPress={() => { listPick('status filter', { value: item.key }); setFilter(item.key) }}
             leading={item.key !== 'all' ? <StatusDot status={item.key} /> : undefined} />)}
         </ScrollView>
         {themes.themes.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -22, flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 22 }}>
-          <Pill label="All themes" active={!theme} onPress={() => setTheme(null)} />
+          <Pill label="All themes" active={!theme} onPress={() => { listPick('theme', { value: 'all' }); setTheme(null) }} />
           {themes.themes.map(item => <Pill key={item.theme} label={`${CATEGORY_LABELS[item.theme]} ${item.count}`} accessibilityLabel={`${CATEGORY_LABELS[item.theme]}, ${item.count} words`}
-            active={theme === item.theme} onPress={() => setTheme(theme === item.theme ? null : item.theme)} />)}
-          {themes.unsorted > 0 && <Pill label={`Not organised ${themes.unsorted}`} accessibilityLabel={`Not organised yet, ${themes.unsorted} words`} active={theme === 'unsorted'} onPress={() => setTheme(theme === 'unsorted' ? null : 'unsorted')} />}
+            active={theme === item.theme} onPress={() => { listPick('theme', { value: item.theme }); setTheme(theme === item.theme ? null : item.theme) }} />)}
+          {themes.unsorted > 0 && <Pill label={`Not organised ${themes.unsorted}`} accessibilityLabel={`Not organised yet, ${themes.unsorted} words`} active={theme === 'unsorted'} onPress={() => { listPick('theme', { value: 'unsorted' }); setTheme(theme === 'unsorted' ? null : 'unsorted') }} />}
         </ScrollView>}
         <View style={[styles.card, { padding: 0, gap: 0, overflow: 'hidden' }]}>
           {visible.length === 0 && <Text style={[styles.copy, { padding: 16 }]}>No words match.</Text>}
           {visible.map((entry, i) => <WordRow key={entry.id} entry={entry} showVowels={showVowels} first={i === 0}
-            onOpen={() => router.push({ pathname: '/word', params: { id: entry.id } })} />)}
+            onOpen={() => { listPick('open a word'); router.push({ pathname: '/word', params: { id: entry.id } }) }} />)}
         </View>
       </>}
     </>}

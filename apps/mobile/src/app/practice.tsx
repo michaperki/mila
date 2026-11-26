@@ -29,6 +29,7 @@ import { clearRound, loadRound, saveRound } from '../lib/saved-round'
 import { fingerprint, sendStudyLog, studySession } from '../lib/study-log'
 import { planUnified, rankingLog, unifiedRanking } from '../lib/scoring'
 import { type Act, act, onPhone, screenState } from '../lib/trace'
+import { useOffer } from '../lib/usage'
 import { saveResult, sendResults } from '../lib/results'
 import type { ResultBody } from '../lib/result-queue'
 import { appInfo } from '../lib/app-info'
@@ -447,6 +448,13 @@ export default function Practice() {
       drawer: lookup.tap ? { word: lookup.tap.text, loading: lookup.busy, meaning: !!lookup.gloss, explained: !!lookup.analysis } : null,
     })
   })
+  // Usage (lib/usage.ts): the top bar on each card, the settings each time they are open, and
+  // the choices on Welcome back and at a round's end.
+  const onCard = !!session && !!deck?.[position] && !!settings && !done && !away && writing === null
+  const cardPick = useOffer('study card', onCard ? position : null, ['done', position > roundStart && 'previous', 'next', 'new round', 'settings', 'why'])
+  const settingsPick = useOffer('study settings', settingsOpen ? 'open' : null, ['show first', 'order', 'cards', 'fill in the blank', 'new sentences', 'plan rounds by', 'cursive answers', 'close'])
+  const awayPick = useOffer('study welcome back', away && writing === null ? away.savedAt : null, ['continue', 'new round'])
+  const endPick = useOffer('study end', done && writing === null ? roundStart : null, ['back to your tree', 'another round', 'new sentences'])
   if (!session) return <Page><Text style={styles.copy}>Sign in to study your saved words.</Text></Page>
   if (!deck || !settings) return <Page>{error ? <ErrorNotice message={error} /> : <Loading />}</Page>
   if (!Object.keys(words).length) return <Page>
@@ -513,11 +521,11 @@ export default function Practice() {
   if (away) return <Page>
     <Text style={styles.title}>Welcome back</Text>
     <Text style={styles.copy}>You stopped at card {away.at} of {away.of}, {ago(away.savedAt)}. Your answers are saved either way.</Text>
-    <Button title="Continue this round" onPress={() => { feel('advance'); setAway(null) }} />
-    <Button secondary title="Start a new round" onPress={() => { feel('advance'); setAway(null); newRound() }} />
+    <Button title="Continue this round" onPress={() => { awayPick('continue'); feel('advance'); setAway(null) }} />
+    <Button secondary title="Start a new round" onPress={() => { awayPick('new round'); feel('advance'); setAway(null); newRound() }} />
   </Page>
   if (done) return <Summary title={title} fresh={freshNow} answered={Object.keys(answers).length} words={new Set(Object.keys(answers).map(i => deck[Number(i)].entry.id)).size}
-    unlocked={unlocked} error={error} onMore={newRound} onFresh={() => void newSentences()} />
+    unlocked={unlocked} error={error} onPick={endPick} onMore={newRound} onFresh={() => void newSentences()} />
 
   // Moving through the round. Past its end, the round is over. Every card comes back to its
   // question side, a quiz card to its choices; an answer it was given stays and is shown.
@@ -553,7 +561,9 @@ export default function Practice() {
 
   const summary = freshNow ? `New sentences · ${new Set(deck.slice(roundStart).map(item => item.entry.id)).size} words you’re learning` : [FRONTS[settings.front], settings.order === 'shuffle' ? 'Shuffled' : settings.planner === 'unified' ? 'Unified order' : 'Smart order', INCLUDES[settings.include],
     settings.choices === 'all' && 'Fill in the blank', cursiveAnswers && 'Answers in כתב יד'].filter(Boolean).join(' · ')
-  const sheet = settingsOpen && <SettingsSheet settings={settings} change={change} cursive={cursiveAnswers} onCursive={() => setCursiveAnswers(!cursiveAnswers)} onClose={() => setSettingsOpen(false)} onFresh={() => void newSentences()} />
+  const sheet = settingsOpen && <SettingsSheet settings={settings} change={patch => { for (const [key, value] of Object.entries(patch)) settingsPick(SETTING_NAMES[key as keyof Settings] ?? key, { value }); change(patch) }}
+    cursive={cursiveAnswers} onCursive={() => { settingsPick('cursive answers', { value: !cursiveAnswers }); setCursiveAnswers(!cursiveAnswers) }}
+    onClose={() => { settingsPick('close'); setSettingsOpen(false) }} onFresh={() => { settingsPick('new sentences'); void newSentences() }} />
 
   const card = deck[position]
   const progress = { at: position - roundStart + 1, of: deck.length - roundStart }
@@ -706,7 +716,9 @@ export default function Practice() {
 
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
     {title}
-    <TopBar summary={summary} progress={progress} canGoBack={position > roundStart} onBack={() => go(-1)} onNext={() => go(1)} onDone={stopStudying} onNewRound={confirmNewRound} onWhy={toggleWhy} onSettings={() => { stopAdvancing(); setSettingsOpen(true) }} />
+    <TopBar summary={summary} progress={progress} canGoBack={position > roundStart} onBack={() => { cardPick('previous'); go(-1) }} onNext={() => { cardPick('next'); go(1) }}
+      onDone={() => { cardPick('done'); stopStudying() }} onNewRound={() => { cardPick('new round'); confirmNewRound() }} onWhy={() => { cardPick('why', { value: !why }); toggleWhy() }}
+      onSettings={() => { cardPick('settings'); stopAdvancing(); setSettingsOpen(true) }} />
     <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, gap: 16, justifyContent: 'center', paddingBottom: 24 + insets.bottom }]}>
       <ErrorNotice message={error} />
       {why && !!card.why && <Text style={practice.why}>{card.why}</Text>}
@@ -769,6 +781,9 @@ const practiceHint = StyleSheet.create({
   knew: { color: colors.green, borderColor: colors.green, backgroundColor: colors.lime },
   learning: { color: colors.muted, borderColor: colors.line, backgroundColor: colors.white },
 })
+// The settings as usage names them (lib/usage.ts).
+const SETTING_NAMES: Partial<Record<keyof Settings, string>> = { front: 'show first', order: 'order', include: 'cards', choices: 'fill in the blank', planner: 'plan rounds by' }
+
 const HINTS: Record<Side, ReactNode> = {
   right: <Text style={[practiceHint.tag, practiceHint.knew]}>Knew it</Text>,
   left: <Text style={[practiceHint.tag, practiceHint.learning]}>Still learning</Text>,
@@ -1078,8 +1093,8 @@ function withNewForms(current: VocabEntry | undefined, ready: VocabEntry): Vocab
 // The end of a round (or of studying): one calm line, any stage Mila brought in, another round
 // if you like, and back to the tree, which shows the rest (lib/tree.ts). A card answered in two
 // rounds counts twice, so cards can outnumber words.
-function Summary({ title, fresh, answered, words, unlocked, error, onMore, onFresh }: {
-  title: ReactNode; fresh: boolean; answered: number; words: number; unlocked: string[]; error: string | null; onMore: () => void; onFresh: () => void
+function Summary({ title, fresh, answered, words, unlocked, error, onPick, onMore, onFresh }: {
+  title: ReactNode; fresh: boolean; answered: number; words: number; unlocked: string[]; error: string | null; onPick: (option: string) => void; onMore: () => void; onFresh: () => void
 }) {
   useEffect(() => { feel('complete') }, [])
   return <Page>
@@ -1091,9 +1106,9 @@ function Summary({ title, fresh, answered, words, unlocked, error, onMore, onFre
       <Ionicons name="sparkles-outline" size={18} color={colors.green} /><Text style={[styles.copy, { color: colors.ink, flexShrink: 1 }]}>New for you: {line}</Text>
     </View>)}
     <ErrorNotice message={error} />
-    <Button title="Back to your tree" onPress={() => router.dismissTo('/')} />
-    <Button secondary title="Another round" onPress={onMore} />
-    <Button secondary title="New sentences round" onPress={onFresh} />
+    <Button title="Back to your tree" onPress={() => { onPick('back to your tree'); router.dismissTo('/') }} />
+    <Button secondary title="Another round" onPress={() => { onPick('another round'); onMore() }} />
+    <Button secondary title="New sentences round" onPress={() => { onPick('new sentences'); onFresh() }} />
   </Page>
 }
 

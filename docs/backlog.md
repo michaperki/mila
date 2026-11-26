@@ -872,6 +872,29 @@ start, use Reader or Study, open the capture at mila-hebrew.netlify.app/debug.ht
 - **Not yet:** other functions (insights, texts, speech, study-events) and the save path in the
   drawer; live updating; reading `aiUsage` alongside.
 
+### DEBUG-2 Usage view
+**Done, first version** (2026-11-26). For Mike, as the developer: which controls get used, where
+tasks are abandoned, and where Back is pressed again at once, in normal Preview use, with no debug
+capture on. At mila-hebrew.netlify.app/debug.html → Usage (admins, own account).
+- Phone (`lib/usage.ts`): always on while signed in, names and timings only. `nav` for every
+  screen change (from, how: push, back, replace; time on the screen before, minus time in the
+  background; `after`, the control that caused it, so Done isn't taken for Back); `offer`, a surface
+  shown with the controls it had (a drawer per lookup, a sheet each time it opens, a screen each
+  visit; Details joins the drawer's offer once there is an explanation with details); `pick`, a
+  control used; `outcome` (camera: opened reader, no text, read failed). Surfaces: Home, Read sheet,
+  camera, Reader toolbar, sentence bar, word drawer (reader and study), Study's top bar, settings,
+  Welcome back and round end, Your words. Sent with the study events; the server keeps them in
+  `usageEvents` (cleared with the account), so Learning Insights and the learner model never read
+  them (tested in study-events.test.ts).
+- Viewer (`public/debug-usage.js`, analysis in `public/usage-analysis.js`, tested): when tracking
+  began and what is covered; controls with "used in k of n showings", sortable by uses or share, so
+  one never used shows as 0 of n; backtracks: every way a screen was arrived at, with how many were
+  left by Back within an adjustable cutoff (3 s to start) and every arrival's time; Home → Read:
+  what was offered and chosen, dismissed, and what led to reading; tasks left unfinished (camera,
+  Paste text). Each row opens examples: the session as recorded, around the moment.
+- **Not yet:** controls on Library, a word's page, Account, Paste text and Import (their screens are
+  tracked); other accounts; v2 waits on Mike's feedback.
+
 ## Smaller and older items
 
 - **Word speaker button, swipe between words in the drawer.** Exploratory (old P4,

@@ -15,11 +15,16 @@ const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { '
 // held on a card shown in English (`hold`, with what it found), and a round as planned (`plan`).
 // Since 2026-11-19: help asked for on a card before answering (`hint`, by kind), and a reader's
 // sentence no longer the selected one (`deselect`, with how long it was and how it ended).
-const TYPES = new Set(['start', 'show', 'reveal', 'answer', 'end', 'read', 'select', 'lookup', 'explained', 'save', 'unsave', 'app', 'view', 'closed', 'hold', 'plan', 'hint', 'deselect'])
+// Since 2026-11-26: usage events (apps/mobile/src/lib/usage.ts: screens arrived at, surfaces shown
+// with their controls, controls used, outcomes), sent the same way and kept apart, in usageEvents,
+// so that nothing reading study events (Learning Insights, the learner model) sees them. They are
+// read by the developers' Usage view (debug-trace.ts ?usage).
+export const USAGE_TYPES = new Set(['nav', 'offer', 'pick', 'outcome'])
+const TYPES = new Set(['start', 'show', 'reveal', 'answer', 'end', 'read', 'select', 'lookup', 'explained', 'save', 'unsave', 'app', 'view', 'closed', 'hold', 'plan', 'hint', 'deselect', ...USAGE_TYPES])
 const MAX_EVENTS = 200
 // An event larger than this is kept apart rather than with the others (see below).
 const MAX_EVENT = 16_000
-let indexReady: Promise<unknown> | null = null
+const indexReady = new Map<string, Promise<unknown>>()
 
 // Why an event can't be kept as a study event, or null if it can.
 export const problemOf = (event: unknown): string | null => {
@@ -60,21 +65,27 @@ export const handler: Handler = async (event) => {
       })))
     }
     if (!events.length) return reply(200, { kept: 0, ...(refused.length ? { refused: refused.length } : {}) })
-    const collection = (await getDb()).collection('studyEvents')
-    indexReady ??= Promise.all([
-      collection.createIndex({ userId: 1, id: 1 }, { unique: true }),
-      collection.createIndex({ userId: 1, at: 1 }),
-    ]).catch(error => { indexReady = null; throw error })
-    await indexReady
+    const db = await getDb()
     const receivedAt = Date.now()
-    try {
-      await collection.insertMany(events.map(item => ({ ...item, userId: auth.userId, receivedAt })), { ordered: false })
-    } catch (error) {
-      // Events already kept (a batch sent again) are skipped; anything else is a failure.
-      const failure = error as { code?: number; writeErrors?: { code?: number }[] }
-      const duplicates = failure.code === 11000 && (failure.writeErrors ?? []).every(item => item.code === 11000)
-      if (!duplicates) throw error
+    const keep = async (name: string, list: typeof events) => {
+      if (!list.length) return
+      const collection = db.collection(name)
+      if (!indexReady.has(name)) indexReady.set(name, Promise.all([
+        collection.createIndex({ userId: 1, id: 1 }, { unique: true }),
+        collection.createIndex({ userId: 1, at: 1 }),
+      ]).catch(error => { indexReady.delete(name); throw error }))
+      await indexReady.get(name)
+      try {
+        await collection.insertMany(list.map(item => ({ ...item, userId: auth.userId, receivedAt })), { ordered: false })
+      } catch (error) {
+        // Events already kept (a batch sent again) are skipped; anything else is a failure.
+        const failure = error as { code?: number; writeErrors?: { code?: number }[] }
+        const duplicates = failure.code === 11000 && (failure.writeErrors ?? []).every(item => item.code === 11000)
+        if (!duplicates) throw error
+      }
     }
+    await keep('studyEvents', events.filter(item => !USAGE_TYPES.has(item.type)))
+    await keep('usageEvents', events.filter(item => USAGE_TYPES.has(item.type)))
     return reply(200, { kept: events.length, ...(refused.length ? { refused: refused.length } : {}) })
   } catch (error) {
     const failure = error as { statusCode?: number; code?: string; name?: string }

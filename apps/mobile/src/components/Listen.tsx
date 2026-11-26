@@ -11,12 +11,13 @@ import { useSession } from '../state/session'
 // for the whole app). `text` may be a list of sentences, read in order. A long press offers the
 // two voices: choosing one makes it the voice everywhere (as in Account) and reads the text in it
 // at once. The voice in use is the small letter at the speaker's corner.
-export function ListenButton({ text, accessibilityLabel, size = 22, speed = true }: { text: string | string[]; accessibilityLabel: string; size?: number; speed?: boolean }) {
+// `onListen`: told each time it is pressed (usage, lib/usage.ts).
+export function ListenButton({ text, accessibilityLabel, size = 22, speed = true, onListen }: { text: string | string[]; accessibilityLabel: string; size?: number; speed?: boolean; onListen?: () => void }) {
   const { session } = useSession()
   const { playing, loading, rate, voice } = useSpeech()
   const key = Array.isArray(text) ? text.join(' ') : text
   const on = playing === key
-  const press = () => { void speak(text, session?.token, key) }
+  const press = () => { onListen?.(); void speak(text, session?.token, key) }
   const button = useRef<View>(null)
   // Where the button is on screen while the voices are offered.
   const [offer, setOffer] = useState<{ x: number; y: number; height: number } | null>(null)

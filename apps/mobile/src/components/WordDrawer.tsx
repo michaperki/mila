@@ -19,6 +19,7 @@ import { noteActivity } from '../lib/tree'
 import { explainWord, quickMeanings } from '../lib/recognition'
 import type { LogEvent } from '../lib/study-log'
 import { type Act, act, onPhone } from '../lib/trace'
+import { useOffer } from '../lib/usage'
 import type { Built, Encounter, Phrase, Session, VocabEntry, WordAnalysis } from '../lib/types'
 import { constructionsOf, encountersOf, lemmaKey, patternLabel, savedByLemma, savedBySurface, savedKey, savedKeysOf, savedTapsOf, tapKey, vocabId } from '../lib/words'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
@@ -324,15 +325,25 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close,
   // Where Details begins in the scrolling part, to bring it into view when it is opened.
   const openedDetails = useRef(false)
   const { tap, analysis, gloss, busy, quickMeaning, isPhrase, phrase, isPattern, fillsPattern, patternFirst, leadPhrase, phraseIsWord, inYourWords, wordSaved, phraseSaved, saving, unsaving, details } = lookup
+  const hasDetails = !!tap && !!analysis && (analysis.parts.length > 1 || !!analysis.note || !!analysis.root || !!analysis.lemmaMeaning || !!analysis.partOfSpeech || (!!analysis.readAs && stripNiqqud(analysis.readAs) !== tap.text))
+  // Usage (lib/usage.ts): each lookup is a showing of the drawer, with the controls it came to
+  // have (Details only once there is an explanation with details to show).
+  const mainSaved = leadPhrase ? phraseSaved : wordSaved
+  const drawerPick = useOffer(tap?.card ? 'study drawer' : 'reader drawer', tap, [
+    'close', 'listen', hasDetails && !busy && 'details', !!tap?.card && !analysis && !busy && !lookup.asked && 'more',
+    (leadPhrase || !isPhrase) && (mainSaved ? 'undo save' : 'save'), !!inYourWords && !busy && 'in your words',
+    isPhrase && !phrase && !busy && !!onPickWord && 'pick a word', leadPhrase && !phraseIsWord && !isPhrase && 'save just the word',
+    fillsPattern && 'save the pattern', lookup.firstSave && (wordSaved || phraseSaved) && !saving.size && 'study now',
+  ])
   if (!tap) return null
+  const closing = () => { drawerPick('close'); onClose() }
   const sentence = tap.sentence
   // The sheet stays below the top of the screen (and the reader's toolbar): what doesn't fit
   // scrolls, between the word at the top and Save at the bottom, which are always in view.
   const maxHeight = Math.min(screenHeight * 0.82, screenHeight - insets.top - 56)
-  const hasDetails = !!analysis && (analysis.parts.length > 1 || !!analysis.note || !!analysis.root || !!analysis.lemmaMeaning || !!analysis.partOfSpeech || (!!analysis.readAs && stripNiqqud(analysis.readAs) !== tap.text))
   // Shows a "More below" hint until the explanation is scrolled to its end.
   const measureMore = ({ layoutMeasurement, contentOffset, contentSize }: NativeScrollEvent) => setMoreBelow(contentOffset.y + layoutMeasurement.height < contentSize.height - 8)
-  const toggleDetails = () => lookup.setDetails(value => { openedDetails.current = !value; return !value })
+  const toggleDetails = () => { if (!details) drawerPick('details'); lookup.setDetails(value => { openedDetails.current = !value; return !value }) }
   // How the tapped word was read: its pieces, its form and the dictionary form it comes from
   // (וְ + צָעַק · past, he · from לִצְעֹק), so each occurrence is seen as a form of one word. The
   // pieces' meanings are in the meaning above and under Details (Breakdown), not repeated here,
@@ -356,11 +367,11 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close,
     {isPattern && !!phrase.textMeaning && <Text style={drawer.fact}>Here <Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.textMeaning))}</Text>}
   </Animated.View> : null
 
-  return <DraggableSheet onDismiss={onClose} style={[drawer.sheet, style, { maxHeight }]} accessibilityViewIsModal onLayout={onLayout}
+  return <DraggableSheet onDismiss={closing} style={[drawer.sheet, style, { maxHeight }]} accessibilityViewIsModal onLayout={onLayout}
     handle={<View style={drawer.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={10}><Ionicons name="close" size={22} color={colors.muted} /></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={closing} hitSlop={10}><Ionicons name="close" size={22} color={colors.muted} /></Pressable>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 }}>
-        <ListenButton text={analysis?.vocalized || tap.text} accessibilityLabel={isPhrase ? 'Hear this phrase' : 'Hear this word'} />
+        <ListenButton text={analysis?.vocalized || tap.text} accessibilityLabel={isPhrase ? 'Hear this phrase' : 'Hear this word'} onListen={() => drawerPick('listen')} />
         <Text style={[drawer.word, he]}>{v(analysis?.vocalized || tap.text)}</Text>
       </View>
     </View>}>
@@ -381,7 +392,7 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close,
     {!isPhrase && !leadPhrase && !busy && !!analysis && constructionsOf(analysis).length > 0
       && <Constructions items={constructionsOf(analysis)} v={v} size={15} meanings align="start" />}
     {!patternFirst && unitBox}
-    {inYourWords && !busy && <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/word', params: { id: inYourWords.id } })} hitSlop={6} style={[styles.row, { gap: 4 }]}>
+    {inYourWords && !busy && <Pressable accessibilityRole="link" onPress={() => { drawerPick('in your words'); router.push({ pathname: '/word', params: { id: inYourWords.id } }) }} hitSlop={6} style={[styles.row, { gap: 4 }]}>
       <Ionicons name="bookmark" size={14} color={colors.green} />
       <Text style={drawer.saved}>In your words · <Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(inYourWords.lemma))}</Text></Text>
       <Ionicons name="chevron-forward" size={14} color={colors.green} />
@@ -404,28 +415,28 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close,
         <Text style={drawer.toggleLabel}>{details ? 'Less' : 'Details'}</Text><Ionicons name={details ? 'chevron-down' : 'chevron-up'} size={16} color={colors.green} />
       </Pressable>}
       {/* A card's word: its meaning is the card's; the full explanation only when asked for. */}
-      {!!tap.card && !analysis && !busy && !lookup.asked && <Pressable accessibilityRole="button" accessibilityLabel="Explain this word in full" onPress={() => { openedDetails.current = true; void lookup.explain() }} style={drawer.detailsToggle} hitSlop={6}>
+      {!!tap.card && !analysis && !busy && !lookup.asked && <Pressable accessibilityRole="button" accessibilityLabel="Explain this word in full" onPress={() => { drawerPick('more'); openedDetails.current = true; void lookup.explain() }} style={drawer.detailsToggle} hitSlop={6}>
         <Text style={drawer.toggleLabel}>More</Text><Ionicons name="chevron-up" size={16} color={colors.green} />
       </Pressable>}
       {leadPhrase
         ? <Button secondary={phraseSaved} title={phraseSaved ? `${isPattern ? 'Pattern' : 'Expression'} saved ✓` : lookup.inYourWords ? 'Add this example' : isPattern ? 'Save pattern' : 'Save expression'} detail={phraseSaved ? 'Tap to undo' : undefined}
-          busy={unsaving.has(tapKey(phrase!.text, sentence))} moment={phraseSaved ? null : undefined} onPress={() => (phraseSaved ? lookup.unsave(true) : void lookup.save(true))} style={{ flex: 1 }} />
+          busy={unsaving.has(tapKey(phrase!.text, sentence))} moment={phraseSaved ? null : undefined} onPress={() => { drawerPick(phraseSaved ? 'undo save' : 'save'); if (phraseSaved) lookup.unsave(true); else void lookup.save(true) }} style={{ flex: 1 }} />
         : isPhrase ? null
         : <Button secondary={wordSaved} title={wordSaved ? 'Saved ✓' : inYourWords ? 'Add this example' : 'Save word'} detail={wordSaved ? 'Tap to undo' : undefined}
-          busy={unsaving.has(tapKey(tap.text, sentence))} moment={wordSaved ? null : undefined} onPress={() => (wordSaved ? lookup.unsave() : void lookup.save())} style={{ flex: 1 }} />}
+          busy={unsaving.has(tapKey(tap.text, sentence))} moment={wordSaved ? null : undefined} onPress={() => { drawerPick(wordSaved ? 'undo save' : 'save'); if (wordSaved) lookup.unsave(); else void lookup.save() }} style={{ flex: 1 }} />}
     </View>
     {/* Words dragged across that aren't one phrase are not saved as written: one of them can be. */}
     {isPhrase && !phrase && !busy && !!onPickWord && <View style={{ gap: 6 }}>
       <Text style={drawer.label}>Not one phrase · tap a word to save it</Text>
       <View style={[styles.row, { flexDirection: 'row-reverse', gap: 6 }]}>
-        {tap.text.split(/\s+/).map((word, i) => <Pill key={i} label={v(word)} accessibilityLabel={`Open ${word}`} onPress={() => onPickWord(i)} />)}
+        {tap.text.split(/\s+/).map((word, i) => <Pill key={i} label={v(word)} accessibilityLabel={`Open ${word}`} onPress={() => { drawerPick('pick a word'); onPickWord(i) }} />)}
       </View>
     </View>}
     {leadPhrase && !phraseIsWord && !isPhrase && <TextButton title={unsaving.has(tapKey(tap.text, sentence)) ? 'Undoing…' : wordSaved ? `${isolateHebrew(tap.text)} saved on its own ✓ · Undo` : `Save just ${isolateHebrew(tap.text)}`}
-      onPress={() => (wordSaved ? lookup.unsave() : void lookup.save())} />}
+      onPress={() => { drawerPick('save just the word', { value: wordSaved ? 'undo' : 'save' }); if (wordSaved) lookup.unsave(); else void lookup.save() }} />}
     {fillsPattern && <TextButton title={unsaving.has(tapKey(phrase!.text, sentence)) ? 'Undoing…' : phraseSaved ? 'Pattern saved ✓ · Undo' : `Save the pattern ${isolateHebrew(plainSpelling(phrase!.pattern!))}`}
-      onPress={() => (phraseSaved ? lookup.unsave(true) : void lookup.save(true))} />}
-    {lookup.firstSave && (wordSaved || phraseSaved) && !saving.size && <TextButton title="Your first word is saved · Study it now" color={colors.green} onPress={() => { onClose(); router.push('/practice') }} />}
+      onPress={() => { drawerPick('save the pattern', { value: phraseSaved ? 'undo' : 'save' }); if (phraseSaved) lookup.unsave(true); else void lookup.save(true) }} />}
+    {lookup.firstSave && (wordSaved || phraseSaved) && !saving.size && <TextButton title="Your first word is saved · Study it now" color={colors.green} onPress={() => { drawerPick('study now'); onClose(); router.push('/practice') }} />}
   </DraggableSheet>
 }
 

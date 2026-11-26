@@ -21,6 +21,7 @@ import { type EnglishMode, getPref, rememberRead, setPref, TEXT_SIZES } from '..
 import { noteActivity } from '../lib/tree'
 import { quickMeanings } from '../lib/recognition'
 import { type LogEvent, sendStudyLog, studySession } from '../lib/study-log'
+import { useOffer, useVisit } from '../lib/usage'
 import { useSession } from '../state/session'
 import { useVowels } from '../state/vowels'
 import { isVowelled, pageWithVowels, withVowels } from '../lib/vowels'
@@ -288,6 +289,15 @@ export default function Reader() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Usage (lib/usage.ts): the toolbar's controls each visit, and the sentence bar's each time a
+  // sentence is selected with no word (its ends have no Previous or Next).
+  const visit = useVisit()
+  const readerPick = useOffer('reader', recognition ? visit : null, ['english', 'cursive', vowelled && !cursive && 'vowels', 'text size', !saved && 'save passage', saved && 'remove from library'])
+  const withWords = segments.map((_, i) => i).filter(i => indexOfFirstWord[i] !== undefined)
+  const barAt = active === null ? -1 : withWords.indexOf(active)
+  const barPick = useOffer('sentence bar', recognition && active !== null && selected === null ? `${visit}:${active}` : null,
+    [barAt > 0 && 'previous', barAt >= 0 && barAt < withWords.length - 1 && 'next', 'listen', 'done'])
+
   if (!recognition) return <Page><Text style={styles.title}>Find something to read.</Text><Button title="Open camera" onPress={() => router.replace('/camera')} /></Page>
 
   // A sentence becomes the active one, its English placed at once from the words' boxes (they
@@ -458,14 +468,14 @@ export default function Reader() {
     {/* The toolbar stays put while the passage scrolls under it. Whole-page listening is gone,
         since every sentence has its own Listen. */}
     <View style={[styles.row, reader.toolbar, { paddingLeft: 22 + insets.left, paddingRight: 22 + insets.right }]}>
-      <Pill icon={english === 'off' ? 'eye-off-outline' : 'eye-outline'} label={englishLabel[english]} active={english !== 'off'} onPress={cycleEnglish} accessibilityLabel={`English ${englishSpoken[english]}. Change`} />
+      <Pill icon={english === 'off' ? 'eye-off-outline' : 'eye-outline'} label={englishLabel[english]} active={english !== 'off'} onPress={() => { readerPick('english', { value: nextEnglish[english] }); cycleEnglish() }} accessibilityLabel={`English ${englishSpoken[english]}. Change`} />
       {/* Print or cursive (state/script.ts); cursive is written without vowels, so it has no Vowels button. */}
-      <Pill label="כתב יד" active={cursive} onPress={() => setCursive(!cursive)} accessibilityLabel={cursive ? 'Cursive. Show in print' : 'Print. Show in cursive'} />
-      {vowelled && !cursive && <Pill label="Vowels" active={showNiqqud} onPress={toggleNiqqud} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />}
+      <Pill label="כתב יד" active={cursive} onPress={() => { readerPick('cursive', { value: cursive ? 'print' : 'cursive' }); setCursive(!cursive) }} accessibilityLabel={cursive ? 'Cursive. Show in print' : 'Print. Show in cursive'} />
+      {vowelled && !cursive && <Pill label="Vowels" active={showNiqqud} onPress={() => { readerPick('vowels', { value: showNiqqud ? 'off' : 'on' }); toggleNiqqud() }} accessibilityLabel={showNiqqud ? 'Hide vowels' : 'Show vowels'} />}
       <View style={reader.sizes}>
-        <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={`Smaller text, now ${Math.round(size * 100)}%`} onPress={() => resize(-1)} hitSlop={6} style={reader.size}><Text style={reader.sizeLabel}>A−</Text></Pressy>
+        <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={`Smaller text, now ${Math.round(size * 100)}%`} onPress={() => { readerPick('text size', { value: 'smaller' }); resize(-1) }} hitSlop={6} style={reader.size}><Text style={reader.sizeLabel}>A−</Text></Pressy>
         <View style={reader.sizesRule} />
-        <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={`Larger text, now ${Math.round(size * 100)}%`} onPress={() => resize(1)} hitSlop={6} style={reader.size}><Text style={reader.sizeLabel}>A+</Text></Pressy>
+        <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={`Larger text, now ${Math.round(size * 100)}%`} onPress={() => { readerPick('text size', { value: 'larger' }); resize(1) }} hitSlop={6} style={reader.size}><Text style={reader.sizeLabel}>A+</Text></Pressy>
       </View>
       <View style={{ marginLeft: 'auto' }}>
         <FeedbackButton variant="icon" screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, active, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss: lookup.gloss, analysis: lookup.analysis })} />
@@ -503,22 +513,22 @@ export default function Reader() {
         })}
       </View>
       <ErrorNotice message={error} />
-      <Button title={saved ? 'Saved to library ✓' : 'Save passage'} disabled={saved} busy={busy} onPress={save} />
-      {saved && <TextButton title="Remove from library" onPress={() => void remove()} />}
+      <Button title={saved ? 'Saved to library ✓' : 'Save passage'} disabled={saved} busy={busy} onPress={() => { readerPick('save passage'); save() }} />
+      {saved && <TextButton title="Remove from library" onPress={() => { readerPick('remove from library'); void remove() }} />}
     </ScrollView>
     </View>
 
     {/* Sentence bar: moving between sentences is separate from studying a word. */}
     {active !== null && !word && <Animated.View entering={SHEET_IN} exiting={SHEET_OUT} style={[reader.overlay, reader.bar, overlaySides, { paddingBottom: 10 + insets.bottom }]} onLayout={event => setOverlayHeight(event.nativeEvent.layout.height)}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Previous sentence" disabled={activePosition <= 0} onPress={() => goSentence(-1)} hitSlop={8} style={[reader.barButton, activePosition <= 0 && { opacity: 0.3 }]}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Previous sentence" disabled={activePosition <= 0} onPress={() => { barPick('previous'); goSentence(-1) }} hitSlop={8} style={[reader.barButton, activePosition <= 0 && { opacity: 0.3 }]}>
         <Ionicons name="chevron-up" size={20} color={colors.green} /><Text style={reader.barLabel}>Previous</Text>
       </Pressable>
       <Text style={reader.barCount}>Sentence {activePosition + 1} of {sentences.length}</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel="Next sentence" disabled={activePosition >= sentences.length - 1} onPress={() => goSentence(1)} hitSlop={8} style={[reader.barButton, activePosition >= sentences.length - 1 && { opacity: 0.3 }]}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Next sentence" disabled={activePosition >= sentences.length - 1} onPress={() => { barPick('next'); goSentence(1) }} hitSlop={8} style={[reader.barButton, activePosition >= sentences.length - 1 && { opacity: 0.3 }]}>
         <Text style={reader.barLabel}>Next</Text><Ionicons name="chevron-down" size={20} color={colors.green} />
       </Pressable>
-      <ListenButton text={segments[active].he} accessibilityLabel="Listen to this sentence" />
-      <Pressable accessibilityRole="button" accessibilityLabel="Done with this sentence" onPress={leaveSentence} hitSlop={8}><Ionicons name="close" size={22} color={colors.muted} /></Pressable>
+      <ListenButton text={segments[active].he} accessibilityLabel="Listen to this sentence" onListen={() => barPick('listen')} />
+      <Pressable accessibilityRole="button" accessibilityLabel="Done with this sentence" onPress={() => { barPick('done'); leaveSentence() }} hitSlop={8}><Ionicons name="close" size={22} color={colors.muted} /></Pressable>
     </Animated.View>}
 
     {/* Word drawer: compact by default (meaning and save); details expand on request. */}
