@@ -295,7 +295,7 @@ export default function Reader() {
   const readerPick = useOffer('reader', recognition ? visit : null, ['tap a word', 'select words', 'english', 'cursive', vowelled && !cursive && 'vowels', 'text size', !saved && 'save passage', saved && 'remove from library'])
   const withWords = segments.map((_, i) => i).filter(i => indexOfFirstWord[i] !== undefined)
   const barAt = active === null ? -1 : withWords.indexOf(active)
-  const barPick = useOffer('sentence bar', recognition && active !== null && selected === null ? `${visit}:${active}` : null,
+  const barPick = useOffer('sentence bar', recognition && visit !== null && active !== null && selected === null ? `${visit}:${active}` : null,
     [barAt > 0 && 'previous', barAt >= 0 && barAt < withWords.length - 1 && 'next', 'listen', 'done'])
 
   if (!recognition) return <Page><Text style={styles.title}>Find something to read.</Text><Button title="Open camera" onPress={() => router.replace('/camera')} /></Page>
