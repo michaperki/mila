@@ -4,6 +4,7 @@ import { Button, colors, ErrorNotice, styles } from './ui'
 import { describeVersion } from '../lib/app-info'
 import { captureNow, onCaptureChange, startCapture, stopCapture } from '../lib/trace'
 import type { Session } from '../lib/types'
+import { outcome, pick } from '../lib/usage'
 
 // Account → Debug capture, for the developers only (the server answers ADMIN_EMAILS and no one
 // else): start a capture, use Reader or Study as usual, and open it on a laptop at /debug.html.
@@ -16,9 +17,10 @@ export function DebugCapture({ session }: { session: Session }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => onCaptureChange(() => setNow(captureNow())), [])
-  const run = (work: () => Promise<unknown>) => {
+  const run = (what: 'start' | 'stop', work: () => Promise<unknown>) => {
+    pick('account', 'debug capture', null, { value: what === 'start' ? `start${prompts ? ' with prompts' : ''}` : 'stop' })
     setBusy(true); setError(null)
-    void work().catch((failure: Error) => setError(failure.message)).finally(() => { setBusy(false); setNow(captureNow()) })
+    void work().then(() => outcome('account', what === 'start' ? 'capture started' : 'capture stopped'), (failure: Error) => { outcome('account', `capture ${what} failed`); setError(failure.message) }).finally(() => { setBusy(false); setNow(captureNow()) })
   }
   return <View style={styles.card}>
     <Text style={styles.heading}>Debug capture</Text>
@@ -27,7 +29,7 @@ export function DebugCapture({ session }: { session: Session }) {
     {now ? <>
       <Text style={[styles.copy, { color: colors.ink }]}>Capturing since {clock(now.startedAt)} · {now.id}{now.prompts ? ' · with exact AI prompts' : ''}</Text>
       <Text style={[styles.copy, { fontSize: 13 }]}>{now.sent} sent{now.waiting ? `, ${now.waiting} waiting` : ''}. It stops by itself after two hours.</Text>
-      <Button title="Stop capture" busy={busy} onPress={() => run(() => stopCapture(session.token))} />
+      <Button title="Stop capture" busy={busy} onPress={() => run('stop', () => stopCapture(session.token))} />
     </> : <>
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
         <View style={{ flex: 1, gap: 2 }}>
@@ -36,7 +38,7 @@ export function DebugCapture({ session }: { session: Session }) {
         </View>
         <Switch value={prompts} onValueChange={setPrompts} trackColor={{ true: colors.green }} accessibilityLabel="Exact AI prompts" />
       </View>
-      <Button title="Start capture" busy={busy} onPress={() => run(() => startCapture(session.token, prompts, `${Platform.OS} · ${describeVersion()}`))} />
+      <Button title="Start capture" busy={busy} onPress={() => run('start', () => startCapture(session.token, prompts, `${Platform.OS} · ${describeVersion()}`))} />
     </>}
   </View>
 }

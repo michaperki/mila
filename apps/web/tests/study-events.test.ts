@@ -19,13 +19,13 @@ describe('study events', () => {
     expect(options).toEqual({ ordered: false })
   })
   it('keeps usage events apart, so nothing reading study events sees them', async () => {
-    const response = await post({ events: [event(0), event(1, { type: 'nav', to: 'camera', how: 'back' }), event(2, { type: 'offer', surface: 'read', options: ['photo'] }), event(3, { type: 'pick', surface: 'read', option: 'photo' }), event(4, { type: 'outcome', surface: 'camera', outcome: 'no text' })] })
-    expect(JSON.parse(response.body)).toEqual({ kept: 5 })
+    const response = await post({ events: [event(0), event(1, { type: 'nav', to: 'camera', how: 'back' }), event(2, { type: 'offer', surface: 'read', options: ['photo'] }), event(3, { type: 'pick', surface: 'read', option: 'photo' }), event(4, { type: 'outcome', surface: 'camera', outcome: 'no text' }), event(5, { type: 'seen', surface: 'account', panel: 'ai spend' })] })
+    expect(JSON.parse(response.body)).toEqual({ kept: 6 })
     const [[study, , studyName], [usage, , usageName]] = insertMany.mock.calls
     expect(studyName).toBe('studyEvents')
     expect(study.map((item: { type: string }) => item.type)).toEqual(['show'])
     expect(usageName).toBe('usageEvents')
-    expect(usage.map((item: { type: string }) => item.type)).toEqual(['nav', 'offer', 'pick', 'outcome'])
+    expect(usage.map((item: { type: string }) => item.type)).toEqual(['nav', 'offer', 'pick', 'outcome', 'seen'])
   })
   it('keeps reading and lookup events too', async () => {
     const reading = ['read', 'select', 'lookup', 'explained', 'save', 'unsave'].map((type, seq) => event(seq, { type }))

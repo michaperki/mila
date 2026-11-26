@@ -292,7 +292,7 @@ export default function Reader() {
   // Usage (lib/usage.ts): the toolbar's controls each visit, and the sentence bar's each time a
   // sentence is selected with no word (its ends have no Previous or Next).
   const visit = useVisit()
-  const readerPick = useOffer('reader', recognition ? visit : null, ['english', 'cursive', vowelled && !cursive && 'vowels', 'text size', !saved && 'save passage', saved && 'remove from library'])
+  const readerPick = useOffer('reader', recognition ? visit : null, ['tap a word', 'select words', 'english', 'cursive', vowelled && !cursive && 'vowels', 'text size', !saved && 'save passage', saved && 'remove from library'])
   const withWords = segments.map((_, i) => i).filter(i => indexOfFirstWord[i] !== undefined)
   const barAt = active === null ? -1 : withWords.indexOf(active)
   const barPick = useOffer('sentence bar', recognition && active !== null && selected === null ? `${visit}:${active}` : null,
@@ -319,9 +319,11 @@ export default function Reader() {
   }
   // A word tapped (or words dragged across) in any sentence: it is explained, and its sentence
   // becomes the active one, with its English, in the same tap.
-  const select = (index: number, to = index) => {
+  // `fromDrawer`: a word picked among a phrase's words in the drawer, recorded there.
+  const select = (index: number, to = index, fromDrawer = false) => {
     const first = words[index]
     if (!first) return
+    if (!fromDrawer) readerPick(to > index ? 'select words' : 'tap a word')
     feel('select')
     setSelected(index); setSelectedTo(to)
     if (first.segment !== active) { activate(first.segment, 'word'); remember(first.segment) }
@@ -532,7 +534,7 @@ export default function Reader() {
     </Animated.View>}
 
     {/* Word drawer: compact by default (meaning and save); details expand on request. */}
-    {word && <WordDrawer lookup={lookup} v={v} onClose={close} onPickWord={offset => { if (selected !== null) select(selected + offset) }} style={[overlaySides, { paddingBottom: 12 + insets.bottom }]} onLayout={event => setOverlayHeight(event.nativeEvent.layout.height)} />}
+    {word && <WordDrawer lookup={lookup} v={v} onClose={close} onPickWord={offset => { if (selected !== null) select(selected + offset, selected + offset, true) }} style={[overlaySides, { paddingBottom: 12 + insets.bottom }]} onLayout={event => setOverlayHeight(event.nativeEvent.layout.height)} />}
   </View>
 }
 

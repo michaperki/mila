@@ -17,10 +17,12 @@ export function describeVersion() {
   return `${Updates.channel || 'no channel'} · ${Updates.isEmbeddedLaunch ? 'built-in code' : `update ${Updates.updateId?.slice(0, 8)}`} · ${when}`
 }
 // Checks, downloads and restarts into a newer update. Returns false when already current.
-export async function applyLatestUpdate() {
+// `onFound`: told before the app restarts into the update.
+export async function applyLatestUpdate(onFound?: () => void) {
   if (!Updates.isEnabled) return false
   const check = await Updates.checkForUpdateAsync()
   if (!check.isAvailable) return false
+  onFound?.()
   await Updates.fetchUpdateAsync()
   await Updates.reloadAsync()
   return true

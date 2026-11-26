@@ -174,7 +174,7 @@ export default function Camera() {
   const visit = useVisit()
   const granted = !!permission?.granted
   const cameraPick = useOffer('camera', session ? visit : null, granted
-    ? [reading ? 'cancel' : 'capture', !reading && 'choose a photo', !reading && 'paste', !reading && 'live', !reading && 'about', !!result && !reading && 'read this passage']
+    ? [reading ? 'cancel' : cameraReady && 'capture', !reading && 'choose a photo', !reading && 'paste', !reading && cameraReady && 'live', !reading && 'about', !!result && !reading && 'read this passage']
     : ['enable camera', 'choose a photo', 'paste'])
 
   if (!session) return <Page>

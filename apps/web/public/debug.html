@@ -120,6 +120,16 @@
   .seq { font-size: 12px; }
   .seq .ev { display: grid; grid-template-columns: 64px 52px 1fr; gap: 6px; padding: 3px 4px; border-bottom: 1px dashed var(--line); }
   .seq .ev.here { background: #fff4d6; border-radius: 4px; }
+  .seq .ev.span { background: #fffaea; }
+  .seq .ev.appear { color: var(--muted); }
+  .chips { line-height: 1.9; }
+  .chips .step { display: inline-block; padding: 0 7px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfb; font-size: 12px; line-height: 18px; }
+  .chips .step.back { border-color: #e4b7ad; background: #fbefec; }
+  .chips .step.pick { border-color: #b9d8c3; }
+  .chips .sep { color: var(--muted); margin: 0 2px; font-size: 11px; }
+  .kind { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .u-warn { border-color: #e4b7ad !important; background: #fbefec !important; }
+  .u-ok { border-color: #b9d8c3 !important; background: #f0f8f2 !important; }
   .seq .t { color: var(--muted); font-variant-numeric: tabular-nums; }
   .seq .k { color: var(--muted); }
   .times { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0; }

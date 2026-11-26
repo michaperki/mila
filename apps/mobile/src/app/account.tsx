@@ -17,6 +17,8 @@ import { ListenButton } from '../components/Listen'
 import { getPref, setPref } from '../lib/prefs'
 import { lastTree, plantedOn, type Tree } from '../lib/tree'
 import { shareBackup, shareTask, type TaskName } from '../lib/data-export'
+import { outcome, useOffer, useVisit } from '../lib/usage'
+import { Seen } from '../components/Seen'
 // Account → AI spend, for the developers only (ADMIN_EMAILS on the server; everyone else gets a
 // 403 and sees nothing): this month's paid calls across all learners, by feature and by learner,
 // and how many answers came from the cache instead (free).
@@ -34,16 +36,17 @@ export default function Account() {
   const [checking, setChecking] = useState(false)
   const checkForUpdate = async () => {
     setChecking(true); setUpdateStatus(null)
-    try { if (!(await applyLatestUpdate())) setUpdateStatus('You have the latest version.') }
-    catch { setUpdateStatus('Could not check for updates. Try again with a connection.') } finally { setChecking(false) }
+    // "Updating" is recorded before the app restarts into the update, so it isn't lost.
+    try { if (!(await applyLatestUpdate(() => outcome('account', 'update found')))) { outcome('account', 'already latest'); setUpdateStatus('You have the latest version.') } }
+    catch { outcome('account', 'update check failed'); setUpdateStatus('Could not check for updates. Try again with a connection.') } finally { setChecking(false) }
   }
   const [, setShowVowels, showVowels] = useVowels()
   const [cursive, setCursive] = useCursive('reader')
   const [cursiveAnswers, setCursiveAnswers] = useCursive('answers')
   const [feelings, setFeelings] = useState(feedbackSettings)
-  const toggle = (name: 'sounds' | 'haptics', value: boolean) => { setFeedback(name, value); setFeelings(feedbackSettings()) }
+  const toggle = (name: 'sounds' | 'haptics', value: boolean) => { accountPick(name, { value }); setFeedback(name, value); setFeelings(feedbackSettings()) }
   const { voice } = useSpeech()
-  const chooseVoice = (id: Voice) => { setVoice(id); void speak(SAMPLE, session?.token, `sample-${id}`) }
+  const chooseVoice = (id: Voice) => { accountPick('voice', { value: id }); setVoice(id); void speak(SAMPLE, session?.token, `sample-${id}`) }
   const [usage, setUsage] = useState<Usage | null>(null)
   const [tree, setTree] = useState<Tree | null>(null)
   const [sway, setSway] = useState(true)
@@ -51,17 +54,29 @@ export default function Account() {
     void lastTree(session).then(setTree)
     void getPref('treeMotion').then(setSway)
   }, [session]))
-  const chooseSway = (value: boolean) => { setSway(value); setPref('treeMotion', value) }
+  const chooseSway = (value: boolean) => { accountPick('tree in the wind', { value }); setSway(value); setPref('treeMotion', value) }
   useFocusEffect(useCallback(() => {
     if (!session) return
     const controller = new AbortController()
     void request<Usage>('ai-usage', { token: session.token, signal: controller.signal }).then(setUsage, () => {})
     return () => controller.abort()
   }, [session]))
+  // Usage (lib/usage.ts): Account's controls each visit, the developer ones only for developers
+  // (the AI spend answering says who is one). Its developer panels are recorded as seen when
+  // they scroll into view.
+  const visit = useVisit()
+  const admin = !!session && !!usage
+  const accountPick = useOffer('account', visit, [
+    'tree in the wind', privacyOpen ? 'privacy: show less' : 'privacy: learn more', 'privacy policy', 'vowels', 'cursive for reading', 'cursive for answers',
+    'voice', 'hear the voice', 'sounds', 'haptics', 'check for updates', admin && 'open learning insights', admin && 'debug capture', admin && 'temporary password',
+    !!session && 'change password', !!session && 'back up my data', !!session && 'words to organise', !!session && 'words in the wrong form', !!session && 'import changes',
+    !!session && 'delete all saved words', !!session && 'sign out', !!session && 'delete account',
+  ])
   const [vocabStatus, setVocabStatus] = useState<string | null>(null)
   const clearVocabulary = () => Alert.alert('Delete all saved words?', 'Every saved word and its practice history will be removed. This can\'t be undone.', [
     { text: 'Cancel', style: 'cancel' },
     { text: 'Delete all', style: 'destructive', onPress: () => {
+      outcome('account', 'deleted all saved words')
       setVocabStatus(null)
       void request<{ deleted?: number }>('vocab?all=1', { token: session!.token, method: 'DELETE' })
         .then(data => { clearVocab(session!); setVocabStatus(`Deleted ${data.deleted ?? 0} ${data.deleted === 1 ? 'word' : 'words'}.`) }, (failure: Error) => setError(failure.message))
@@ -71,6 +86,7 @@ export default function Account() {
   const [exporting, setExporting] = useState<string | null>(null)
   const exportData = async (what: 'backup' | TaskName) => {
     if (!session || exporting) return
+    accountPick(what === 'backup' ? 'back up my data' : what === 'classify-v1' ? 'words to organise' : 'words in the wrong form')
     setExporting(what); setError(null)
     setVocabStatus(null)
     try {
@@ -110,9 +126,9 @@ export default function Account() {
         <Text style={styles.copy}>Only passages you choose to save are added to your library.</Text>
         <Text style={styles.copy}>{'Words and sentences you look up are sent to Anthropic\'s Claude to explain them, and text you listen to is sent to ElevenLabs or Google to be read aloud.'}</Text>
         <Text style={styles.copy}>Live preview is off until you turn it on in the camera. It samples a few images instead of every video frame, needs internet, and pauses after a short session.</Text>
-        <TextButton title="Show less" onPress={() => setPrivacyOpen(false)} />
-      </> : <TextButton title="Learn more" onPress={() => setPrivacyOpen(true)} />}
-      <TextButton title="Privacy policy" onPress={() => { void Linking.openURL(PRIVACY_URL) }} />
+        <TextButton title="Show less" onPress={() => { accountPick('privacy: show less'); setPrivacyOpen(false) }} />
+      </> : <TextButton title="Learn more" onPress={() => { accountPick('privacy: learn more'); setPrivacyOpen(true) }} />}
+      <TextButton title="Privacy policy" onPress={() => { accountPick('privacy policy'); void Linking.openURL(PRIVACY_URL) }} />
     </View>
     <View style={styles.card}>
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
@@ -120,21 +136,21 @@ export default function Account() {
           <Text style={styles.heading}>Vowel marks (niqqud)</Text>
           <Text style={styles.copy}>In the reader, word explanations, flashcards and your word list. Cursive Hebrew has none.</Text>
         </View>
-        <Switch value={showVowels} onValueChange={setShowVowels} trackColor={{ true: colors.green }} accessibilityLabel="Vowel marks" />
+        <Switch value={showVowels} onValueChange={value => { accountPick('vowels', { value }); setShowVowels(value) }} trackColor={{ true: colors.green }} accessibilityLabel="Vowel marks" />
       </View>
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={styles.heading}>Cursive for reading (כתב יד)</Text>
           <Text style={styles.copy}>Hebrew as it is handwritten in the reader, word explanations, word pages and your word list. Also the כתב יד button in the reader.</Text>
         </View>
-        <Switch value={cursive} onValueChange={setCursive} trackColor={{ true: colors.green }} accessibilityLabel="Cursive for reading" />
+        <Switch value={cursive} onValueChange={value => { accountPick('cursive for reading', { value }); setCursive(value) }} trackColor={{ true: colors.green }} accessibilityLabel="Cursive for reading" />
       </View>
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={styles.heading}>Cursive for card answers</Text>
           <Text style={styles.copy}>A flashcard’s answer side in handwriting, to check answers written by hand; the question side stays in print. Also a chip in Study.</Text>
         </View>
-        <Switch value={cursiveAnswers} onValueChange={setCursiveAnswers} trackColor={{ true: colors.green }} accessibilityLabel="Cursive for card answers" />
+        <Switch value={cursiveAnswers} onValueChange={value => { accountPick('cursive for answers', { value }); setCursiveAnswers(value) }} trackColor={{ true: colors.green }} accessibilityLabel="Cursive for card answers" />
       </View>
       {(cursive || cursiveAnswers) && <Text style={[styles.hebrew, { fontSize: 22, lineHeight: 34, fontFamily: CURSIVE_FONT, fontWeight: 'normal' }]}>שלום, מה שלומך?</Text>}
     </View>
@@ -150,7 +166,7 @@ export default function Account() {
         </View>
       </Pressy>)}
       <View style={[styles.row, { gap: 8, flexWrap: 'nowrap' }]}>
-        <ListenButton text={SAMPLE} accessibilityLabel="Hear the selected voice" />
+        <ListenButton text={SAMPLE} accessibilityLabel="Hear the selected voice" onListen={() => accountPick('hear the voice')} />
         <Text style={[styles.copy, { flex: 1, fontSize: 13 }]}>Tap the speed to switch between normal, half and quarter speed. It applies everywhere.</Text>
       </View>
     </View>
@@ -162,9 +178,9 @@ export default function Account() {
       <Text style={styles.heading}>App version</Text>
       <Text style={styles.copy}>{describeVersion()}</Text>
       {!!updateStatus && <Text style={styles.copy}>{updateStatus}</Text>}
-      <Button secondary title="Check for updates" busy={checking} onPress={() => void checkForUpdate()} />
+      <Button secondary title="Check for updates" busy={checking} onPress={() => { accountPick('check for updates'); void checkForUpdate() }} />
     </View>
-    {session && !!usage && <View style={styles.card}>
+    {session && !!usage && <Seen surface="account" panel="ai spend" style={styles.card}>
       <Text style={styles.heading}>AI spend this month · everyone</Text>
       <Text style={[styles.copy, { fontSize: 13 }]}>Only you see this, as a developer.</Text>
       <Text style={{ fontSize: 30, fontWeight: '700', color: colors.ink }}>{dollars(usage.cost)}</Text>
@@ -177,15 +193,15 @@ export default function Account() {
         <Text style={[styles.copy, { color: colors.ink }]}>{dollars(row.cost)}</Text>
       </View>)}
       <Text style={[styles.copy, { fontSize: 13 }]}>Estimated at list prices, before free tiers.</Text>
-    </View>}
-    {session && !!usage && <View style={styles.card}>
+    </Seen>}
+    {session && !!usage && <Seen surface="account" panel="learning insights" style={styles.card}>
       <Text style={styles.heading}>Learning Insights</Text>
       <Text style={styles.copy}>What Mila saw you do, what it took from it, and where its model was wrong. Only you see this, as a developer.</Text>
-      <Button secondary title="Open Learning Insights" onPress={() => router.push('/insights')} />
-    </View>}
+      <Button secondary title="Open Learning Insights" onPress={() => { accountPick('open learning insights'); router.push('/insights') }} />
+    </Seen>}
     {/* The spend summary answers only for the developers, so it also says who sees developer tools. */}
-    {session && !!usage && <DebugCapture session={session} />}
-    {session && !!usage && <ResetPassword session={session} />}
+    {session && !!usage && <Seen surface="account" panel="debug capture"><DebugCapture session={session} /></Seen>}
+    {session && !!usage && <Seen surface="account" panel="temporary password"><ResetPassword session={session} /></Seen>}
     {session && <ChangePassword session={session} />}
     {session && <View style={styles.card}>
       <Text style={styles.heading}>Saved words</Text>
@@ -194,12 +210,12 @@ export default function Account() {
       <Text style={styles.copy}>To organise or fix your words with ChatGPT or Claude, share a file with them, then paste their answer into Import changes. You see every change before it is made, and nothing you have learned is touched.</Text>
       <Button secondary title="Words to organise by theme" detail="Those not organised yet, up to 150 at a time" busy={exporting === 'classify-v1'} onPress={() => void exportData('classify-v1')} />
       <Button secondary title="Words saved in the wrong form" busy={exporting === 'normalize-v1'} onPress={() => void exportData('normalize-v1')} />
-      <Button secondary title="Import changes" onPress={() => router.push('/import')} />
+      <Button secondary title="Import changes" onPress={() => { accountPick('import changes'); router.push('/import') }} />
       {!!vocabStatus && <Text style={styles.copy}>{vocabStatus}</Text>}
-      <TextButton title="Delete all saved words" color={colors.red} onPress={clearVocabulary} />
+      <TextButton title="Delete all saved words" color={colors.red} onPress={() => { accountPick('delete all saved words'); clearVocabulary() }} />
     </View>}
-    {session && <TextButton title="Sign out" onPress={() => { void signOut().catch(e => setError(e.message)) }} />}
-    {session && <TextButton title={deleting ? 'Deleting account…' : 'Delete account'} color={colors.red} onPress={() => { if (!deleting) deleteAccount() }} />}
+    {session && <TextButton title="Sign out" onPress={() => { accountPick('sign out'); void signOut().catch(e => setError(e.message)) }} />}
+    {session && <TextButton title={deleting ? 'Deleting account…' : 'Delete account'} color={colors.red} onPress={() => { if (!deleting) { accountPick('delete account'); deleteAccount() } }} />}
   </Page>
 }
 

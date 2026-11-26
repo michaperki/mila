@@ -4,6 +4,7 @@ import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanima
 import { feel } from '../lib/feedback'
 import { DURATION, settle } from '../lib/motion'
 import { router } from 'expo-router'
+import { useViewport, ViewportContext } from './Seen'
 import Ionicons from '@expo/vector-icons/Ionicons'
 // Taken from the bonsai on Home: warm paper, bark-dark ink, moss green. Calm, with no bright accents.
 export const colors = { paper: '#F7F1E6', ink: '#2A2520', muted: '#776B5F', green: '#3D6B45', lime: '#E5EBCF', line: '#E6DCCB', white: '#FFFCF6', red: '#A52D35' }
@@ -26,8 +27,10 @@ export const styles = StyleSheet.create({
 export function Page({ children, onRefresh }: { children: ReactNode; onRefresh?: () => Promise<unknown> }) {
   const [pulling, setPulling] = useState(false)
   const pull = () => { setPulling(true); void onRefresh?.().catch(() => {}).finally(() => setPulling(false)) }
-  return <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"
-    refreshControl={onRefresh ? <RefreshControl refreshing={pulling} tintColor={colors.green} onRefresh={pull} /> : undefined}>{children}</ScrollView>
+  // What part of the page is in view, for the panels in it that record being seen (Seen.tsx).
+  const { viewport, onScroll, onLayout } = useViewport()
+  return <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" onScroll={onScroll} onLayout={onLayout} scrollEventThrottle={250}
+    refreshControl={onRefresh ? <RefreshControl refreshing={pulling} tintColor={colors.green} onRefresh={pull} /> : undefined}><ViewportContext.Provider value={viewport}>{children}</ViewportContext.Provider></ScrollView>
 }
 // The one loading state, for a screen that has nothing yet to show. Once something is shown,
 // refreshing it keeps it in place instead.

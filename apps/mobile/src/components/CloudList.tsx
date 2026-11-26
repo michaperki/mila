@@ -12,6 +12,7 @@ import { isHebrew, type LibrarySort, matchesDoc, previewOf, progressOf, sortDocs
 import { getPref, setPref } from '../lib/prefs'
 import { parseLastRead } from '../lib/today'
 import { dropScan, imageOf, isReading, readScan, type Scan, useScans } from '../lib/scans'
+import { useOffer, useVisit } from '../lib/usage'
 
 // The Library (opened from Home, under Read): saved passages as compact rows (title, a line of preview, when, how long and
 // how far read), searchable and sorted by recently read or date added. "…" or a long press on a
@@ -48,6 +49,13 @@ export default function CloudList({ kind }: { kind: 'texts' }) {
     waiting.current = scans.length
   }, [scans.length, load])
   const visible = useMemo(() => sortDocs(items.filter(doc => matchesDoc(doc, query)), sort), [items, query, sort])
+  // Usage (lib/usage.ts): the Library's controls each visit, as the list has them.
+  const visit = useVisit()
+  const libraryPick = useOffer('library', session && loaded ? visit : null, [
+    'pull to refresh', items.length > 0 && 'search', items.length > 0 && 'sort', visible.length > 0 && 'open a passage', visible.length > 0 && 'passage menu',
+    scans.some(scan => !isReading(scan.id)) && 'read a photo again', !!scans.length && 'delete a photo',
+  ])
+  const search = (text: string) => { if (!query && text) libraryPick('search'); setQuery(text) }
 
   // Changes are shown at once and sent; a failure puts the list back as the server has it.
   const change = (id: string, update: (doc: TextDoc) => TextDoc | null) => setList(current => current && ({
@@ -69,48 +77,48 @@ export default function CloudList({ kind }: { kind: 'texts' }) {
   }
   const askName = (doc: TextDoc) => Alert.prompt('Rename', 'Leave it empty to use its own title again.', [
     { text: 'Cancel', style: 'cancel' },
-    { text: 'Save', onPress: (name?: string) => rename(doc, name ?? '') },
+    { text: 'Save', onPress: (name?: string) => { libraryPick('rename a passage'); rename(doc, name ?? '') } },
   ], 'plain-text', doc.name || titleOf(doc))
   const askDelete = (doc: TextDoc) => Alert.alert('Delete this passage?', 'Words saved from it stay in your vocabulary.', [
     { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: () => remove(doc) },
+    { text: 'Delete', style: 'destructive', onPress: () => { libraryPick('delete a passage'); remove(doc) } },
   ])
   // Renaming uses the system prompt, which only iOS has; elsewhere the menu offers Delete.
   const menu = (doc: TextDoc) => {
     feel('select')
     if (Platform.OS === 'ios') ActionSheetIOS.showActionSheetWithOptions({ title: titleOf(doc), options: ['Rename', 'Delete', 'Cancel'], destructiveButtonIndex: 1, cancelButtonIndex: 2 },
-      index => { if (index === 0) askName(doc); else if (index === 1) askDelete(doc) })
+      index => { libraryPick('passage menu choice', { value: ['rename', 'delete', 'cancel'][index] ?? 'cancel' }); if (index === 0) askName(doc); else if (index === 1) askDelete(doc) })
     else askDelete(doc)
   }
 
   // The big introduction only shows while there is nothing else to look at.
   const empty = !session || (loaded && !error && items.length === 0 && !scans.length)
-  return <Page onRefresh={() => load()}>
+  return <Page onRefresh={() => { libraryPick('pull to refresh'); return load() }}>
     {empty && <><Text style={styles.eyebrow}>KEEP THE CONTEXT</Text><Text style={styles.title}>Your reading shelf.</Text></>}
     {!session ? <AccountGate /> : <><ErrorNotice message={error} />{!loaded && !error && <Loading />}
       {empty && <View style={styles.card}><Text style={styles.heading}>A fresh start.</Text><Text style={styles.copy}>Save a passage from the reader and it will appear here.</Text></View>}
       {!!scans.length && <View style={library.list}>
         {scans.map((scan, i) => <ScanRow key={scan.id} scan={scan} first={i === 0}
-          onRetry={() => { if (session) void readScan(scan.id, session).catch(() => {}) }}
+          onRetry={() => { libraryPick('read a photo again'); if (session) void readScan(scan.id, session).catch(() => {}) }}
           onDelete={() => Alert.alert('Delete this photo?', 'It hasn\'t been read yet, so nothing from it is in your library.', [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Delete', style: 'destructive', onPress: () => dropScan(scan.id) },
+            { text: 'Delete', style: 'destructive', onPress: () => { libraryPick('delete a photo'); dropScan(scan.id) } },
           ])} />)}
       </View>}
       {items.length > 0 && <View style={{ gap: 10 }}>
-        <TextInput value={query} onChangeText={setQuery} placeholder="Search titles and text" placeholderTextColor={colors.muted} style={[styles.input, { minHeight: 44, paddingVertical: 10 }]}
+        <TextInput value={query} onChangeText={search} placeholder="Search titles and text" placeholderTextColor={colors.muted} style={[styles.input, { minHeight: 44, paddingVertical: 10 }]}
           autoCorrect={false} autoCapitalize="none" clearButtonMode="while-editing" returnKeyType="search" />
         <View style={[styles.row, { gap: 8 }]}>
           <Text style={library.count}>{items.length} {items.length === 1 ? 'passage' : 'passages'}</Text>
           <View style={{ flex: 1 }} />
-          <Pill label="Recently read" active={sort === 'recent'} onPress={() => setSort('recent')} />
-          <Pill label="Date added" active={sort === 'added'} onPress={() => setSort('added')} />
+          <Pill label="Recently read" active={sort === 'recent'} onPress={() => { libraryPick('sort', { value: 'recent' }); setSort('recent') }} />
+          <Pill label="Date added" active={sort === 'added'} onPress={() => { libraryPick('sort', { value: 'added' }); setSort('added') }} />
         </View>
       </View>}
       {items.length > 0 && !visible.length && <Text style={styles.copy}>Nothing matches “{query}”.</Text>}
       {visible.length > 0 && <View style={library.list}>
-        {visible.map((item, i) => <PassageRow key={item.id} doc={item} first={i === 0} onMenu={() => menu(item)}
-          onOpen={() => { setRecognition(textFromDocument(item)); router.push('/reader') }} />)}
+        {visible.map((item, i) => <PassageRow key={item.id} doc={item} first={i === 0} onMenu={how => { libraryPick('passage menu', { value: how }); menu(item) }}
+          onOpen={() => { libraryPick('open a passage', { value: query ? 'searched' : i }); setRecognition(textFromDocument(item)); router.push('/reader') }} />)}
       </View>}
     </>}
   </Page>
@@ -136,7 +144,7 @@ function ScanRow({ scan, first, onRetry, onDelete }: { scan: Scan; first: boolea
   </View>
 }
 
-function PassageRow({ doc, first, onOpen, onMenu }: { doc: TextDoc; first: boolean; onOpen: () => void; onMenu: () => void }) {
+function PassageRow({ doc, first, onOpen, onMenu }: { doc: TextDoc; first: boolean; onOpen: () => void; onMenu: (how: 'long press' | 'button') => void }) {
   const title = titleOf(doc)
   const preview = previewOf(doc)
   const progress = progressOf(doc)
@@ -147,14 +155,14 @@ function PassageRow({ doc, first, onOpen, onMenu }: { doc: TextDoc; first: boole
     progress === null ? 'not started' : progress >= 1 ? 'read' : `${Math.round(progress * 100)}% read`,
   ].join(' · ')
   return <Pressable accessibilityRole="button" accessibilityLabel={`${title}. ${details}`} accessibilityHint="Opens it in the reader; long press for more"
-    onPress={onOpen} onLongPress={onMenu} style={({ pressed }) => [library.row, !first && library.divider, pressed && { backgroundColor: colors.paper }]}>
+    onPress={onOpen} onLongPress={() => onMenu('long press')} style={({ pressed }) => [library.row, !first && library.divider, pressed && { backgroundColor: colors.paper }]}>
     <View style={{ flex: 1, gap: 3 }}>
       <Text style={[library.title, isHebrew(title) && library.hebrew]} numberOfLines={1}>{title}</Text>
       {!!preview && <Text style={[library.preview, isHebrew(preview) && library.hebrew]} numberOfLines={1}>{preview}</Text>}
       <Text style={library.details}>{details}</Text>
       {progress !== null && progress < 1 && <View style={library.track}><View style={[library.fill, { width: `${progress * 100}%` }]} /></View>}
     </View>
-    <Pressable accessibilityRole="button" accessibilityLabel={`More for ${title}`} onPress={onMenu} hitSlop={10} style={library.more}>
+    <Pressable accessibilityRole="button" accessibilityLabel={`More for ${title}`} onPress={() => onMenu('button')} hitSlop={10} style={library.more}>
       <Ionicons name="ellipsis-horizontal" size={20} color={colors.muted} />
     </Pressable>
   </Pressable>

@@ -892,8 +892,24 @@ capture on. At mila-hebrew.netlify.app/debug.html → Usage (admins, own account
   left by Back within an adjustable cutoff (3 s to start) and every arrival's time; Home → Read:
   what was offered and chosen, dismissed, and what led to reading; tasks left unfinished (camera,
   Paste text). Each row opens examples: the session as recorded, around the moment.
-- **Not yet:** controls on Library, a word's page, Account, Paste text and Import (their screens are
-  tracked); other accounts; v2 waits on Mike's feedback.
+- **v2** (2026-11-26):
+  - Screen changes fixed. v1 read `useRootNavigationState()`, a snapshot that never updates, so it
+    saw only the launch (one session: 2 screen changes over Reader, Study, Your words and a word
+    page). Now from the navigation container's `state` and `__unsafe_action__` events, compared
+    as stacks in `lib/nav-change.ts` (tested): push, back, replace, or `unknown` with how many
+    screens went and came; the launch's key settling is no longer a change. Marked `nv: 2`; v1
+    sessions are left out of everything worked out from screen changes.
+  - Coverage: Library, word page, Account (check for updates and its outcome, debug capture start
+    and stop, Learning Insights), Paste text, Import; taps on words in the Reader and on cards;
+    Home's Study with what it offered. `seen`: a developer panel on Account scrolled into view, not
+    acted on; `offer.by`: the pick that brought a panel up. A control counts as offered only while
+    usable (Capture and Live wait for the camera).
+  - Viewer: a check of screen changes against where surfaces appeared; patterns ranked by count,
+    each as steps with its share of comparable visits: quick reversals, detours, retries, panels
+    closed at once or left unused, screens left untouched, tasks left, and recurring 2–4 step paths
+    found without being asked for; panels by what was done with each showing.
+- **Not yet:** controls on All forms, Root, Learning Insights and the password forms; answers on
+  cards (they are study events); other accounts.
 
 ## Smaller and older items
 

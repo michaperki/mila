@@ -130,10 +130,10 @@ export default function Home() {
   const go = (path: '/camera' | '/compose' | '/library') => { setReading(false); router.push(path) }
   // Usage (lib/usage.ts): Home's controls, and the Read sheet's choices each time it is open.
   const shownNow = useVisit()
-  const homePick = useOffer('home', shownNow, ['read', 'library', 'study', 'your words', 'account'])
+  const homePick = useOffer('home', shownNow, ['read', 'library', 'study', 'your words', 'account', !!tree && 'touch the tree'])
   const starters = !!session && !lastRead
   const readPick = useOffer('read', reading ? shownNow : null, [starters && 'starters', 'photo', 'paste', !!session && !!lastRead && 'continue', 'dismiss'])
-  const touched = useCallback((part: BonsaiPart) => feel(part === 'foliage' ? 'tick' : 'select'), [])
+  const touched = useCallback((part: BonsaiPart) => { homePick('touch the tree', { value: part }); feel(part === 'foliage' ? 'tick' : 'select') }, [homePick])
 
   // Said only once it is known, so it never shows a young tree's line that then changes;
   // a blank line until then keeps the panel, and the tree above it, where they will be.
@@ -169,7 +169,7 @@ export default function Home() {
           <Button secondary={!next && !round} title="Study" style={home.button}
             detail={session && round ? `Continue · ${round.at} of ${round.of}${round.since ? ` · ${round.since}` : ''}` : session && next ? `${next.label} · ${next.entry.lemma}`
               : session && entries.length ? `${pool.started.length} words started · ${pool.unstarted.length} not yet` : undefined}
-            onPress={() => { homePick('study'); router.push(session ? '/practice' : '/login') }} />
+            onPress={() => { homePick('study', { value: !session ? 'signed out' : round ? 'continue a round' : next ? 'suggested' : 'plain' }); router.push(session ? '/practice' : '/login') }} />
           <TextButton title="Your words" onPress={() => { homePick('your words'); router.push('/vocabulary') }} />
         </View>
       </View>

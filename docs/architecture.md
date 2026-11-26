@@ -141,7 +141,7 @@ laptop at `/debug.html`: screen states, actions, requests, work done on the phon
 database operations and AI calls on one timeline, linked by the action that caused them. See
 DEBUG-1 in the backlog. Outside a capture none of it runs.
 
-Always on, by contrast: usage events (`lib/usage.ts`: screen changes, controls offered and used,
-outcomes; names and timings only), read at `/debug.html` → Usage (DEBUG-2). They travel with the
+Always on, by contrast: usage events (`lib/usage.ts`: screen changes from the navigation
+container's events, controls offered and used, panels seen, outcomes; names and timings only), read at `/debug.html` → Usage (DEBUG-2). They travel with the
 study events but are kept in `usageEvents`, apart from `studyEvents`, so nothing that reads
 learning (Insights, the learner model, scheduling) sees them.

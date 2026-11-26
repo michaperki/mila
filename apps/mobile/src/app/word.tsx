@@ -15,7 +15,7 @@ import { textFromDocument } from '../lib/documents'
 import { hasRoot, hasTable, rootOf } from '../lib/explore'
 import { formsIn, isFamiliar, isKnownWord, kindLabel, missingStages, slotLabel, stagesOf, stageState, type StageState, statusOf } from '../lib/forms'
 import { stripNiqqud } from '../lib/ocr-cleanup'
-import type { FormCard, TextDoc } from '../lib/types'
+import type { FormCard, TextDoc, VocabEntry } from '../lib/types'
 import { organisationLine } from '../lib/taxonomy'
 import { withVowels } from '../lib/vowels'
 import { ensureForms } from '../lib/word-forms'
@@ -25,6 +25,7 @@ import { useSession } from '../state/session'
 import { cachedVocab, dropEntry, putEntry, useVocab } from '../state/vocab'
 import { useVowels } from '../state/vowels'
 import { useHebrew } from '../state/script'
+import { useOffer, useVisit } from '../lib/usage'
 
 const STATE: Record<StageState, string> = { known: 'Known', ready: 'Ready', familiar: 'Familiar', learning: 'Learning', new: 'New', later: 'Later' }
 
@@ -61,6 +62,9 @@ export default function Word() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, attempt, preparing])
   useFocusEffect(useCallback(() => () => stopSpeaking(), []))
+  // Usage (lib/usage.ts): the word's controls each visit, as this word has them.
+  const visit = useVisit()
+  const wordPick = useOffer('word page', session && entry && visit !== null ? `${visit}:${entry.id}` : null, entry ? wordOptions(entry, entries) : [])
 
   if (!session) return <Page><Text style={styles.copy}>Sign in to see your saved words.</Text></Page>
   if (!entry) return <Page>{loaded ? <ErrorNotice message={loadError || error || 'This word is no longer saved.'} /> : <Loading />}</Page>
@@ -100,7 +104,7 @@ export default function Word() {
   const inPlay = open.flatMap(stage => (known.includes(stage.key) ? [] : formsIn(entry, stage.key)))
   const wordKnown = isKnownWord(entry)
   // "Mark word as known" marks every stage known (it leaves studying); "Mark known" marks one stage.
-  const knowWord = () => { feel('unlock'); setKnown(stages.map(stage => stage.key)) }
+  const knowWord = () => { wordPick('mark word as known'); feel('unlock'); setKnown(stages.map(stage => stage.key)) }
 
   return <Page>
     {/* The word itself is the screen's title. */}
@@ -108,7 +112,7 @@ export default function Word() {
     <ErrorNotice message={error} />
     <View style={{ gap: 2 }}>
       <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
-        <ListenButton text={entry.lemma} accessibilityLabel="Hear this word" size={24} />
+        <ListenButton text={entry.lemma} accessibilityLabel="Hear this word" size={24} onListen={() => wordPick('listen')} />
         <Text style={[word.lemma, he]}>{v(bothForms(entry))}</Text>
       </View>
       {/* Learned as a pattern: how the word is used (נָטוּל + noun), its meaning below. */}
@@ -125,14 +129,14 @@ export default function Word() {
         {wordKnown ? 'Known' : statusOf(entry) === 'mastered' ? 'Learned' : inPlay.length ? `${inPlay.filter(isFamiliar).length} of ${inPlay.length} cards familiar` : 'New'}
       </Text>
       {wordKnown
-        ? <TextButton title="Undo" onPress={() => { feel('tick'); setKnown([]) }} />
+        ? <TextButton title="Undo" onPress={() => { wordPick('undo known'); feel('tick'); setKnown([]) }} />
         : <TextButton title="Mark word as known" color={colors.green} onPress={knowWord} />}
     </View>
     {/* Looking around the word: all its forms at once, and the other words of its root. */}
     {(hasTable(entry) || hasRoot(entry)) && <View style={[styles.row, { gap: 8, marginTop: -8 }]}>
-      {hasTable(entry) && <Pill icon="grid-outline" label="All forms" onPress={() => router.push({ pathname: '/table', params: { id: entry.id } })} />}
+      {hasTable(entry) && <Pill icon="grid-outline" label="All forms" onPress={() => { wordPick('all forms'); router.push({ pathname: '/table', params: { id: entry.id } }) }} />}
       {hasRoot(entry) && <Pill icon="git-branch-outline" label={`Root ${rootOf(entry.root!)}`} accessibilityLabel={`Explore the root ${rootOf(entry.root!)}`}
-        onPress={() => router.push({ pathname: '/root', params: { root: entry.root!, word: entry.lemma } })} />}
+        onPress={() => { wordPick('root'); router.push({ pathname: '/root', params: { root: entry.root!, word: entry.lemma } }) }} />}
     </View>}
 
     {/* The constructions it is used in, each with its meaning and an example of it. */}
@@ -159,7 +163,7 @@ export default function Word() {
           {saved && <Ionicons name="chevron-forward" size={16} color={colors.muted} />}
         </>
         return saved
-          ? <Pressable key={part.lemma} accessibilityRole="button" accessibilityHint="Opens this saved word" onPress={() => router.push({ pathname: '/word', params: { id: saved.id } })} style={word.formRow}>{row}</Pressable>
+          ? <Pressable key={part.lemma} accessibilityRole="button" accessibilityHint="Opens this saved word" onPress={() => { wordPick('a word it is built from'); router.push({ pathname: '/word', params: { id: saved.id } }) }} style={word.formRow}>{row}</Pressable>
           : <View key={part.lemma} style={word.formRow}>{row}</View>
       })}
       <Text style={word.literal}>Literally “{entry.literal}”</Text>
@@ -173,7 +177,7 @@ export default function Word() {
       const meanings = stage.key === 'meanings'
       return <Animated.View key={stage.key} layout={REFLOW} style={[styles.card, word.section]}>
         <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
-          <Pressable accessibilityRole="button" accessibilityState={{ expanded: shown }} onPress={() => setFolded(current => ({ ...current, [stage.key]: !shown }))}
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded: shown }} onPress={() => { wordPick('fold a stage', { value: shown ? 'close' : 'open' }); setFolded(current => ({ ...current, [stage.key]: !shown })) }}
             hitSlop={8} style={[styles.row, { gap: 6, flexShrink: 1 }]}>
             <Ionicons name={shown ? 'chevron-down' : 'chevron-forward'} size={16} color={colors.muted} />
             <Text style={word.stage}>{stage.label}</Text>
@@ -181,8 +185,8 @@ export default function Word() {
               {(state === 'learning' || state === 'familiar') && forms.length ? `${STATE[state]} · ${forms.filter(isFamiliar).length}/${forms.length}` : STATE[state]}
             </Text>
           </Pressable>
-          {state !== 'known' && state !== 'ready' && !wordKnown && <TextButton title="Mark known" color={colors.green} onPress={() => { feel('unlock'); setKnown([...known, stage.key]) }} />}
-          {state === 'known' && !wordKnown && <TextButton title="Undo" onPress={() => { feel('tick'); setKnown(known.filter(key => key !== stage.key)) }} />}
+          {state !== 'known' && state !== 'ready' && !wordKnown && <TextButton title="Mark known" color={colors.green} onPress={() => { wordPick('mark a stage known'); feel('unlock'); setKnown([...known, stage.key]) }} />}
+          {state === 'known' && !wordKnown && <TextButton title="Undo" onPress={() => { wordPick('undo a stage'); feel('tick'); setKnown(known.filter(key => key !== stage.key)) }} />}
         </View>
         {shown && forms.map(form => (meanings
           ? <MeaningRow key={form.key} form={form} lemma={entry.lemma} v={v} />
@@ -196,19 +200,19 @@ export default function Word() {
       <Text style={word.stage}>More forms</Text>
       <View style={[styles.row, { gap: 8 }]}>
         {later.map(stage => <Pill key={stage.key} icon="add" label={stage.label} accessibilityLabel={`Study the ${stage.label.toLowerCase()} now`}
-          onPress={() => { feel('unlock'); setStages('opened', [...(entry.opened || []), stage.key]) }} />)}
+          onPress={() => { wordPick('study a stage now'); feel('unlock'); setStages('opened', [...(entry.opened || []), stage.key]) }} />)}
       </View>
       <Text style={word.meta}>Tap one to start studying it.</Text>
     </View>}
 
     {/* An expression and the word it is built on lead to each other. */}
-    {head && !parts.some(item => item.saved?.id === head.id) && <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/word', params: { id: head.id } })} style={[styles.card, word.section]}>
+    {head && !parts.some(item => item.saved?.id === head.id) && <Pressable accessibilityRole="button" onPress={() => { wordPick('built on'); router.push({ pathname: '/word', params: { id: head.id } }) }} style={[styles.card, word.section]}>
       <Text style={word.meta}>Built on</Text>
       <Text style={word.meaning}>{isolateHebrew(v(head.lemma))} · {isolateHebrew(head.gloss)}</Text>
     </Pressable>}
     {expressions.length > 0 && <View style={[styles.card, word.section]}>
       <Text style={word.stage}>Expressions with this word</Text>
-      {expressions.map(item => <Pressable key={item.id} accessibilityRole="button" onPress={() => router.push({ pathname: '/word', params: { id: item.id } })} style={word.formRow}>
+      {expressions.map(item => <Pressable key={item.id} accessibilityRole="button" onPress={() => { wordPick('an expression with it'); router.push({ pathname: '/word', params: { id: item.id } }) }} style={word.formRow}>
         <Text style={[word.meaning, { flex: 1 }]}>{isolateHebrew(item.gloss)}</Text>
         <Text style={[word.form, he]}>{v(item.lemma)}</Text>
       </Pressable>)}
@@ -217,9 +221,9 @@ export default function Word() {
     {encountersOf(entry).length > 0 && <View style={[styles.card, { gap: 4 }]}>
       <Text style={word.stage}>{entry.pattern ? 'Examples you met' : 'Where you met it'}</Text>
       {encountersOf(entry).map(encounter => <EncounterView key={`${encounter.context}-${encounter.at}`} encounter={encounter} showVowels={showVowels}
-        footer={encounter.sourceRef ? <TextButton title="Open passage" color={colors.green} onPress={() => void openPassage(encounter.sourceRef!.textId)} /> : undefined} />)}
+        footer={encounter.sourceRef ? <TextButton title="Open passage" color={colors.green} onPress={() => { wordPick('open passage'); void openPassage(encounter.sourceRef!.textId) }} /> : undefined} />)}
     </View>}
-    <TextButton title="Delete word" color={colors.red} onPress={remove} />
+    <TextButton title="Delete word" color={colors.red} onPress={() => { wordPick('delete word'); remove() }} />
   </Page>
 }
 
@@ -227,6 +231,21 @@ const Dot = ({ form }: { form: FormCard }) => <View style={[word.dot, !!form.res
 
 // One meaning: what it means, and the sentence it is practised in with its English. The Hebrew is the word at the
 // top, so it is only shown when this meaning uses another form of it.
+// The word page's controls this word has, each where it is shown (as the page draws them).
+function wordOptions(entry: VocabEntry, entries: VocabEntry[]) {
+  const wordKnown = isKnownWord(entry)
+  const stages = stagesOf(entry)
+  const open = stages.filter(stage => stageState(entry, stage.key) !== 'later')
+  const head = headOf(entries, entry)
+  const parts = partsOf(entries, entry)
+  return ['listen', wordKnown ? 'undo known' : 'mark word as known', hasTable(entry) && 'all forms', hasRoot(entry) && 'root', open.length > 0 && 'fold a stage',
+    !wordKnown && open.some(stage => !['known', 'ready'].includes(stageState(entry, stage.key))) && 'mark a stage known',
+    !wordKnown && open.some(stage => stageState(entry, stage.key) === 'known') && 'undo a stage',
+    !wordKnown && stages.length > open.length && 'study a stage now', !!head && !parts.some(item => item.saved?.id === head.id) && 'built on',
+    expressionsWith(entries, entry).length > 0 && 'an expression with it', !!entry.literal && parts.some(item => item.saved) && 'a word it is built from',
+    encountersOf(entry).some(encounter => encounter.sourceRef) && 'open passage', 'delete word']
+}
+
 function MeaningRow({ form, lemma, v }: { form: FormCard; lemma: string; v: (text: string) => string }) {
   const he = useHebrew()
   const other = stripNiqqud(form.he) !== stripNiqqud(lemma)

@@ -29,7 +29,7 @@ import { clearRound, loadRound, saveRound } from '../lib/saved-round'
 import { fingerprint, sendStudyLog, studySession } from '../lib/study-log'
 import { planUnified, rankingLog, unifiedRanking } from '../lib/scoring'
 import { type Act, act, onPhone, screenState } from '../lib/trace'
-import { useOffer } from '../lib/usage'
+import { pick, useOffer } from '../lib/usage'
 import { saveResult, sendResults } from '../lib/results'
 import type { ResultBody } from '../lib/result-queue'
 import { appInfo } from '../lib/app-info'
@@ -451,7 +451,9 @@ export default function Practice() {
   // Usage (lib/usage.ts): the top bar on each card, the settings each time they are open, and
   // the choices on Welcome back and at a round's end.
   const onCard = !!session && !!deck?.[position] && !!settings && !done && !away && writing === null
-  const cardPick = useOffer('study card', onCard ? position : null, ['done', position > roundStart && 'previous', 'next', 'new round', 'settings', 'why'])
+  // A card's words can be tapped once its answer side shows a sentence (SentenceSide's `lookup`).
+  const tappable = !!deck?.[position]?.form && (flipped || picks[position] !== undefined)
+  const cardPick = useOffer('study card', onCard ? position : null, ['done', position > roundStart && 'previous', 'next', 'new round', 'settings', 'why', tappable && 'tap a word'])
   const settingsPick = useOffer('study settings', settingsOpen ? 'open' : null, ['show first', 'order', 'cards', 'fill in the blank', 'new sentences', 'plan rounds by', 'cursive answers', 'close'])
   const awayPick = useOffer('study welcome back', away && writing === null ? away.savedAt : null, ['continue', 'new round'])
   const endPick = useOffer('study end', done && writing === null ? roundStart : null, ['back to your tree', 'another round', 'new sentences'])
@@ -939,6 +941,7 @@ function SentenceSide({ entry, form, english, answer: answerSide, position, fron
   // there, shown at once (the card's own word is its English), or for a card written without
   // glosses, the sentence's quick meanings; the full explanation only on More or Save.
   const onWord = lookup && ((word: string, at: number, own: boolean) => {
+    pick('study card', 'tap a word')
     feel('select')
     const gloss = own ? { en: form.en, lemma: entry.lemmaPlain || entry.lemma } : form.glosses?.find(item => item.i === at)
     const words = form.sentence.split(/\s+/).filter(Boolean).map(bareWord)
