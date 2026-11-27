@@ -191,4 +191,21 @@ describe('usage analysis', () => {
     expect(found.find((p: any) => p.kind === 'available, moved on')).toMatchObject({ count: 1, comparable: 1 })
     expect(found.find((p: any) => p.kind === 'left before ready')).toMatchObject({ steps: ['word lookup', 'waiting for meaning', 'screen left before it showed'], count: 1, comparable: 3 })
   })
+
+  it("counts the reader's sheet's Details (v: 3) as its explanation arriving, once asked for", () => {
+    const T = 1_800_000_000_000
+    let seq = 0
+    const st = (at: number, type: string, fields: Record<string, unknown>) => ({ id: `r:${seq}`, session: 'reading', seq: seq++, at: T + at * 1000, type, ...fields })
+    const u = (at: number, type: string, fields: Record<string, unknown>) => ({ id: `u:${seq}`, session: 'app', seq: seq++, at: T + at * 1000, type, ...fields })
+    // Details is offered at once now: that alone is no milestone.
+    const usage = [u(-5, 'nav', { nv: 2, to: 'reader', how: 'push' }), u(0.05, 'offer', { surface: 'reader drawer', options: ['close', 'listen', 'details', 'save'] })]
+    const asked = st(0, 'lookup', { saved: false })
+    const notAsked = st(20, 'lookup', { saved: false })
+    const lookups = [
+      asked, st(6, 'explained', { of: asked.id, why: 'details', ms: 6000 }), st(9, 'closed', { v: 3, of: asked.id, how: 'next word', ms: 9000, waitMs: 300, shown: 'quick', details: true }),
+      notAsked, st(21.5, 'closed', { v: 3, of: notAsked.id, how: 'closed', ms: 1500, waitMs: 200, shown: 'quick', details: false }),
+    ]
+    const list = waits([...usage, ...lookupWaits(lookups, usage).events])
+    expect(list.map((x: any) => x.reached)).toEqual([[{ milestone: 'meaning', ms: 300 }, { milestone: 'details', ms: 6000 }], [{ milestone: 'meaning', ms: 200 }]])
+  })
 })

@@ -112,6 +112,31 @@ async function explain(word: string, sentence: string, token: string | undefined
   }
 }
 
+// The reader's sentence words (2026-11-27): each word's quick meaning, its reading (vowelled as said
+// in this sentence, for saying it before or without its explanation) and, given the sentence's
+// English, the words of it that say the word (`renders`, for marking them). Asked once per
+// sentence and kept; a failure gives null, and is asked again the next time.
+export type SentenceWords = { meanings: string[]; renders: string[]; readings: string[] }
+const readerWords = new Map<string, Promise<SentenceWords | null>>()
+const readerDone = new Set<string>()
+export function sentenceWords(sentence: string, words: string[], token: string, { translation, act }: { translation?: string; act?: Act } = {}): Promise<SentenceWords | null> {
+  const key = `${sentence}\u0000${words.join(' ')}\u0000${translation ?? ''}`
+  const pending = readerWords.get(key)
+  if (pending) {
+    const start = Date.now(), done = readerDone.has(key)
+    return pending.then(answer => { onPhone(act, 'quick meanings', done ? 'phone memory: asked before' : 'shared a request already on its way', start); return answer })
+  }
+  const asked = request<{ meanings: string[]; renders?: string[]; readings?: string[] }>('sentence-glosses', { token, body: { sentence, words, readings: true, ...(translation ? { translation } : {}) }, act })
+    .then(result => {
+      readerDone.add(key)
+      const each = (list?: string[]) => words.map((_, i) => list?.[i] ?? '')
+      return { meanings: each(result.meanings), renders: each(result.renders), readings: each(result.readings) }
+    }, () => { readerWords.delete(key); return null })
+  if (readerWords.size >= 100) readerWords.delete(readerWords.keys().next().value!)
+  readerWords.set(key, asked)
+  return asked
+}
+
 const quick = new Map<string, Promise<string[]>>()
 // A short meaning for every word of a sentence, fetched when the sentence is selected so a
 // tapped word can show its meaning before the full explanation arrives. Failures give [].

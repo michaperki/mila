@@ -543,6 +543,32 @@ the Reader's empty state's caller). Covers Capture, a chosen photo and Read this
 live result, which all open the Reader the same way. Paste text opened from the camera still
 returns to the camera (the camera is still below it); left as it is.
 
+### READ-4 A word looked up, and back to reading
+**Done** (2026-11-27, for Preview). Reviewed first on 60 days of lookups: the explanation took 5.4 s
+(median; 8.4 s at the 90th percentile), the drawer was open 1.75 s, 85% of drawers had left the
+word before the explanation came, Details was opened once in 159, and every tap paid for an
+explanation (about $0.017). Now:
+- **The page:** words as prose (no pill per word: no gaps, borders or rounded boxes; a space's
+  width between words), the selected sentence a quiet band, the tapped word marked in it, and the
+  English words that say it marked in the sentence's English when they can be found for certain
+  (once, as whole words: `lib/english-match.ts`).
+- **The sheet** (`components/ReaderWordSheet.tsx`, the reader's own; Study keeps WordDrawer): the
+  word, Listen, its meaning here, Details and Save, one size from the first frame whatever
+  arrives and whichever word is tapped next. The meaning shown first stays; an explanation that
+  says otherwise says so under Details ("In this sentence: …"). Grammar, constructions, other
+  senses, the expression a word belongs to and the wait for them are under Details.
+- **The explanation** is asked for only by Details or Save, or when no quick meaning comes (the
+  sentence's failed or had none for the word; a phrase dragged across). Save remembers the intent
+  if the reader moves on, and saves the expression the word leads into when the explanation
+  finds one, saying so on the button ("Expression saved ✓ · להעמיד פנים").
+- **Said on tap** (Reader → ⚙ Reader settings, on to try it): as the sentence has it, from a reading
+  the sentence's quick meanings now carry (vowelled; kept only with the word's own letters,
+  `functions/lib/readings.ts`); as written if those take over 1.5 s. Only the word selected now
+  plays. The sentence request is a little dearer (about $0.008 uncached against $0.005, kept for
+  everyone after), against the explanation no longer asked for on every tap.
+- **Measured:** lookups' `closed` events are `v: 3`; the Usage view counts their Details as the
+  explanation arriving once asked for.
+
 ### READ-2 Page-level glosses
 **Exploratory.** A meaning and dictionary form for every word of a page when it's read, for instant
 lookups and exposure counting. Raises the cost of every page; needs a measured estimate before

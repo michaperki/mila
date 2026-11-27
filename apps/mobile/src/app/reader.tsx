@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { type GestureResponderEvent, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { type GestureResponderEvent, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native'
 import { useFocusEffect } from 'expo-router'
 import { router } from '../lib/nav'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import * as Crypto from 'expo-crypto'
-import { prefetchSpeech, useSpeech } from '../lib/speech'
+import { prefetchSpeech, speak, stop as stopSpeaking, useSpeech } from '../lib/speech'
 import { ListenButton } from '../components/Listen'
 import Animated from 'react-native-reanimated'
 import { Button, colors, ErrorNotice, Page, Pill, Pressy, styles, TextButton } from '../components/ui'
-import { useWordLookup, WordDrawer } from '../components/WordDrawer'
+import { useWordLookup } from '../components/WordDrawer'
+import { ReaderWordSheet } from '../components/ReaderWordSheet'
+import { englishMatch } from '../lib/english-match'
 import { APPEAR, REFLOW, SHEET_IN, SHEET_OUT } from '../lib/motion'
 import { feel } from '../lib/feedback'
 import { FeedbackButton } from '../components/Feedback'
@@ -20,7 +22,7 @@ import { readingWords, titleFrom } from '../lib/ocr-cleanup'
 import { paragraphsOf, runsOf } from '../lib/page'
 import { type EnglishMode, getPref, rememberRead, setPref, TEXT_SIZES } from '../lib/prefs'
 import { noteActivity } from '../lib/tree'
-import { quickMeanings } from '../lib/recognition'
+import { type SentenceWords, sentenceWords } from '../lib/recognition'
 import { type LogEvent, sendStudyLog, studySession } from '../lib/study-log'
 import { useOffer, useVisit } from '../lib/usage'
 import { useSession } from '../state/session'
@@ -75,8 +77,15 @@ export default function Reader() {
   // sentence bar), and a word or phrase selected in it (drawer). Closing the drawer goes back
   // to the sentence; closing the sentence bar goes back to reading.
   const [active, setActive] = useState<number | null>(recognition?.startAt ?? null)
-  // Quick meanings for the words of each selected sentence (by segment), see quickMeanings.
-  const [quick, setQuick] = useState<Record<number, string[]>>({})
+  // Each selected sentence's words (by segment): their quick meanings, readings and English
+  // (lib/recognition.ts sentenceWords); null when they couldn't be had, absent while on their way.
+  const [quick, setQuick] = useState<Record<number, SentenceWords | null>>({})
+  const quickNow = useRef(quick)
+  useEffect(() => { quickNow.current = quick }, [quick])
+  // A tapped word said aloud (Reader settings, sayOnTap).
+  const [sayOnTap, setSayOnTap] = useState(true)
+  useEffect(() => { void getPref('sayOnTap').then(setSayOnTap) }, [])
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [showNiqqud, setShowNiqqud] = useVowels()
   const v = (text: string) => withVowels(text, showNiqqud)
   // The Vowels button only appears for a page that is actually vowelled.
@@ -106,7 +115,7 @@ export default function Reader() {
     if (next === undefined) return
     feel('tick'); setSize(next); setPref('textSize', String(next))
   }
-  const sized = useMemo(() => ({ word: { fontSize: 21 * size, lineHeight: 32 * size }, english: { fontSize: 15 * size, lineHeight: 21 * size } }), [size])
+  const sized = useMemo(() => ({ word: { fontSize: 21 * size, lineHeight: 32 * size }, english: { fontSize: 15 * size, lineHeight: 21 * size }, wordGap: { paddingHorizontal: 2.75 * size } }), [size])
   const segments = useMemo(() => (recognition ? segmentsOf(recognition) : []), [recognition])
   // Reading kept as learning events (lib/study-log.ts): the passage opened, how far it was
   // scrolled (`view`), each sentence selected (with whether its English showed) and word looked up.
@@ -169,7 +178,9 @@ export default function Reader() {
   // The tapped word or dragged phrase, with its explanation and saving (components/WordDrawer.tsx);
   // a word's quick meaning from its sentence's shows until the explanation arrives.
   const tapped = selected === null ? undefined : words[selected]
-  const lookup = useWordLookup(session, { quick: tapped ? quick[tapped.segment]?.[selected! - indexOfFirstWord[tapped.segment]] || '' : '', onLostError: setError, log: logRead })
+  const tappedAt = tapped ? selected! - indexOfFirstWord[tapped.segment] : -1
+  const tappedWords = tapped ? quick[tapped.segment] : undefined
+  const lookup = useWordLookup(session, { quick: tappedWords?.meanings[tappedAt] || '', quickPending: !!session && !!tapped && tappedWords === undefined, onLostError: setError, log: logRead })
   const { invalidate } = lookup
   useFocusEffect(useCallback(() => () => invalidate(), [invalidate]))
   // The screen as a debug capture sees it, each time it changes: the sentence, its English setting,
@@ -178,7 +189,7 @@ export default function Reader() {
     screenState('reader', {
       passage: docId.current, english,
       sentence: active === null ? null : { index: active, text: segments[active]?.he ?? '' },
-      quickMeanings: active === null ? null : quick[active] ? 'ready' : 'loading',
+      quickMeanings: active === null ? null : quick[active] === undefined ? 'loading' : quick[active] ? 'ready' : 'failed',
       drawer: lookup.tap ? { word: lookup.tap.text, loading: lookup.busy, meaning: !!lookup.gloss, explained: !!lookup.analysis } : null,
     })
   })
@@ -193,13 +204,15 @@ export default function Reader() {
   useEffect(() => {
     if (active === null || !session || indexOfFirstWord[active] === undefined) return
     let current = true
-    const meaningsOf = (segment: number, action?: Act) => quickMeanings(segments[segment].he, words.slice(indexOfFirstWord[segment], indexOfLastWord[segment] + 1).map(item => item.bare), session.token, action)
+    const meaningsOf = (segment: number, action?: Act) => sentenceWords(segments[segment].he, words.slice(indexOfFirstWord[segment], indexOfLastWord[segment] + 1).map(item => item.bare), session.token,
+      { translation: segments[segment].en || undefined, act: action })
     // In a debug capture, for the selection that made this sentence the active one, and the next
     // sentence's as a prefetch of its own, set off by it.
     const selection = selected_.current
-    void meaningsOf(active, selection).then(meanings => {
+    void meaningsOf(active, selection).then(answer => {
       if (!current) return
-      if (meanings.length) setQuick(known => ({ ...known, [active]: meanings }))
+      // Kept even when none came (null), so a word tapped in it is explained another way.
+      setQuick(known => ({ ...known, [active]: answer }))
       const next = sentenceAfter(active)
       if (next !== undefined) void meaningsOf(next, act('prefetch the next sentence’s meanings', { segment: next }, selection))
     })
@@ -293,12 +306,37 @@ export default function Reader() {
   // Usage (lib/usage.ts): the toolbar's controls each visit, and the sentence bar's each time a
   // sentence is selected with no word (its ends have no Previous or Next).
   const visit = useVisit()
-  const readerPick = useOffer('reader', recognition ? visit : null, ['tap a word', 'select words', 'english', 'cursive', vowelled && !cursive && 'vowels', 'text size', !saved && 'save passage', saved && 'remove from library'])
+  const readerPick = useOffer('reader', recognition ? visit : null, ['tap a word', 'select words', 'english', 'cursive', vowelled && !cursive && 'vowels', 'text size', 'settings', !saved && 'save passage', saved && 'remove from library'])
   const withWords = segments.map((_, i) => i).filter(i => indexOfFirstWord[i] !== undefined)
   const barAt = active === null ? -1 : withWords.indexOf(active)
   const barPick = useOffer('sentence bar', recognition && visit !== null && active !== null && selected === null ? `${visit}:${active}` : null,
     [barAt > 0 && 'previous', barAt >= 0 && barAt < withWords.length - 1 && 'next', 'listen', 'done'])
 
+  // A tapped word said aloud as this sentence has it (its reading, from the sentence's words): at
+  // once when they are here, else when they come, or as written if they take more than a moment.
+  // Only the word selected now is said: another tap replaces it, and closing stops it.
+  const toSay = useRef<{ index: number; timer: ReturnType<typeof setTimeout> } | null>(null)
+  const clearSay = () => { if (toSay.current) clearTimeout(toSay.current.timer); toSay.current = null }
+  const sayNow = (index: number) => {
+    if (toSay.current?.index !== index) return
+    clearSay()
+    const word = words[index]
+    const reading = quickNow.current[word.segment]?.readings[index - indexOfFirstWord[word.segment]]
+    stopSpeaking('another word')
+    void speak(reading || word.bare, session?.token)
+  }
+  const sayWhenRead = (index: number) => {
+    clearSay()
+    toSay.current = { index, timer: setTimeout(() => sayNow(index), 1500) }
+    if (quickNow.current[words[index].segment] !== undefined || !session) sayNow(index)
+  }
+  useEffect(() => {
+    const waiting = toSay.current
+    if (waiting && quick[words[waiting.index]?.segment] !== undefined) sayNow(waiting.index)
+    // sayNow reads the latest through refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quick])
+  useEffect(() => () => clearSay(), [])
   if (!recognition) return <Page><Text style={styles.title}>Find something to read.</Text><Button title="Open camera" onPress={() => router.replace('/camera')} /></Page>
 
   // A sentence becomes the active one, its English placed at once from the words' boxes (they
@@ -334,9 +372,12 @@ export default function Reader() {
       text: words.slice(index, to + 1).map(item => item.bare).join(' '), sentence: segment.he, translation: segment.en, phrase: to > index,
       source: () => (savedNow.current ? { textId: docId.current, chunkId: `${docId.current}-${first.segment}` } : undefined),
       context: { text: docId.current, segment: first.segment, place: index - indexOfFirstWord[first.segment] },
+      defer: true,
     })
+    if (to === index && sayOnTap) sayWhenRead(index)
+    else { clearSay(); stopSpeaking('another word') }
   }
-  const close = () => { lookup.close(); setSelected(null) }
+  const close = () => { clearSay(); lookup.close(); setSelected(null) }
   const sentences = segments.map((_, i) => i).filter(i => indexOfFirstWord[i] !== undefined)
   const activePosition = active === null ? -1 : sentences.indexOf(active)
   // Where reading stopped, for Continue reading on Today and the Library's progress: only a
@@ -429,6 +470,16 @@ export default function Reader() {
 
   const wordsOf = (segment: number) => indexOfFirstWord[segment] === undefined ? [] : words.slice(indexOfFirstWord[segment], indexOfLastWord[segment] + 1).map((item, offset) => ({ ...item, i: indexOfFirstWord[segment] + offset }))
   const englishOf = (segment: number) => { const { en, marker } = segments[segment]; return en ? `${marker ? `${marker}. ` : ''}${en}` : '' }
+  // A sentence's English with the words that say the tapped word (or the words dragged across)
+  // marked, where they can be found for certain (lib/english-match.ts).
+  const markedEnglish = (segment: number, text: string) => {
+    if (selected === null || words[selected]?.segment !== segment) return text
+    const renders = quick[segment]?.renders ?? []
+    const first = indexOfFirstWord[segment]
+    const wanted = renders.slice(selected - first, (selectedTo ?? selected) - first + 1)
+    if (!wanted.some(Boolean)) return text
+    return englishMatch(text, wanted).map((piece, i) => (piece.marked ? <Text key={i} style={reader.englishMatch}>{piece.text}</Text> : piece.text))
+  }
   // A sentence as drawn: its list marker, its text when it has no words to tap, and its words.
   // `flowing`: in a paragraph drawn as one flow, where the active sentence is marked on its own
   // words (not a band around a run of its own) and the words' layout says where its English goes.
@@ -439,7 +490,7 @@ export default function Reader() {
       const inSelection = highlighted && item.i >= highlighted.from && item.i <= highlighted.to
       return <Pressable key={item.i} accessibilityRole="button" accessibilityLabel={`Explain ${item.bare}`} onPress={() => void select(item.i)}
         onLayout={event => { wordBoxes.current.set(item.i, event.nativeEvent.layout); if (flowing && s === active) setLaidOut(value => value + 1) }}
-        style={[reader.wordBox, flowing && s === active && reader.activeWord, inSelection && reader.selectedWord]}>
+        style={[reader.wordBox, sized.wordGap, flowing && s === active && reader.activeWord, inSelection && reader.selectedWord]}>
         <Text style={[reader.word, sized.word, segments[s].heading && reader.heading, he]}>{pageWithVowels(item.surface, showNiqqud)}</Text>
       </Pressable>
     }),
@@ -458,7 +509,7 @@ export default function Reader() {
       const at = nodes.findIndex(node => node?.key === String(end))
       nodes.splice(at + 1, 0, <Animated.Text key="en" entering={APPEAR} selectable onPress={() => {}}
         onLayout={event => { englishBox.current = event.nativeEvent.layout }}
-        style={[reader.english, sized.english, reader.flowEnglish, segments[active!].heading && { fontWeight: '600' }]}>{translation}</Animated.Text>)
+        style={[reader.english, sized.english, reader.flowEnglish, segments[active!].heading && { fontWeight: '600' }]}>{markedEnglish(active!, translation)}</Animated.Text>)
     }
     return <AnimatedPressable key={key} accessible={false} layout={REFLOW} onPress={event => tapRun(key, flowWords, event)} style={reader.run}>
       <View style={reader.line} ref={view => { if (view) lines.current.set(key, view); else lines.current.delete(key); if (holds) activeRun.current = view }} {...dragHandlers(key, flowWords)}>
@@ -480,6 +531,9 @@ export default function Reader() {
         <View style={reader.sizesRule} />
         <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel={`Larger text, now ${Math.round(size * 100)}%`} onPress={() => { readerPick('text size', { value: 'larger' }); resize(1) }} hitSlop={6} style={reader.size}><Text style={reader.sizeLabel}>A+</Text></Pressy>
       </View>
+      <Pressy moment="tick" depth={0.94} accessibilityRole="button" accessibilityLabel="Reader settings" onPress={() => { readerPick('settings'); setSettingsOpen(true) }} hitSlop={6} style={reader.size}>
+        <Ionicons name="settings-outline" size={18} color={colors.green} />
+      </Pressy>
       <View style={{ marginLeft: 'auto' }}>
         <FeedbackButton variant="icon" screen="reader" context={() => ({ raw: recognition.raw, source: recognition.source, omitted: recognition.omitted, readError: recognition.readError, segments, active, word: word?.bare, sentence: word ? segments[word.segment].he : undefined, gloss: lookup.gloss, analysis: lookup.analysis })} />
       </View>
@@ -508,7 +562,9 @@ export default function Reader() {
                 <View style={reader.line} ref={view => { if (view) lines.current.set(key, view); else lines.current.delete(key) }} {...dragHandlers(key, runWords)}>
                   {run.segments.map(s => sentenceViews(s, false))}
                 </View>
-                {!!translation && <Animated.Text entering={APPEAR} selectable style={[reader.english, sized.english, first.heading && { fontWeight: '600' }]}>{translation}</Animated.Text>}
+                {!!translation && <Animated.Text entering={APPEAR} selectable style={[reader.english, sized.english, first.heading && { fontWeight: '600' }]}>
+                  {run.segments.filter(s => !!englishOf(s)).map((s, i) => <Text key={s}>{i > 0 ? ' ' : ''}{markedEnglish(s, englishOf(s))}</Text>)}
+                </Animated.Text>}
               </AnimatedPressable>
             }) : flowOf(p, members)}
             {last.cutEnd && <Text style={reader.edge}>Continues on the next page</Text>}
@@ -535,7 +591,24 @@ export default function Reader() {
     </Animated.View>}
 
     {/* Word drawer: compact by default (meaning and save); details expand on request. */}
-    {word && <WordDrawer lookup={lookup} v={v} onClose={close} onPickWord={offset => { if (selected !== null) select(selected + offset, selected + offset, true) }} style={[overlaySides, { paddingBottom: 12 + insets.bottom }]} onLayout={event => setOverlayHeight(event.nativeEvent.layout.height)} />}
+    {word && <ReaderWordSheet lookup={lookup} v={v} reading={selected === selectedTo ? tappedWords?.readings[tappedAt] : undefined} onClose={close} onPickWord={offset => { if (selected !== null) select(selected + offset, selected + offset, true) }} style={[overlaySides, { paddingBottom: 12 + insets.bottom }]} onLayout={event => setOverlayHeight(event.nativeEvent.layout.height)} />}
+
+    {/* Reader settings: for now, whether a tapped word is said aloud. */}
+    <Modal visible={settingsOpen} transparent animationType="fade" onRequestClose={() => setSettingsOpen(false)}>
+      <Pressable style={reader.scrim} accessibilityLabel="Close Reader settings" onPress={() => setSettingsOpen(false)}>
+        <Pressable style={[reader.settings, { paddingBottom: 18 + insets.bottom }]} onPress={() => {}}>
+          <Text style={styles.heading}>Reader settings</Text>
+          <View style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap', gap: 12 }]}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[styles.heading, { fontSize: 16 }]}>Say a word when you tap it</Text>
+              <Text style={styles.copy}>As it is said in its sentence. The speaker beside the word plays it again.</Text>
+            </View>
+            <Switch value={sayOnTap} onValueChange={value => { readerPick('say on tap', { value }); setSayOnTap(value); setPref('sayOnTap', value); if (!value) { clearSay(); stopSpeaking('say on tap off') } }} trackColor={{ true: colors.green }} accessibilityLabel="Say a word when you tap it" />
+          </View>
+          <TextButton title="Done" onPress={() => setSettingsOpen(false)} />
+        </Pressable>
+      </Pressable>
+    </Modal>
   </View>
 }
 
@@ -550,15 +623,23 @@ const reader = StyleSheet.create({
   run: { gap: 2, paddingVertical: 2 },
   // The active sentence: a quiet band behind it; the selected word stands out on top.
   activeRun: { backgroundColor: '#EFEBDA', borderRadius: 10, marginHorizontal: -8, paddingHorizontal: 8, paddingVertical: 6, marginVertical: 2 },
-  selectedWord: { backgroundColor: colors.lime, borderWidth: 1, borderColor: colors.green, borderRadius: 6 },
-  // In a paragraph drawn as one flow: the active sentence's words, and its English on a row of
-  // its own among them (a full-width item in the wrapping row is a row to itself).
-  activeWord: { backgroundColor: '#EFEBDA' },
+  // The tapped word (or words dragged across): marked within the sentence's band, its box the same
+  // size as any word's, so marking it moves nothing.
+  selectedWord: { backgroundColor: colors.lime, borderRadius: 4 },
+  // In a paragraph drawn as one flow: the active sentence's words, a quiet band with no gaps (each
+  // word's box reaches half a space either side), and its English on a row of its own among them
+  // (a full-width item in the wrapping row is a row to itself).
+  activeWord: { backgroundColor: '#F3EFE2' },
+  englishMatch: { color: colors.ink, backgroundColor: colors.lime },
+  scrim: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.25)' },
+  settings: { gap: 14, padding: 18, backgroundColor: colors.white, borderTopLeftRadius: 22, borderTopRightRadius: 22 },
   flowEnglish: { width: '100%', paddingTop: 1, paddingBottom: 6 },
   edge: { fontSize: 12, color: colors.muted, fontStyle: 'italic' },
   divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-  line: { flexDirection: 'row-reverse', flexWrap: 'wrap', columnGap: 2 },
-  wordBox: { borderRadius: 6, paddingHorizontal: 3, borderWidth: 1, borderColor: 'transparent' },
+  // Words as prose (2026-11-27): no gap between their boxes, and each box half a space wide either
+  // side of its word (wordGap, by text size), so words stand a space apart as in a book.
+  line: { flexDirection: 'row-reverse', flexWrap: 'wrap', columnGap: 0 },
+  wordBox: {},
   word: { fontSize: 21, lineHeight: 32, color: colors.ink, writingDirection: 'rtl' },
   heading: { fontWeight: '700' },
   marker: { color: colors.muted, paddingHorizontal: 3 },

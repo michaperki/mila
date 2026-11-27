@@ -40,6 +40,9 @@ export type Lookup = {
   context?: Record<string, unknown>
   // The tap as a debug capture's action (lib/trace.ts), which the work for it points to.
   act?: Act
+  // The reader's (2026-11-27): its explanation only when asked for (Details or Save), or when no
+  // quick meaning comes for it (a phrase dragged across has none; the sentence's may fail).
+  defer?: boolean
 }
 
 // When a save is written (read in the save handler, never while drawing).
@@ -50,7 +53,9 @@ const without = (set: Set<string>, key: string) => { const next = new Set(set); 
 // `onLostError` says what went wrong with a save once the drawer has moved on to another word.
 // `log` keeps each lookup, its explanation arriving and each save or undo as learning events
 // (lib/study-log.ts), each later one with the id of the lookup it follows.
-export function useWordLookup(session: Session | null, { quick = '', onLostError, log }: { quick?: string; onLostError: (message: string) => void; log?: LogEvent }) {
+// `quickPending`: the sentence's quick meanings are still on their way (so a deferred lookup waits
+// for them before explaining the word instead).
+export function useWordLookup(session: Session | null, { quick = '', quickPending = false, onLostError, log }: { quick?: string; quickPending?: boolean; onLostError: (message: string) => void; log?: LogEvent }) {
   const [tap, setTap] = useState<Lookup | null>(null)
   const version = useRef(0)
   const [analysis, setAnalysis] = useState<WordAnalysis | undefined>()
@@ -82,9 +87,16 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   // lookup ended with nothing to show (an error, or no meaning on a card), `moreFailed`: More did.
   // (Usage view, 2026-11-27: `v: 2` closed events count the quick meaning as the meaning shown;
   // before, a quick meaning on screen while the explanation loaded wasn't counted.)
-  const lookedUp = useRef<{ id: string; at: number; shownAt?: number; shown?: 'quick' | 'meaning'; detailsAt?: number; failed?: 'error' | 'no meaning'; moreFailed?: boolean } | null>(null)
+  // (v: 3, the reader's deferred lookups: Details is there at once, and asks for the explanation.)
+  const lookedUp = useRef<{ id: string; at: number; shownAt?: number; shown?: 'quick' | 'meaning'; detailsAt?: number; failed?: 'error' | 'no meaning'; moreFailed?: boolean; deferred?: boolean } | null>(null)
   const closedFor = useRef(new Set<string>())
   const quickShown = tap && !tap.phrase ? quick : ''
+  // The first meaning shown for the word, kept as it is while it is shown (the reader's sheet): an
+  // explanation arriving later says what it adds under Details.
+  // Kept for the tap it was shown for, so the next word starts without one.
+  const [firstShown, setFirstShown] = useState<{ tap: Lookup | null; text: string }>({ tap: null, text: '' })
+  if (tap && firstShown.tap !== tap && (gloss || quickShown)) setFirstShown({ tap, text: gloss || quickShown })
+  const meaningShown = firstShown.tap === tap ? firstShown.text : ''
   useEffect(() => {
     const looked = lookedUp.current
     if (looked && !looked.shownAt && (gloss || analysis || quickShown)) { looked.shownAt = now(); looked.shown = gloss || analysis ? 'meaning' : 'quick' }
@@ -96,7 +108,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
     if (!looked || closedFor.current.has(looked.id)) return
     closedFor.current.add(looked.id)
     log?.('closed', {
-      v: 2, of: looked.id, how, ms: now() - looked.at, waitMs: looked.shownAt ? looked.shownAt - looked.at : null, shown: looked.shown ?? null, details: !!looked.detailsAt,
+      v: looked.deferred ? 3 : 2, of: looked.id, how, ms: now() - looked.at, waitMs: looked.shownAt ? looked.shownAt - looked.at : null, shown: looked.shown ?? null, details: !!looked.detailsAt,
       ...(looked.failed ? { failed: looked.failed } : {}), ...(looked.moreFailed ? { moreFailed: true } : {}),
     })
   }
@@ -104,7 +116,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   // The explanation of a word looked up arriving: its dictionary form and how it is used here,
   // how long it took, and what asked for it (the tap, More or Save). Kept once per lookup, and
   // even after the drawer has moved on (tap, Save, next word), since the save is made with it.
-  const logExplained = (looked: { id: string; at: number } | null, found: WordAnalysis | undefined, why: 'tap' | 'more' | 'save') => {
+  const logExplained = (looked: { id: string; at: number } | null, found: WordAnalysis | undefined, why: 'tap' | 'more' | 'save' | 'details' | 'fallback') => {
     if (!found || !looked || explainedFor.current.has(looked.id)) return
     explainedFor.current.add(looked.id)
     log?.('explained', {
@@ -124,9 +136,12 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       ...next.context, word: next.text, ...(next.phrase ? { phrase: true } : {}), saved,
       ...(next.card ? { place: next.card.at, ...(next.card.lemma ? { lemma: next.card.lemma } : {}), glossed: !!next.card.meaning } : {}),
     })
-    const looked = lookedUp.current = id ? { id, at: now() } : null
+    const looked = lookedUp.current = id ? { id, at: now(), ...(next.defer ? { deferred: true } : {}) } : null
     if (known?.analysis) { onPhone(next.act, 'explanation', 'saved with the word from this sentence: no request'); setAnalysis(known.analysis); setGloss(known.analysis.meaning); setBusy(false); return }
     if (known) setGloss(known.meaning)
+    // The reader's word: its quick meaning (or the one saved) is shown; the explanation waits for
+    // Details or Save, or for no quick meaning to come (the effect below). A phrase has none.
+    if (next.defer && !next.phrase) { setBusy(false); return }
     // On a card: its own meaning for the word at once, or the sentence's quick meanings (asked
     // once per sentence and kept); the model explains it only on More or Save (explain, save).
     if (next.card) {
@@ -148,21 +163,31 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   }
   // More on a card's word: the full explanation, asked for now, shown with its details. If it
   // can't be had, the card's meaning stays and the drawer says the explanation is unavailable.
+  // The reader's asks the same way, for Details (`details`), or because no quick meaning came
+  // (`fallback`), and opens nothing by itself.
   const [asked, setAsked] = useState(false)
-  const explain = async () => {
+  const explain = async (why: 'more' | 'details' | 'fallback' = 'more') => {
     if (!tap || analysis || busy) return
     const current = version.current, looked = lookedUp.current
     setAsked(true); setBusy(true); setError(null)
     try {
-      const result = await explainWord(tap.text, tap.sentence, session?.token, act('More on a word', { word: tap.text }))
-      logExplained(looked, result.analysis, 'more')
+      const result = await explainWord(tap.text, tap.sentence, session?.token, act(why === 'more' ? 'More on a word' : why === 'details' ? 'Details of a word' : 'a word with no quick meaning', { word: tap.text }))
+      logExplained(looked, result.analysis, why)
       if (version.current !== current) return
-      if (result.analysis) { setAnalysis(result.analysis); setGloss(result.gloss); setDetails(true) }
+      if (result.analysis) { setAnalysis(result.analysis); setGloss(result.gloss); if (why === 'more') setDetails(true) }
       else if (!gloss) setGloss(result.gloss)
       if (!result.analysis && looked) looked.moreFailed = true
     } catch (failure) { if (version.current === current) { setError((failure as Error).message); if (looked) looked.moreFailed = true } }
     finally { if (version.current === current) setBusy(false) }
   }
+  // A deferred lookup with no quick meaning coming (the sentence's failed, or had none for this
+  // word) is explained after all, so it still gets a meaning.
+  const explainLater = useRef(explain)
+  useEffect(() => { explainLater.current = explain })
+  useEffect(() => {
+    if (!tap?.defer || tap.phrase || busy || analysis || asked || gloss || quickPending || quickShown) return
+    void explainLater.current('fallback')
+  }, [tap, busy, analysis, asked, gloss, quickPending, quickShown])
   // Anything still on its way for the word shown is dropped (leaving the screen does this too).
   const leave = useRef(finish)
   useEffect(() => { leave.current = finish })
@@ -232,20 +257,38 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   // would be a second entry for a word already saved under its dictionary form.
   // Words dragged across are saved only as the unit the explanation found them to make (asPhrase),
   // under its dictionary form, never as written: בהתה חזרה is saved as לִבְהוֹת חֲזָרָה.
-  const save = async (asPhrase = false) => {
+  // `target` 'main' (the reader's Save): the expression the word leads into if it does, else the
+  // word. Before the explanation it isn't known which: Saved ✓ shows at once for the word, and once
+  // the explanation says it is an expression, that is what is saved (and said), even if the reader
+  // has moved on to another word meanwhile.
+  const save = async (target: boolean | 'main' = false) => {
     if (!session) { router.push('/login'); return }
-    if (!tap || (asPhrase ? !phrase || phraseSaved : wordSaved || isPhrase)) return
+    if (!tap) return
+    const deferred = target === 'main' && !analysis && !tap.card
+    let asPhrase = target === 'main' ? !deferred && leadPhrase : target
+    if (deferred ? wordSaved || isPhrase : asPhrase ? !phrase || phraseSaved : wordSaved || isPhrase) return
     // What was selected when Save was pressed; the selection may change before the entry is written.
-    const tapped = tap, unit = phrase, dragged = isPhrase, quickNow = quickMeaning, current = version.current, looked = lookedUp.current, of = looked?.id
-    const key = tapKey(asPhrase ? unit!.text : tapped.text, tapped.sentence)
+    const tapped = tap, dragged = isPhrase, quickNow = quickMeaning, current = version.current, looked = lookedUp.current, of = looked?.id
+    let unit = phrase
+    let key = tapKey(asPhrase ? unit!.text : tapped.text, tapped.sentence)
     if (noWordsYet) setFirstSave(true)
     setSaving(saves => new Set(saves).add(key)); setError(null); feel('saved')
     try {
       // A card's word has its meaning but not yet its explanation, which Save asks for now.
-      const explained: { analysis?: WordAnalysis; gloss: string } = busy || (!analysis && !!tapped.card)
+      const explained: { analysis?: WordAnalysis; gloss: string } = busy || !analysis
         ? await explainWord(tapped.text, tapped.sentence, session.token).catch(() => ({ gloss: '' })) : { analysis, gloss }
       const found = explained.analysis
       logExplained(looked, found, 'save')
+      if (deferred && found) {
+        if (version.current === current) { setAnalysis(found); setGloss(explained.gloss) }
+        const lead = leadOf(found, tapped.text)
+        if (lead) {
+          const next = tapKey(lead.text, tapped.sentence)
+          if (undoAfterSave.current.delete(key)) undoAfterSave.current.add(next)
+          setSaving(saves => without(saves, key).add(next))
+          key = next; unit = lead; asPhrase = true
+        }
+      }
       const meaning = explained.gloss || quickNow
       if (!meaning) throw new Error('Its meaning could not be looked up.')
       if (!asPhrase && !found) throw new Error('It could not be explained just now, so it wasn\'t saved. Try again.')
@@ -316,8 +359,18 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
   return {
     tap, open, close, invalidate, explain, asked, analysis, gloss, busy, error, details, setDetails, quickMeaning,
     isPhrase, lemma, wordSaved, phrase, phraseSaved, isPattern, fillsPattern, patternFirst, leadPhrase, phraseIsWord, inYourWords,
-    saving, unsaving, firstSave, noWordsYet, save, unsave,
+    saving, unsaving, firstSave, noWordsYet, save, unsave, meaningShown,
   }
+}
+
+// The expression or pattern an explained word leads into: the one Save keeps for it (a pattern
+// whose open place the word fills is the word's own, offered alongside).
+function leadOf(found: WordAnalysis, text: string): Phrase | null {
+  const phrase = found.phrase?.text ? found.phrase : null
+  if (!phrase) return null
+  const pieces = lemmaKey(text).split(' ')
+  const fills = phrase.kind === 'pattern' && !!phrase.pattern && !!phrase.words?.length && !phrase.words.some(item => pieces.includes(lemmaKey(item)))
+  return fills ? null : phrase
 }
 export type WordLookup = ReturnType<typeof useWordLookup>
 
@@ -370,15 +423,7 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close,
   // meaning can be misleading on its own, so the expression leads and is what Save keeps. A
   // pattern shows how it is built, what it means, and two more uses of it; an expression whose
   // words don't plainly add up to its meaning, what it says word for word.
-  const unitBox = phrase && !busy ? <Animated.View entering={APPEAR} style={[drawer.phrase, { flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingRight: 10, paddingVertical: 8 }]}>
-    <Text style={drawer.label}>{!isPattern ? 'Part of an expression' : fillsPattern ? 'Used here in a pattern' : 'A pattern'}</Text>
-    {patternFirst
-      ? <><Text style={[drawer.pattern, he]}>{v(patternLabel(phrase.pattern!))}</Text><Text style={drawer.fact}>{isolateHebrew(v(phrase.meaning))}</Text></>
-      : <Text style={drawer.fact}><Text style={[drawer.factHebrew, he]}>{isolateHebrew(v((isPattern && phrase.pattern && patternLabel(phrase.pattern)) || phrase.lemma || phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>}
-    {isPattern && phrase.examples?.map(example => <Text key={example.text} style={drawer.fact}><Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(example.text))}</Text> · {isolateHebrew(v(example.meaning))}</Text>)}
-    {!isPattern && !!phrase.literal && <Text style={drawer.fact}>Literally “{phrase.literal}”</Text>}
-    {isPattern && !!phrase.textMeaning && <Text style={drawer.fact}>Here <Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.textMeaning))}</Text>}
-  </Animated.View> : null
+  const unitBox = phrase && !busy ? <UnitBox lookup={lookup} v={v} /> : null
 
   return <DraggableSheet onDismiss={closing} style={[drawer.sheet, style, { maxHeight }]} accessibilityViewIsModal onLayout={onLayout}
     handle={<View style={drawer.header}>
@@ -453,12 +498,29 @@ export function WordDrawer({ lookup, v, style, onLayout, onClose = lookup.close,
   </DraggableSheet>
 }
 
-function Section({ label, children }: { label: string; children: ReactNode }) {
+// The expression or pattern a word belongs to, as the drawer shows it (and the reader's sheet,
+// under Details).
+export function UnitBox({ lookup, v }: { lookup: WordLookup; v: (text: string) => string }) {
+  const he = useHebrew()
+  const { phrase, isPattern, fillsPattern, patternFirst } = lookup
+  if (!phrase) return null
+  return <Animated.View entering={APPEAR} style={[drawer.phrase, { flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingRight: 10, paddingVertical: 8 }]}>
+    <Text style={drawer.label}>{!isPattern ? 'Part of an expression' : fillsPattern ? 'Used here in a pattern' : 'A pattern'}</Text>
+    {patternFirst
+      ? <><Text style={[drawer.pattern, he]}>{v(patternLabel(phrase.pattern!))}</Text><Text style={drawer.fact}>{isolateHebrew(v(phrase.meaning))}</Text></>
+      : <Text style={drawer.fact}><Text style={[drawer.factHebrew, he]}>{isolateHebrew(v((isPattern && phrase.pattern && patternLabel(phrase.pattern)) || phrase.lemma || phrase.text))}</Text> · {isolateHebrew(v(phrase.meaning))}</Text>}
+    {isPattern && phrase.examples?.map(example => <Text key={example.text} style={drawer.fact}><Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(example.text))}</Text> · {isolateHebrew(v(example.meaning))}</Text>)}
+    {!isPattern && !!phrase.literal && <Text style={drawer.fact}>Literally “{phrase.literal}”</Text>}
+    {isPattern && !!phrase.textMeaning && <Text style={drawer.fact}>Here <Text style={[drawer.factHebrew, he]}>{isolateHebrew(v(phrase.text))}</Text> · {isolateHebrew(v(phrase.textMeaning))}</Text>}
+  </Animated.View>
+}
+
+export function Section({ label, children }: { label: string; children: ReactNode }) {
   return <View style={{ gap: 4 }}><Text style={drawer.label}>{label}</Text>{children}</View>
 }
 
 // Dictionary entry (form, other senses, root, grammar) and an optional note, always in this order.
-function WordFacts({ analysis, gloss, v }: { analysis: WordAnalysis; gloss: string; v: (text: string) => string }) {
+export function WordFacts({ analysis, gloss, v }: { analysis: WordAnalysis; gloss: string; v: (text: string) => string }) {
   const he = useHebrew()
   const grammar = [analysis.partOfSpeech, analysis.binyan, analysis.form].filter(Boolean).join(' · ')
   const showLemma = !!analysis.lemma && stripNiqqud(analysis.lemma) !== stripNiqqud(analysis.vocalized || analysis.word)
@@ -510,7 +572,7 @@ const builtOf = (unit: Phrase): Built => (!unit.literal ? {} : {
   ...(unit.literalNote ? { literalNote: unit.literalNote } : {}),
 })
 
-const drawer = StyleSheet.create({
+export const drawer = StyleSheet.create({
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 14, gap: 10, backgroundColor: colors.white, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTopWidth: 1, borderColor: colors.line, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   word: { fontSize: 26, lineHeight: 38, fontWeight: '600', color: colors.ink, writingDirection: 'rtl', flexShrink: 1 },

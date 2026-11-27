@@ -5,6 +5,7 @@ import { cachedAnswer, rememberAnswer } from './ai-cache'
 import { note, timed } from './trace'
 import { tracedModel } from './trace-ai'
 import type { Gloss } from './forms-writer'
+import { readingOf } from './readings'
 
 // The words of one sentence, each with its meaning there and, given the sentence's English, the
 // words of the English that say it: one small, fast call per sentence, kept for every learner
@@ -12,14 +13,15 @@ import type { Gloss } from './forms-writer'
 // written before its glosses said so the same word data new cards are written with (card-words).
 const meaning = { type: 'string', description: 'Its meaning in this sentence in 1 to 4 English words, including attached prefixes and suffixes ("and in the house", "his"). For a word that is part of an expression, its meaning within the expression.' } as const
 const rendered = { type: 'string', description: 'The words of the English translation that say this word, copied exactly from it and in its order ("quietly", "to him"), or "" if no words of the translation say it on their own.' } as const
-const schemaOf = (aligned: boolean) => ({
+const vocalized = { type: 'string', description: 'The word exactly as printed (the same letters, prefixes included), with full niqqud as it is pronounced in this sentence, for reading it aloud.' } as const
+const schemaOf = (aligned: boolean, read = false) => ({
   type: 'object', additionalProperties: false, required: ['meanings'],
   properties: {
     meanings: {
       type: 'array',
       items: {
-        type: 'object', additionalProperties: false, required: aligned ? ['n', 'meaning', 'inTranslation'] : ['n', 'meaning'],
-        properties: { n: { type: 'integer', description: 'The word\'s number.' }, meaning, ...(aligned ? { inTranslation: rendered } : {}) },
+        type: 'object', additionalProperties: false, required: ['n', 'meaning', ...(aligned ? ['inTranslation'] : []), ...(read ? ['vocalized'] : [])],
+        properties: { n: { type: 'integer', description: 'The word\'s number.' }, meaning, ...(aligned ? { inTranslation: rendered } : {}), ...(read ? { vocalized } : {}) },
       },
     },
   },
@@ -29,13 +31,16 @@ const SYSTEM = 'You help an English-speaking learner read modern Hebrew. Given a
 // The cache name for this prompt and schema: bump the version when either changes.
 const CACHE_KIND = 'sentence-glosses-v1'
 const ALIGNED_KIND = 'sentence-glosses-aligned-v1'
-export type Answer = { meanings: string[]; renders?: string[] }
+// The reader's (2026-11-27): with each word's reading, vowelled, so a tapped word is said as this
+// sentence has it before (or without) its full explanation, and its English when there is one.
+const READER_KIND = 'sentence-glosses-reader-v1'
+export type Answer = { meanings: string[]; renders?: string[]; readings?: string[] }
 const cache = new Map<string, Answer>()
 let client: Anthropic | null = null
 
 // Answers or throws: { statusCode: 422 } when the model gives none; the spend check's 429.
-export async function sentenceWords({ sentence, words, translation }: { sentence: string; words: string[]; translation?: string }, auth: ReturnType<typeof verifyAuth>, feature: Feature): Promise<Answer> {
-  const kind = translation ? ALIGNED_KIND : CACHE_KIND
+export async function sentenceWords({ sentence, words, translation, readings: read = false }: { sentence: string; words: string[]; translation?: string; readings?: boolean }, auth: ReturnType<typeof verifyAuth>, feature: Feature): Promise<Answer> {
+  const kind = read ? READER_KIND : translation ? ALIGNED_KIND : CACHE_KIND
   const key = `${sentence}\u0000${words.join(' ')}${translation ? `\u0000${translation}` : ''}`
   const started = Date.now()
   // Kept as the meanings alone before `renders` (the unaligned kind still is).
@@ -51,7 +56,7 @@ export async function sentenceWords({ sentence, words, translation }: { sentence
   const params = {
     model: 'claude-opus-5-5',
     max_tokens: 3000,
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: schemaOf(!!translation) } },
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: schemaOf(!!translation, read) } },
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
     system: SYSTEM,
@@ -62,14 +67,18 @@ export async function sentenceWords({ sentence, words, translation }: { sentence
   await recordClaude(auth.userId, feature, response, Date.now() - started)
   if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') throw Object.assign(new Error('No meanings for this sentence.'), { statusCode: 422 })
   const text = response.content.flatMap((block: { type: string; text?: string }) => (block.type === 'text' ? [block.text ?? ''] : [])).join('')
-  const answer = (JSON.parse(text) as { meanings: { n: number; meaning: string; inTranslation?: string }[] }).meanings
+  const answer = (JSON.parse(text) as { meanings: { n: number; meaning: string; inTranslation?: string; vocalized?: string }[] }).meanings
   // One meaning per word, in the words' order; a word the model skipped gets ''.
   const meanings = words.map((_, i) => answer.find(item => item.n === i + 1)?.meaning.trim() || '')
-  const result: Answer = translation ? { meanings, renders: words.map((_, i) => answer.find(item => item.n === i + 1)?.inTranslation?.trim() || '') } : { meanings }
+  const result: Answer = {
+    meanings,
+    ...(translation ? { renders: words.map((_, i) => answer.find(item => item.n === i + 1)?.inTranslation?.trim() || '') } : {}),
+    ...(read ? { readings: words.map((word, i) => readingOf(word, answer.find(item => item.n === i + 1)?.vocalized ?? '')) } : {}),
+  }
   if (cache.size >= 300) cache.delete(cache.keys().next().value!)
   cache.set(`${kind}\u0000${key}`, result)
   // The unaligned kind is kept as before, the meanings alone, for the answers already kept.
-  await rememberAnswer(kind, key, translation ? result : meanings)
+  await rememberAnswer(kind, key, translation || read ? result : meanings)
   return result
 }
 

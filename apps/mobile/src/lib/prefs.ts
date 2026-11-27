@@ -13,7 +13,8 @@ export type EnglishMode = 'tap' | 'all' | 'off'
 // Today (lib/today.ts): studyDays, the days studied on this phone (comma-separated); lastRead,
 // where reading stopped (JSON). tableEnglish: English shown beside a table of forms (table.tsx).
 // readerCursive, answerCursive: Hebrew drawn in cursive rather than print when reading, and on
-// flashcards' answer sides (state/script.ts).
+// flashcards' answer sides (state/script.ts). sayOnTap: a word tapped in the reader is said aloud
+// (Reader settings, 2026-11-27; on, to try it).
 // The bonsai (lib/tree.ts): tree, the tree last shown on Home (JSON, with whose it is);
 // treePending, activity not yet sent (JSON); treeMotion, whether it sways in the wind.
 export type Front = 'he' | 'en' | 'mixed'
@@ -26,12 +27,14 @@ type Prefs = {
   studyFront: Front; studyOrder: Order; studyCards: Include; studyQuiz: boolean; studyChoices: 'some' | 'all' | 'off'; studyWhy: boolean; holdTip: boolean; studyPlanner: Planner
   studyDays: string; lastRead: string; tableEnglish: boolean
   tree: string; treePending: string; treeMotion: boolean; readerCursive: boolean; answerCursive: boolean
+  sayOnTap: boolean
 }
 const defaults: Prefs = {
   livePreview: false, english: 'tap', showNiqqud: true, sounds: true, haptics: true, voice: 'sarah', speechRate: '1', textSize: '1', readerHint: true,
   studyFront: 'he', studyOrder: 'smart', studyCards: 'both', studyQuiz: false, studyChoices: 'some', studyWhy: false, holdTip: true, studyPlanner: 'standard',
   studyDays: '', lastRead: '', tableEnglish: true,
   tree: '', treePending: '', treeMotion: true, readerCursive: false, answerCursive: true,
+  sayOnTap: true,
 }
 const key = (name: keyof Prefs) => `mila.pref.${name}`
 export async function getPref<K extends keyof Prefs>(name: K): Promise<Prefs[K]> {

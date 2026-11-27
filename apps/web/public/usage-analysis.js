@@ -436,7 +436,8 @@ export function patterns(events, threshold = 3000, { least = 1, longest = 4 } = 
 // became available, and the app's background time (study `app` events) to count foreground time
 // only. Each becomes wait events in the usage session it happened in:
 //   goal `meaning`: the first meaning shown (the sentence's quick meaning counts);
-//   milestone `details`: Details available (Reader lookups, and card lookups once More was asked).
+//   milestone `details`: Details available (Reader lookups, and card lookups once More was asked);
+//   for the reader's sheet (v: 3), its explanation arriving once asked for.
 // Left out: Reader lookups before closed events counted the quick meaning (no `v`), whose meaning
 // time can be late. A lookup with no closed event has no known outcome (unknown).
 export function lookupWaits(lookups = [], events = []) {
@@ -488,8 +489,17 @@ export function lookupWaits(lookups = [], events = []) {
       reached.push({ milestone: 'meaning', at })
       out.push({ ...base, id: `${id}:meaning`, at, state: 'reached', of: id, milestone: 'meaning', ms: fg(l.at, at), ...(c.shown ? { shown: c.shown } : {}) })
     }
-    const detailsAsked = !card || showing?.more || x?.why === 'more'
-    if (showing?.detailsAt && showing.detailsAt <= c.at && detailsAsked) {
+    // The reader's sheet (closed v: 3, 2026-11-27) offers Details at once and explains the word
+    // only when asked (Details, Save, or no quick meaning): Details is reached when that
+    // explanation arrives, before the sheet left the word.
+    const detailsAsked = c.v >= 3 ? !!c.details || ['details', 'save', 'fallback'].includes(x?.why) : !card || showing?.more || x?.why === 'more'
+    if (c.v >= 3) {
+      if (detailsAsked && x && x.ms <= c.ms) {
+        const at = l.at + x.ms
+        reached.push({ milestone: 'details', at })
+        out.push({ ...base, id: `${id}:details`, at, state: 'reached', of: id, milestone: 'details', ms: fg(l.at, at), asked: x.why })
+      }
+    } else if (showing?.detailsAt && showing.detailsAt <= c.at && detailsAsked) {
       // Offered in the same render as the meaning it comes with, a few ms either way: not before it.
       const at = Math.max(showing.detailsAt, reached[0]?.at ?? l.at)
       reached.push({ milestone: 'details', at })
