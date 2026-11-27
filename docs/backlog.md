@@ -535,6 +535,14 @@ explains.
 - Mike was unsure about the next sentence's first words sitting above the English. **Open**:
   refine after more use on the phone.
 
+### READ-0 Back from a photographed page
+**Done** (2026-11-27). After a photo was read, the Reader was pushed on top of the camera, so
+Back (gesture, header button or Android's) went to the camera. The Reader now takes the camera's
+place, as it already did Paste text's: Back goes to where the camera was opened from (Home, or
+the Reader's empty state's caller). Covers Capture, a chosen photo and Read this passage on a
+live result, which all open the Reader the same way. Paste text opened from the camera still
+returns to the camera (the camera is still below it); left as it is.
+
 ### READ-2 Page-level glosses
 **Exploratory.** A meaning and dictionary form for every word of a page when it's read, for instant
 lookups and exposure counting. Raises the cost of every page; needs a measured estimate before
@@ -686,9 +694,13 @@ flashcard or fill in the blank. A new format is another branch there plus its lo
     or not the marked word, is a flashcard: of 938 saved form sentences, חסרי (construct) on
     חֲסֵרִים, a feminine sentence on מְנַצְּלִים (cut off with "...") and on מִתְהַפְּכִים (nothing
     marked; it was a quiz with no blank). The writer now rejects such a sentence and writes the
-    slot again (`forms-writer.ts formNotInSentence`). The three saved sentences are not rewritten
-    (would need a model call; Mike to decide). Checked over every saved quiz card: the right
-    answer once, as the sentence reads, no two options alike.
+    slot again (`forms-writer.ts formNotInSentence`). The three saved sentences were then written
+    again (Mike's go-ahead; $0.19, two runs at full price) and saved with their results kept: all
+    938 now show their form. Checked over every saved quiz card: the right answer once, as the
+    sentence reads, no two options alike.
+  - **Fix, 2026-11-27:** a sentence that marks the rest of an expression with the form
+    (מעמידות פנים, טומנות בחובן) blanked every marked word, two blanks for one choice. Only the
+    form's own words are blanked now (`marks.ts blankedPieces`); the rest stay, marked.
   - It existed before as "Quiz forms", off by default and never used (0 answers).
   - Now it's part of ordinary rounds ("Fill in the blank: Sometimes", the default): about one in
     three sentence cards answered before, never at a first meeting.

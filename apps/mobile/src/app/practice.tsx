@@ -14,7 +14,7 @@ import { feel } from '../lib/feedback'
 import { type Table, tableMeaning } from '../lib/explore'
 import { tableFor } from '../lib/explore-requests'
 import { ago, assess, type Card, cardName, planRound, type Plan, cardKey, type ChoiceMode, checkpointGroup, exerciseOf, freshCards, freshPicks, freshRound, justAfterItsWord, onSentence, type Sentence, sentenceFor, shownForm, wantsSentence, writerOf, checkpointRecord, cuedTranslation, exposureOf, firstSense, followUps, frontFor, type Include, mayFollow, isPrimed, kindLabel, kindOfEntry, lastStudied, missingStages, type Order, quizOf, recommendedStages, type Seen, stagesOf, startingStages, studyPool, upcoming } from '../lib/forms'
-import { englishPieces, hebrewPieces, prefixOf } from '../lib/marks'
+import { blankedPieces, englishPieces } from '../lib/marks'
 import { bareWord, stripNiqqud } from '../lib/ocr-cleanup'
 import { type Front, getPref, noteStudyDay, type Planner, setPref } from '../lib/prefs'
 import { noteActivity } from '../lib/tree'
@@ -988,18 +988,15 @@ function SentenceSide({ entry, form, english, answer: answerSide, position, fron
 function MarkedHebrew({ sentence, mark, form, blank, onWord, looked }: {
   sentence: string; mark: string; form: string; blank: boolean; onWord?: (word: string, at: number, own: boolean) => void; looked?: number
 }) {
-  const formWords = form.split(/\s+/)
-  let k = 0
   let at = -1
-  return <>{hebrewPieces(sentence, mark).map((piece, i) => {
+  return <>{blankedPieces(sentence, mark, form).map((piece, i) => {
     const word = bareWord(piece.text)
     if (piece.text && !/^\s+$/.test(piece.text)) at++
     const place = at
     const tap = onWord && word ? { onPress: () => onWord(word, place, piece.marked), suppressHighlighting: true } : {}
     const selected = !!word && looked === place && practice.looked
     if (!piece.marked) return <Text key={i} {...tap} style={selected}>{piece.text}</Text>
-    const own = formWords[k++] ?? ''
-    if (blank) return <Text key={i}>{prefixOf(piece.text, own)}<Text style={practice.blank}>{BLANK}</Text></Text>
+    if (blank && piece.blank) return <Text key={i}>{piece.blank.prefix}<Text style={practice.blank}>{BLANK}</Text></Text>
     return <Text key={i} {...tap} style={[practice.mark, selected]}>{piece.text}</Text>
   })}</>
 }

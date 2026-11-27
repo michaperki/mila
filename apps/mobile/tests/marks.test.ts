@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { englishPieces, hebrewPieces, matchInOrder, prefixOf } from '../src/lib/marks.ts'
+import { blankedPieces, englishPieces, hebrewPieces, matchInOrder, prefixOf } from '../src/lib/marks.ts'
 
 const marked = (pieces: { text: string; marked: boolean }[]) => pieces.filter(piece => piece.marked).map(piece => piece.text)
 
@@ -31,4 +31,14 @@ test('English marks are matched by word, case-insensitively, spaces left unmarke
 test('a quiz blank keeps the attached prefix', () => {
   assert.equal(prefixOf('ושפתחנו', 'פָּתַחְנוּ'), 'וש')
   assert.equal(prefixOf('פתחנו', 'פתחנו'), '')
+})
+
+test('a quiz blanks only the marked words that are the form: the rest of an expression stays, so one choice fills one blank', () => {
+  const blanks = (sentence: string, mark: string, form: string) => blankedPieces(sentence, mark, form).filter(piece => piece.marked).map(piece => (piece.blank ? `${piece.blank.prefix}_` : piece.text))
+  assert.deepEqual(blanks('מייסדי העיר בטח מתהפכים בקברם', 'מתהפכים בקברם', 'מִתְהַפְּכִים'), ['_', 'בקברם'])
+  assert.deepEqual(blanks('הבנות מעמידות פנים שהן לא שומעות', 'מעמידות פנים', 'מַעֲמִידוֹת'), ['_', 'פנים'])
+  // A prefix stays; a form written with a maqaf is one blank, or two where the sentence writes it apart.
+  assert.deepEqual(blanks('וכשהיא חסרה לנו', 'וכשהיא חסרה', 'הִיא חֲסֵרָה'), ['וכש_', '_'])
+  assert.deepEqual(blanks('יש לי אי־נוחות קטנה', 'אי־נוחות', 'אִי־נוֹחוּת'), ['_'])
+  assert.deepEqual(blanks('גרמו באי נוחויות רבות', 'אי נוחויות', 'אִי־נוֹחֻיּוֹת'), ['ב_', '_'])
 })

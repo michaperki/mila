@@ -96,3 +96,17 @@ export function asWritten(form: string, mark: string): string | null {
   }
   return out.join(' ')
 }
+
+// The sentence as a quiz asks it: each marked word that is one of the form's words as its prefix
+// (ו, ש: kept) and a blank. Marked words past the form's are the rest of an expression the form
+// is used in (מתהפכים בקברם for מִתְהַפְּכִים) and stay as written, so one choice fills one blank.
+export type QuizPiece = Piece & { blank?: { prefix: string } }
+export function blankedPieces(sentence: string, mark: string, form: string): QuizPiece[] {
+  const own = form.replace(/[־]/g, ' ').split(/\s+/).filter(Boolean)
+  let k = 0
+  return hebrewPieces(sentence, mark).map(piece => {
+    if (!piece.marked) return piece
+    const word = own[k++]
+    return word === undefined ? piece : { ...piece, blank: { prefix: prefixOf(piece.text, word) } }
+  })
+}

@@ -70,11 +70,13 @@ export default function Camera() {
     })
     return () => subscription.remove()
   }, [stopLive])
-  // Every camera passage the learner opens is kept in their library automatically.
+  // Every camera passage the learner opens is kept in their library automatically. The Reader
+  // takes the camera's place (2026-11-27), as it does Paste text's, so Back from it (the gesture,
+  // the header's button, Android's) goes to where the camera was opened from, not to the camera.
   const openReader = (value: Recognition, fellBack = false) => {
     outcome('camera', 'opened reader', { from: value.source === 'page' ? 'page' : 'live' })
     pageWait.current?.ready(fellBack ? { fellBack: 'live result' } : undefined); pageWait.current = null
-    setRecognition(value.library === 'saved' ? value : { ...value, library: 'auto' }); router.push('/reader')
+    setRecognition(value.library === 'saved' ? value : { ...value, library: 'auto' }); router.replace('/reader')
   }
   const present = (value: Recognition) => {
     setResult(value.text ? value : null)
