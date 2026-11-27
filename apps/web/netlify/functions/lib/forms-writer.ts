@@ -208,6 +208,38 @@ export function disagreement(stage: string, slot: string, agrees: Agreement | un
   return null
 }
 
+// Why a card's sentence doesn't show its form, or null (mirrors apps/mobile/src/lib/marks.ts
+// asWritten and markedIn, which keep such a card out of multiple choice): the marked words must be
+// in the sentence, and each word of the form must be one of them, however fully spelled and with
+// any attached prefix (וּ, הַ, בְּ…). Seen in saved cards: חסרי (construct) on a card for חֲסֵרִים,
+// and a feminine מנצלות on one for מְנַצְּלִים. A meaning card's form is the dictionary form, so it
+// isn't checked; a pattern's open preposition (the ל of גורם ל, written לי) matches what it starts.
+const letters = (text: string) => text.normalize('NFC').replace(/[\u0591-\u05C7]/g, '').replace(/[^א-ת]/g, '')
+const loose = (text: string) => letters(text).replace(/[וי]/g, '')
+const PREFIXES = /^[והבכלמש]{0,3}$/
+const sameForm = (word: string, form: string) => {
+  const a = letters(word), b = letters(form)
+  if (!a || !b) return false
+  if (b.length === 1) return a.startsWith(b)
+  for (let n = 0; n <= Math.min(3, a.length - 1); n++) {
+    if (!PREFIXES.test(a.slice(0, n))) break
+    const stem = a.slice(n)
+    if (stem === b || (stem[0] === b[0] && loose(stem) === loose(b))) return true
+  }
+  return false
+}
+export function formNotInSentence(stage: string, form: string, sentence: string, marked: string[]) {
+  if (stage === 'meanings') return null
+  const words = sentence.replace(/[־]/g, ' ').split(/\s+/).filter(Boolean)
+  const marks = marked.flatMap(item => item.replace(/[־]/g, ' ').split(/\s+/)).filter(Boolean)
+  const missing = marks.find(mark => !words.some(word => letters(word).endsWith(letters(mark)) && PREFIXES.test(letters(word).slice(0, letters(word).length - letters(mark).length))))
+  if (missing) return `the sentence doesn't have ${missing}, the word marked as the form`
+  const parts = form.replace(/[־]/g, ' ').split(/\s+/).filter(Boolean)
+  if (marks.length < parts.length) return `the sentence marks ${marks.join(' ') || 'nothing'}, not the whole form ${form}`
+  const other = parts.findIndex((part, i) => !sameForm(marks[i], part))
+  return other === -1 ? null : `the sentence has ${marks[other]}, not the form ${parts[other]}: use exactly this form`
+}
+
 // `learner`: what the writer is told about the learner (lib/profile.ts profileBlock), at the end.
 // `again`: cards already written to write a new sentence for, each the same form and meaning.
 export type Again = { slot: string; he: string; en: string }
@@ -280,7 +312,7 @@ export function cardsOf(generated: Generated[], stage: string, slots: Slot[]) {
   for (const { slot } of slots) {
     const item = generated.find(candidate => candidate.slot === slot && candidate.form?.trim() && candidate.sentence?.trim() && !(stage === 'meanings' && ofExpression(candidate.english)))
     if (!item) continue
-    const why = disagreement(stage, slot, item.agreesWith)
+    const why = disagreement(stage, slot, item.agreesWith) ?? formNotInSentence(stage, item.form, item.sentence, item.inSentence ?? [])
     if (why) { rejected.push({ slot, why }); continue }
     const translation = item.translation.trim()
     // The marks are kept as the words in order, space-separated (apps/mobile/src/lib/marks.ts).

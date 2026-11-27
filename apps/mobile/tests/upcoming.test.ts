@@ -11,7 +11,7 @@ const form = (key: string, extra: Partial<FormCard> = {}): FormCard => { const [
 const word = (id: string, extra: Partial<VocabEntry> = {}): VocabEntry => ({ id, lemma: id, gloss: `${id} meaning, other`, createdAt: 1, partOfSpeech: 'noun', forms: [form('meanings:sense1')], ...extra })
 
 test('a card is listed as Study will ask it: the side first, fill in the blank only where it can be', () => {
-  const blank = form('meanings:sense1', { he: 'שָׁלֵם', mark: 'שלמה', distractors: ['רֵיקָה', 'שְׁבוּרָה', 'קְטַנָּה'], distractorsFor: 'שְׁלֵמָה', results: [false], last: at(1) })
+  const blank = form('meanings:sense1', { he: 'שָׁלֵם', mark: 'שלמה', sentence: 'הכוס עדיין שלמה', distractors: ['רֵיקָה', 'שְׁבוּרָה', 'קְטַנָּה'], distractorsFor: 'שְׁלֵמָה', results: [false], last: at(1) })
   const entry = word('w', { forms: [blank], results: [true], last: at(1) })
   const deck: Card[] = [{ entry: word('x'), form: null }, { entry, form: blank }]
   // Missed last time in the same sentence: support, a fill in the blank; it has distractors for it.

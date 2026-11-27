@@ -2,6 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ago, apart, byDue, dueOf, planRound, ProgressRules, asChoice, assess, awaitsRecall, exerciseOf, MAX_SENTENCES, onSentence, sentenceFor, wantsSentence, freshCards, freshPicks, freshRound, justAfterItsWord, personalVariant, shownForm, writerOf, type Card, cardKey, cardState, checkpointStages, choicesFor, countsOf, cueOf, cuedTranslation, cuesOf, deckOf, exposureOf, followUps, freshStages, intakeOrder, isKnownWord, isMet, isPrimed, mayFollow, missingStages, newCards, openStages, quizOf, recommendedStages, spread, stageProgress, stageState, statusOf, studyPool, upcoming } from '../src/lib/forms.ts'
 import type { FormCard, VocabEntry } from '../src/lib/types.ts'
+import { asWritten, prefixOf } from '../src/lib/marks.ts'
+import { stripNiqqud } from '../src/lib/ocr-cleanup.ts'
+import { plainSpelling } from '../src/lib/spelling.ts'
 
 const DAY = 24 * 60 * 60 * 1000
 const now = new Date(2026, 9, 16, 10).getTime()
@@ -543,15 +546,15 @@ test('fill in the blank is a check on what is known: never just after another ca
 test('a meaning card is a fill in the blank only with distractors for the word as its sentence has it', () => {
   const other = verb([], { id: 'other', lemma: 'לָרוּץ' })
   // Written for the form in the sentence (שְׁלֵמָה): that is the answer, among words in that form.
-  const natural = form('meanings:sense1', { he: 'שָׁלֵם', mark: 'שלמה', said: 'שְׁלֵמָה', distractors: ['רֵיקָה', 'שְׁבוּרָה', 'קְטַנָּה'], distractorsFor: 'שְׁלֵמָה' })
+  const natural = form('meanings:sense1', { he: 'שָׁלֵם', mark: 'שלמה', sentence: 'הכוס עדיין שלמה', said: 'שְׁלֵמָה', distractors: ['רֵיקָה', 'שְׁבוּרָה', 'קְטַנָּה'], distractorsFor: 'שְׁלֵמָה' })
   const quiz = quizOf([verb([natural], { lemma: 'שָׁלֵם' }), other], { entry: verb([natural], { lemma: 'שָׁלֵם' }), form: natural }, false, 'seed')!
   assert.equal(quiz.answer, 'שְׁלֵמָה')
   assert.ok(quiz.options.includes('רֵיקָה'))
   // Older distractors were written in the dictionary form: not for a sentence that inflects it.
-  const older = form('meanings:sense1', { he: 'שָׁלֵם', mark: 'שלמה', distractors: ['רֵיק', 'שָׁבוּר', 'קָטָן'] })
+  const older = form('meanings:sense1', { he: 'שָׁלֵם', mark: 'שלמה', sentence: 'הכוס עדיין שלמה', distractors: ['רֵיק', 'שָׁבוּר', 'קָטָן'] })
   assert.equal(quizOf([verb([older]), other], { entry: verb([older]), form: older }, false, 'seed'), null)
   // Spelled more fully in the sentence is still the dictionary form.
-  const spelled = form('meanings:sense1', { he: 'לִנְהֹג', mark: 'לנהוג', distractors: ['לִשְׁחוֹת', 'לִרְקֹד', 'לִישֹׁן'] })
+  const spelled = form('meanings:sense1', { he: 'לִנְהֹג', mark: 'לנהוג', sentence: 'היא לומדת לנהוג', distractors: ['לִשְׁחוֹת', 'לִרְקֹד', 'לִישֹׁן'] })
   assert.equal(quizOf([verb([spelled]), other], { entry: verb([spelled]), form: spelled }, false, 'seed')!.answer, 'לִנְהֹג')
   // No distractors of its own: the other saved words might fit the sentence too, so a flashcard.
   assert.equal(quizOf([verb([form('meanings:sense1', { he: 'לִפְתֹּחַ', mark: 'לפתוח' })]), other, verb([], { id: 'c', lemma: 'לִסְגֹּר' }), verb([], { id: 'd', lemma: 'לִכְתֹּב' })], { entry: verb([form('meanings:sense1', { he: 'לִפְתֹּחַ', mark: 'לפתוח' })]), form: form('meanings:sense1', { he: 'לִפְתֹּחַ', mark: 'לפתוח' }) }, true, 'seed'), null)
@@ -565,7 +568,7 @@ test('a meaning card is a fill in the blank only with distractors for the word a
 })
 
 test('a meaning card written with distractors of its own chooses among them', () => {
-  const card = form('meanings:sense1', { he: 'לִבְלֹעַ', mark: 'לבלוע', distractors: ['לִלְעֹס', 'לִנְשֹׁם', 'לִירֹק'] })
+  const card = form('meanings:sense1', { he: 'לִבְלֹעַ', mark: 'לבלוע', sentence: 'קשה לו לבלוע', distractors: ['לִלְעֹס', 'לִנְשֹׁם', 'לִירֹק'] })
   const entry = verb([card], { lemma: 'לִבְלֹעַ' })
   const quiz = quizOf([entry, verb([], { id: 'other', lemma: 'לָרוּץ' })], { entry, form: card }, false, 'seed')!
   assert.deepEqual([...quiz.options].sort(), ['לִבְלֹעַ', 'לִלְעֹס', 'לִנְשֹׁם', 'לִירֹק'].sort())
@@ -604,4 +607,36 @@ test('a round says what it considered: reviews by due, fewer new words while rev
   // With a small backlog, three new words as before.
   const few = planRound([...backlog.slice(0, 3), ...unseen], { include: 'both', order: 'smart' }, now)
   assert.ok(few.cards.filter(card => card.entry.id.startsWith('n')).length >= 3)
+})
+
+test('a form card\'s right answer reads as its sentence has it, once among the choices, and is graded by it', () => {
+  // Seen in Study (2026-11-27): the sentence had חסרה, and without vowels the option marked right
+  // read חסירה, the full spelling of the vowelled form חֲסֵרָה, which no sentence writes.
+  const missing = form('inflected:f.sg', { he: 'חֲסֵרָה', mark: 'חסרה', sentence: 'חסרה כפית אחת במגירה, ראית אותה?' })
+  const entry = verb([form('base:m.sg', { he: 'חָסֵר', mark: 'חסר', sentence: 'חסר לי כסף' }), missing,
+    form('inflected:m.pl', { he: 'חֲסֵרִים', mark: 'חסרים', sentence: 'חסרים לנו כיסאות' }), form('inflected:f.pl', { he: 'חֲסֵרוֹת', mark: 'חסרות', sentence: 'חסרות שתי כפיות' })], { lemma: 'חָסֵר' })
+  const quiz = quizOf([entry], { entry, form: missing }, false, 'seed')!
+  assert.equal(quiz.answer, 'חֲסֵרָה')
+  assert.equal(quiz.written, 'חסרה')
+  // Shown as Study shows them without vowels (practice.tsx optionText): the answer once, as written.
+  const shown = quiz.options.map(option => (stripNiqqud(option) === stripNiqqud(quiz.answer) ? quiz.written : plainSpelling(option)))
+  assert.equal(shown.filter(text => text === 'חסרה').length, 1)
+  assert.equal(new Set(shown).size, shown.length)
+  // Graded letter for letter: the option shown as חסרה is the right one, and only it.
+  assert.deepEqual(quiz.options.filter(option => stripNiqqud(option) === stripNiqqud(quiz.answer)), ['חֲסֵרָה'])
+  // The full spelling no longer adds a י after the stem's first letter.
+  assert.equal(plainSpelling('חֲסֵרָה'), 'חסרה')
+  // Spelled more fully in the sentence, or with an attached prefix: still the sentence's spelling.
+  const party = form('present:f.sg', { he: 'מְסִבָּה', mark: 'מסבה', sentence: 'היא מסבה את תשומת הלב' })
+  const turn = verb([party, form('present:m.sg', { he: 'מֵסֵב', mark: 'מסב', sentence: 'הוא מסב' }), form('present:m.pl', { he: 'מְסִבִּים', mark: 'מסבים', sentence: 'הם מסבים' })])
+  assert.equal(quizOf([turn], { entry: turn, form: party }, false, 's')!.written, 'מסבה')
+  assert.equal(asWritten('זְהֻבָּה', 'הזהובה'), 'זהובה')
+  assert.equal(prefixOf('הזהובה', 'זְהֻבָּה'), 'ה')
+  assert.equal(asWritten('גּוֹרֵם לְ', 'גורם לי'), 'גורם ל')
+  assert.equal(asWritten('אִי־נוֹחֻיּוֹת', 'באי נוחויות'), 'אי נוחויות')
+  // A sentence with another form than the card's, or without the marked word: no quiz.
+  const construct = { ...entry.forms![2], mark: 'חסרי', sentence: 'ילדים חסרי סבלנות' }
+  assert.equal(quizOf([entry], { entry, form: construct }, false, 'seed'), null)
+  const elsewhere = { ...entry.forms![2], sentence: 'החברות הגדולות מנצלות...' }
+  assert.equal(quizOf([entry], { entry, form: elsewhere }, false, 'seed'), null)
 })

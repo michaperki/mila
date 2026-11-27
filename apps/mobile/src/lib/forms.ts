@@ -1,4 +1,6 @@
 import { stripNiqqud } from './ocr-cleanup.ts'
+import { asWritten, markedIn } from './marks.ts'
+import { plainSpelling } from './spelling.ts'
 import type { FormCard, Results, VocabEntry } from './types'
 
 // A saved word is learned in stages. Every saved word can be studied at once, first as its word
@@ -797,13 +799,21 @@ export function freshStages(entries: VocabEntry[], limit = 3): Suggestion[] {
 
 // Quiz mode: a form card is answered by filling its blank with one of up to four options, this
 // form and other forms of the same word, same stage first. Fewer than three options would make
-// the choice trivial, so then the card is flipped as usual.
-export function choicesFor(entry: VocabEntry, form: FormCard, seed: string): string[] | null {
+// the choice trivial, so then the card is flipped as usual. `written`, the form as the sentence
+// writes it (marks.ts asWritten): no other option may read the same, with vowels or without, so
+// the sentence's form is among the options once.
+export function choicesFor(entry: VocabEntry, form: FormCard, seed: string, written = asWritten(form.he, form.mark) ?? ''): string[] | null {
   const bare = (text: string) => stripNiqqud(text)
-  const others = (entry.forms || []).filter(other => bare(other.he) !== bare(form.he))
+  // How an option reads: its letters, and in full spelling as it is shown without vowels.
+  const reads = (text: string) => [bare(text), plainSpelling(text)]
+  const taken = new Set([...reads(form.he), ...(written ? [written] : [])])
+  const others = (entry.forms || []).filter(other => !reads(other.he).some(text => taken.has(text)))
     .sort((a, b) => Number(b.stage === form.stage) - Number(a.stage === form.stage))
   const picked: string[] = []
-  for (const other of others) if (picked.length < 3 && !picked.some(item => bare(item) === bare(other.he))) picked.push(other.he)
+  for (const other of others) {
+    if (picked.length >= 3 || reads(other.he).some(text => taken.has(text))) continue
+    picked.push(other.he); reads(other.he).forEach(text => taken.add(text))
+  }
   if (picked.length < 2) return null
   return shuffle([form.he, ...picked], seed)
 }
@@ -815,7 +825,10 @@ export function choicesFor(entry: VocabEntry, form: FormCard, seed: string): str
 // card chooses among the learner's other saved words, same part of speech first (an expression
 // among expressions): the Hebrew word, or shown in Hebrew its English meaning (the first sense
 // only, so the length of a list doesn't give it away).
-export type Quiz = { options: string[]; answer: string }
+// `written`: the right answer as the card's sentence writes it, which it is shown as without
+// vowels (the full spelling of a vowelled form can differ from the sentence's: מסיבה for מְסִבָּה
+// where the sentence has מסבה). Graded by `answer`, letter for letter.
+export type Quiz = { options: string[]; answer: string; written?: string }
 // A meaning card's sentence as a fill in the blank has one right answer only with distractors
 // written for it, wrong in this sentence and in the same form as the word stands in it: the blank
 // takes the word as written there (שלמה, not שלם), so they must be such words too. Distractors
@@ -837,14 +850,19 @@ const sameSpelling = (a: string, b: string) => {
 export const firstSense = (gloss: string) => gloss.split(/[,;]/)[0].trim()
 export function quizOf(entries: VocabEntry[], { entry, form }: Card, english: boolean, seed: string): Quiz | null {
   if (form && form.stage !== 'meanings') {
-    const options = choicesFor(entry, form, seed)
-    return options && { options, answer: form.he }
+    // The sentence has another form of the word than the card's, or not the marked words at
+    // all: there is nothing to choose the form for.
+    const written = markedIn(form.sentence, form.mark) ? asWritten(form.he, form.mark) : null
+    if (written === null) return null
+    const options = choicesFor(entry, form, seed, written)
+    return options && { options, answer: form.he, written }
   }
   const key = (text: string) => stripNiqqud(text).trim().toLowerCase()
   if (form) {
-    const answer = blankAnswer(form)
+    const answer = markedIn(form.sentence, form.mark) ? blankAnswer(form) : null
     const own = answer ? (form.distractors || []).filter((item, i, all) => key(item) !== key(answer) && all.findIndex(other => key(other) === key(item)) === i).slice(0, 3) : []
-    return answer && own.length === 3 ? { options: shuffle([answer, ...own], seed), answer } : null
+    const written = answer ? asWritten(answer, form.mark) : null
+    return answer && own.length === 3 ? { options: shuffle([answer, ...own], seed), answer, ...(written ? { written } : {}) } : null
   }
   const inEnglish = english
   const valueOf = (item: VocabEntry) => (inEnglish ? firstSense(item.gloss || '') : item.lemma || '')

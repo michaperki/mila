@@ -675,6 +675,20 @@ card is put to the learner in one place (`practice.tsx presentation`): which sen
 flashcard or fill in the blank. A new format is another branch there plus its logging.
 
 - **EX-0 Fill in the blank (multiple choice).** **Done** (2026-11-15).
+  - **Fix, 2026-11-27** (Mike's phone: the sentence had חסרה, the option marked right read
+    חסירה). Choices are the vowelled forms; without vowels they are shown in full spelling
+    (`lib/spelling.ts`), whose rule for a tsere before א/ע/ר added a י to חֲסֵרָה. Graded letter for
+    letter, so the answer was scored right but read differently from the completed sentence.
+    Now: the tsere rule only applies where the stem begins (the only word of 1,477 on saved
+    cards whose spelling changes); the right option is shown as the sentence writes it
+    (`marks.ts asWritten`: חסרה, מסבה, זהובה in הזהובה), no other option may read the same; a
+    blank keeps a prefix spelled more fully (ה of הזהובה). A card whose sentence has another form,
+    or not the marked word, is a flashcard: of 938 saved form sentences, חסרי (construct) on
+    חֲסֵרִים, a feminine sentence on מְנַצְּלִים (cut off with "...") and on מִתְהַפְּכִים (nothing
+    marked; it was a quiz with no blank). The writer now rejects such a sentence and writes the
+    slot again (`forms-writer.ts formNotInSentence`). The three saved sentences are not rewritten
+    (would need a model call; Mike to decide). Checked over every saved quiz card: the right
+    answer once, as the sentence reads, no two options alike.
   - It existed before as "Quiz forms", off by default and never used (0 answers).
   - Now it's part of ordinary rounds ("Fill in the blank: Sometimes", the default): about one in
     three sentence cards answered before, never at a first meeting.

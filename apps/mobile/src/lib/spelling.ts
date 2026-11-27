@@ -71,8 +71,11 @@ function plainWord(word: string): string {
     }
     // A tsere that stands for a hiriq before an א, ע or ר, which can't be doubled, is written
     // with י too (לְהֵעָמֵד, בֵּרַךְ, תֵּאֵר), but not the prefix מֵ (מֵאָה, מֵעַל), a noun such as
-    // הֵעָרָה, or a tsere before a final guttural's patah (יוֹדֵעַ).
-    if (has(item, TSERE) && next && i + 1 < letters.length - 1 && /[אער]/.test(next.letter) && !(i === 0 && /[מה]/.test(item.letter)) && /[\u05B2\u05B5-\u05B8]/.test(next.marks)) out.push('י')
+    // הֵעָרָה, or a tsere before a final guttural's patah (יוֹדֵעַ). That tsere is on the word's first
+    // letter, or the first after prefix letters (לְהֵ, וּבֵ): one after a letter of the stem is the
+    // word's own vowel (חֲסֵרָה is חסרה, not חסירה; מְתָאֵר).
+    const afterPrefix = i <= 3 && letters.slice(0, i).every(before => PREFIX.test(before.letter))
+    if (has(item, TSERE) && next && i + 1 < letters.length - 1 && /[אער]/.test(next.letter) && !(i === 0 && /[מה]/.test(item.letter)) && afterPrefix && /[\u05B2\u05B5-\u05B8]/.test(next.marks)) out.push('י')
   })
   const plain = out.join('')
   return AS_PRINTED[plain] ?? plain

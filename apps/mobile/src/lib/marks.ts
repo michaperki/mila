@@ -44,11 +44,55 @@ function piecesOf(sentence: string, mark: string | undefined, same: (word: strin
   return pieces.map((text, i) => ({ text, marked: hit.has(i) }))
 }
 export const hebrewPieces = (sentence: string, mark?: string) => piecesOf(sentence, mark, sameHebrew)
+// Whether every word of the mark is in the sentence, in order: what a quiz blanks out.
+export const markedIn = (sentence: string, mark: string) => {
+  const words = sentence.split(/\s+/).filter(Boolean), wanted = (mark || '').split(/\s+/).filter(Boolean)
+  return !!wanted.length && matchInOrder(words, [mark], sameHebrew).length === wanted.length
+}
 export const englishPieces = (sentence: string, mark?: string) => piecesOf(sentence, mark, sameEnglish)
 
 // The attached prefix of a marked word that a quiz blank keeps (ו in ושפתחנו): what the word has
-// before the form's own letters.
+// before the form's own letters, however fully each is spelled (ה in הזהובה for זְהֻבָּה).
 export function prefixOf(word: string, form: string) {
+  return splitPrefix(word, form) ?? ''
+}
+
+// The same word but for how fully it is spelled (חסרה, חֲסֵרָה; מסבה, מְסִבָּה): its letters without ו and י.
+const loose = (text: string) => hebrew(text).replace(/[וי]/g, '')
+// The prefix letters (up to three of והבכלמש) a word of the sentence has before `form`, or null
+// when it isn't that form at all. Letter for letter first; then however fully spelled, the stem
+// starting with the form's first letter (so the ו of ושמר is a prefix, not a full spelling).
+function splitPrefix(word: string, form: string): string | null {
   const a = hebrew(word), b = hebrew(form)
-  return b && a.endsWith(b) && a !== b ? a.slice(0, a.length - b.length) : ''
+  if (!a || !b) return null
+  if (a === b) return ''
+  if (a.endsWith(b) && PREFIX.test(a.slice(0, a.length - b.length))) return a.slice(0, a.length - b.length)
+  if (b.length < 2) return null
+  for (let n = 0; n <= Math.min(3, a.length - 1); n++) {
+    const prefix = a.slice(0, n), stem = a.slice(n)
+    if (n && !PREFIX.test(prefix)) break
+    if (stem[0] === b[0] && loose(stem) === loose(b)) return prefix
+  }
+  return null
+}
+
+// A card's form as its sentence writes it: each of the form's words as the marked word there has
+// it, without an attached prefix (חסרה for חֲסֵרָה, מסבה for מְסִבָּה, זהובה in הזהובה), so a quiz's
+// right answer reads exactly as the completed sentence will. A pattern's open preposition, written
+// with what it governs (לי for the ל of גורם ל), stays the form's. null when a marked word is
+// another form than the card's (חסרי, construct, on a card for חֲסֵרִים): the sentence doesn't
+// show the form, so there is no fair choice to make.
+export function asWritten(form: string, mark: string): string | null {
+  // A maqaf joins words a sentence may write apart (אִי־נוֹחֻיּוֹת, באי נוחויות).
+  const forms = form.replace(/[־]/g, ' ').split(/\s+/).filter(Boolean), marks = (mark || '').replace(/[־]/g, ' ').split(/\s+/).filter(Boolean)
+  if (!forms.length || marks.length < forms.length) return null
+  const out: string[] = []
+  for (let i = 0; i < forms.length; i++) {
+    const f = hebrew(forms[i])
+    if (f.length === 1) { if (hebrew(marks[i]).startsWith(f)) { out.push(f); continue } return null }
+    const prefix = splitPrefix(marks[i], forms[i])
+    if (prefix === null) return null
+    out.push(hebrew(marks[i]).slice(prefix.length))
+  }
+  return out.join(' ')
 }

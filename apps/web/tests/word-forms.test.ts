@@ -11,7 +11,7 @@ vi.mock('../netlify/functions/lib/auth', () => ({ verifyAuth: () => ({ userId: '
 vi.mock('../netlify/functions/lib/mongo', () => ({ getDb: async () => ({ collection: () => ({ findOne, updateOne }) }) }))
 vi.mock('../netlify/functions/lib/ai-usage', () => ({ recordClaude: vi.fn(), checkDailySpend: vi.fn() }))
 import { handler } from '../netlify/functions/word-forms'
-import { placeGlosses } from '../netlify/functions/lib/forms-writer'
+import { cardsOf, formNotInSentence, placeGlosses } from '../netlify/functions/lib/forms-writer'
 
 const entry = { lemma: 'לִפְתֹּחַ', gloss: 'to open', partOfSpeech: 'verb', binyan: "pa'al", forms: [{ stage: 'meanings', sentence: 'אני רוצה לפתוח חלון' }], encounters: [{ surface: 'פתח', context: 'הוא פתח את הדלת' }] }
 const invoke = async (body: unknown) => {
@@ -178,3 +178,28 @@ describe('word forms', () => {
     expect(create.mock.calls[0][0].messages[0].content).toContain('Write its meanings')
   })
 })
+
+describe('a written card shows its own form in its sentence', () => {
+  it('rejects a sentence with another form, or without the marked word, so the slot is written again', () => {
+    // Saved cards it would have caught: חסרי (construct) for חֲסֵרִים; a feminine sentence for מְנַצְּלִים.
+    expect(formNotInSentence('inflected', 'חֲסֵרִים', 'ילדים חסרי סבלנות', ['חסרי'])).toMatch(/חסרי, not the form/)
+    expect(formNotInSentence('present', 'מְנַצְּלִים', 'החברות הגדולות מנצלות...', ['מנצלים'])).toMatch(/doesn't have מנצלים/)
+    expect(formNotInSentence('present', 'מִתְהַפְּכִים', 'בסערה סירות מתהפכות', [])).toMatch(/marks nothing/)
+    // However fully spelled, with a prefix, a pattern's preposition, a maqaf, an expression's other words.
+    expect(formNotInSentence('inflected', 'חֲסֵרָה', 'חסרה כפית אחת במגירה', ['חסרה'])).toBeNull()
+    expect(formNotInSentence('present', 'מְסִבָּה', 'היא מסבה את תשומת הלב', ['מסבה'])).toBeNull()
+    expect(formNotInSentence('inflected', 'זְהֻבָּה', 'הטבעת הזהובה נעלמה', ['הזהובה'])).toBeNull()
+    expect(formNotInSentence('present', 'גּוֹרֵם לְ', 'זה גורם לי כאב ראש', ['גורם', 'לי'])).toBeNull()
+    expect(formNotInSentence('plural', 'אִי־נוֹחֻיּוֹת', 'הנסיעה הייתה מלאה באי נוחויות קטנות', ['באי', 'נוחויות'])).toBeNull()
+    expect(formNotInSentence('present', 'מַעֲמִידוֹת', 'הן מעמידות פנים', ['מעמידות', 'פנים'])).toBeNull()
+    // A meaning card's form is the dictionary form, written however the sentence needs.
+    expect(formNotInSentence('meanings', 'שָׁלֵם', 'הכוס עדיין שלמה', ['שלמה'])).toBeNull()
+  })
+  it('keeps the rejected slot out of the cards, with why', () => {
+    const item = { slot: 'm.pl', form: 'חֲסֵרִים', english: 'missing (m. pl.)', usage: 'u', sentence: 'ילדים חסרי סבלנות', inSentence: ['חסרי'], said: 'חַסְרֵי', translation: 'Impatient children', inTranslation: ['Impatient'], cues: [], glosses: [], distractors: [] }
+    const { forms, rejected } = cardsOf([item as never], 'inflected', [{ slot: 'm.pl' } as never])
+    expect(forms).toEqual([])
+    expect(rejected).toEqual([{ slot: 'm.pl', why: expect.stringMatching(/not the form חֲסֵרִים/) }])
+  })
+})
+

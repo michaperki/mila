@@ -599,6 +599,9 @@ export default function Practice() {
   // kept: '' then) shows how it was answered and can't be answered again.
   const picked = picks[position] ?? (!!quiz && answers[position] !== undefined ? '' : null)
   const right = !!quiz && !!picked && bare(picked) === bare(quiz.answer)
+  // An option as shown: the right one, without vowels, as the card's sentence writes it (lib/forms.ts
+  // Quiz.written), so it reads exactly as the completed sentence; the others in full spelling.
+  const optionText = (option: string) => (quiz?.written && !vowelSetting && bare(option) === bare(quiz.answer) ? quiz.written : vQuestion(option))
   // Shown again as it was asked: the blank, its choices and no answer, which can't be given again.
   const viewing = asAsked === position && picked !== null
   const shownPick = viewing ? null : picked
@@ -744,7 +747,7 @@ export default function Practice() {
               ? <Pressable accessible={false} onPress={() => { if (advancing.current) stopAdvancing() }} style={[styles.card, practice.card]}>
                 <ScriptContext.Provider value="print"><CardHead label={stage?.label} lemma={testsForm || shownPick !== null ? vQuestion(entry.lemma) : undefined} listen={shownPick !== null ? listen : undefined} /></ScriptContext.Provider>
                 {side(!form && englishFirst, shownPick !== null)}
-                <ScriptContext.Provider value="print"><Choices choices={choices} answer={quiz!.answer} picked={shownPick} v={vQuestion} onPick={option => {
+                <ScriptContext.Provider value="print"><Choices choices={choices} answer={quiz!.answer} picked={shownPick} v={optionText} onPick={option => {
                   // Once only: a quick second tap, or a blank answered before, records nothing more.
                   if (!tapped() || picked !== null || advancing.current) return
                   const isRight = bare(option) === bare(quiz!.answer)

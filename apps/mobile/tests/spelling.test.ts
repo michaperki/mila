@@ -26,6 +26,9 @@ test('a tsere before a guttural that can\'t be doubled is written with י', () =
   ['לְהֵעָמֵד', 'להיעמד'], ['בֵּרַךְ', 'בירך'], ['תֵּאֵר', 'תיאר'], ['שֵׂעָר', 'שיער'],
   // Not the prefix מֵ, nor a word that starts with it.
   ['מֵהַבַּיִת', 'מהבית'], ['מֵאָה', 'מאה'], ['הֵעָרָה', 'הערה'], ['סֵפֶר', 'ספר'],
+  // Only where the stem begins (after prefixes: וּבֵרַךְ, לְהֵרָאוֹת): one later in the word is its
+  // own vowel. Seen in Study: חֲסֵרָה shown as חסירה beside a sentence that has חסרה.
+  ['וּבֵרַךְ', 'ובירך'], ['לְהֵרָאוֹת', 'להיראות'], ['חֲסֵרָה', 'חסרה'], ['מְתָאֵר', 'מתאר'],
 ]))
 
 test('a consonant ו or י inside a word is doubled', () => cases([
