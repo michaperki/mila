@@ -1,7 +1,8 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import Animated from 'react-native-reanimated'
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
-import { router, Stack } from 'expo-router'
+import { Stack } from 'expo-router'
+import { router } from '../lib/nav'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { stop as stopSpeaking } from '../lib/speech'
@@ -366,7 +367,7 @@ export default function Practice() {
       } catch (failure) { if (current) setError((failure as Error).message) }
     })()
     return () => {
-      current = false; stopSpeaking()
+      current = false; stopSpeaking('screen left')
       if (session) void sendStudyLog(session.user.id, session.token)
     }
     // Once per account signed in; prepareAhead is the same work whichever render made it.
@@ -542,7 +543,7 @@ export default function Practice() {
     setWay(step === 1 ? 'next' : 'previous'); setPosition(to); setFlipped(false)
     return true
   }
-  const stopStudying = () => { stopSpeaking(); if (Object.keys(answers).length) setDone(true); else { clearRound(); router.back() } }
+  const stopStudying = () => { stopSpeaking('study stopped'); if (Object.keys(answers).length) setDone(true); else { clearRound(); router.back() } }
 
   // Settings apply from the next card on; which side shows first applies at once.
   const change = (patch: Partial<Settings>) => {

@@ -28,3 +28,10 @@ test('the stack is the deepest navigator on the focused path', () => {
   assert.deepEqual(stackOf(state).map(screen => screen.name), ['index', 'reader'])
   assert.deepEqual(stackOf(undefined), [])
 })
+
+test('the root layout before its stack is in the state is no screen yet', () => {
+  // Seen at every launch in Preview (v2): open __root, then __root → index as a replace.
+  assert.deepEqual(stackOf({ index: 0, routes: [{ key: 'root', name: '__root' }] }), [])
+  const launch = { index: 0, routes: [{ key: 'root', name: '__root', state: { index: 0, routes: [{ key: 'a', name: 'index' }] } }] }
+  assert.deepEqual(screenChange(stackOf({ index: 0, routes: [{ key: 'root', name: '__root' }] }), stackOf(launch)), { how: 'open' })
+})

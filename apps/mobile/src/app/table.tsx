@@ -36,7 +36,7 @@ export default function TableScreen() {
   const [revealed, setRevealed] = useState<Set<string>>(new Set())
   const [attempt, setAttempt] = useState(0)
   useEffect(() => { void getPref('tableEnglish').then(setEnglish) }, [])
-  useFocusEffect(useCallback(() => () => stopSpeaking(), []))
+  useFocusEffect(useCallback(() => () => stopSpeaking('screen left'), []))
 
   const token = session?.token
   const meaning = entry ? tableMeaning(entry) : ''

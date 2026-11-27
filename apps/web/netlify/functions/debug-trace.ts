@@ -35,11 +35,17 @@ export const handler: Handler = async (event) => {
     if (event.httpMethod === 'GET' && event.queryStringParameters?.usage !== undefined) {
       const days = Math.min(Math.max(Number(event.queryStringParameters.usage) || 30, 1), 365)
       const usage = db.collection('usageEvents')
-      const [events, first] = await Promise.all([
+      // With them, the word lookups' own study events (lookup, explained, closed) and the app going
+      // to the background and back, for how long each lookup took to show its meaning and what
+      // came of it, in foreground time: timings and outcomes only, never the words.
+      const LOOKUP_FIELDS = ['id', 'session', 'seq', 'at', 'type', 'state', 'of', 'how', 'ms', 'waitMs', 'shown', 'details', 'failed', 'moreFailed', 'why', 'saved', 'glossed', 'v']
+      const [events, first, lookups] = await Promise.all([
         usage.find({ userId: auth.userId, at: { $gte: now - days * 86_400_000 } }, { projection: { _id: 0, userId: 0, owner: 0, receivedAt: 0 } }).sort({ at: 1, seq: 1 }).limit(100_000).toArray(),
         usage.find({ userId: auth.userId }, { projection: { _id: 0, at: 1 } }).sort({ at: 1 }).limit(1).toArray(),
+        db.collection('studyEvents').find({ userId: auth.userId, type: { $in: ['lookup', 'explained', 'closed', 'app'] }, at: { $gte: now - days * 86_400_000 } },
+          { projection: Object.fromEntries([['_id', 0], ...LOOKUP_FIELDS.map(field => [field, 1])]) }).sort({ at: 1 }).limit(50_000).toArray(),
       ])
-      return reply(200, { days, since: now - days * 86_400_000, began: first[0]?.at ?? null, events })
+      return reply(200, { days, since: now - days * 86_400_000, began: first[0]?.at ?? null, events, lookups })
     }
     if (event.httpMethod === 'GET') {
       const id = event.queryStringParameters?.capture

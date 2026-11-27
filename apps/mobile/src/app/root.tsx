@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
-import { router, Stack, useLocalSearchParams } from 'expo-router'
+import { Stack, useLocalSearchParams } from 'expo-router'
+import { router } from '../lib/nav'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Button, colors, ErrorNotice, Loading, Page, styles } from '../components/ui'
 import { request } from '../lib/api'

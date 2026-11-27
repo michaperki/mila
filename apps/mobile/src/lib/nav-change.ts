@@ -27,12 +27,14 @@ export function screenChange(before: Screen[] | null, now: Screen[]): ScreenChan
 }
 
 type NavState = { index?: number; routes?: { key: string; name: string; state?: NavState }[] }
-// The stack of screens as the deepest navigator on the focused path holds it.
+// The stack of screens as the deepest navigator on the focused path holds it. Empty until there is
+// a screen: at launch the first state is only the root layout (`__root`), its stack not yet in it,
+// which v2 first recorded as opening `__root` and then a replace by Home.
 export function stackOf(state: NavState | undefined | null): Screen[] {
   let current = state
   while (current?.routes?.length) {
     const focused = current.routes[current.index ?? current.routes.length - 1]
-    if (!focused?.state?.routes?.length) return current.routes.map(route => ({ key: route.key, name: route.name }))
+    if (!focused?.state?.routes?.length) return focused?.name.startsWith('__') ? [] : current.routes.map(route => ({ key: route.key, name: route.name }))
     current = focused.state
   }
   return []

@@ -6,6 +6,7 @@ import { Directory, File, Paths } from 'expo-file-system'
 import { request } from './api'
 import { getPref, setPref } from './prefs'
 import { RATES, speechPieces, type Rate } from './speech-text'
+import { type Wait, waitFor } from './usage'
 
 // Hebrew read aloud everywhere in the app. Signed in, it plays the voice chosen in Account
 // (Sarah by default, or Charon) from the `speech` function, one sentence at a time, keeping
@@ -43,13 +44,18 @@ let player: AudioPlayer | null = null
 let run = 0 // bumped by every speak/stop; a reading that sees a newer run gives up
 const clips = new Directory(Paths.cache, 'speech')
 
+// Usage (lib/usage.ts): each Listen is a wait for its sound to start, `playing` reached when the
+// player (or the phone's voice) actually starts, not when the button is pressed or the clip arrives.
+let playback: Wait | null = null
+
 // `key` identifies what is playing, so its button can show Stop. Pieces are read in order.
 export async function speak(text: string | string[], token?: string | null, key = Array.isArray(text) ? text.join(' ') : text) {
-  if (state.playing === key) return stop()
-  stop()
+  if (state.playing === key) return stop('pressed again')
+  stop('another listen')
   const mine = ++run
   const pieces = speechPieces(text)
   if (!pieces.length) return
+  const wait = playback = waitFor('audio', 'listen', 'playing', { pieces: pieces.length, voice: token ? state.voice : 'device' })
   update({ playing: key, loading: true })
   await startSpeech()
   await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'duckOthers' }).catch(() => {})
@@ -58,16 +64,19 @@ export async function speak(text: string | string[], token?: string | null, key 
   for (let i = 0; i < pieces.length && mine === run; i++) {
     const uri = await next?.catch(() => null)
     if (mine !== run) return
-    if (!uri) { await device(pieces.slice(i).join(' '), mine); break }
+    if (!uri) { await device(pieces.slice(i).join(' '), mine, wait, !!token); break }
     next = i + 1 < pieces.length ? clip(pieces[i + 1], voice, token!) : null
     update({ loading: false })
-    await play(uri, mine)
+    await play(uri, mine, wait)
   }
-  if (mine === run) finish()
+  if (mine === run) { wait.failed('nothing played'); finish() }
 }
 
-export function stop() {
+// `how`, for a Listen whose sound hadn't started yet: pressed again, another Listen, or anything
+// else that stops speech (a screen or drawer left, the next card).
+export function stop(how = 'stopped') {
   run++
+  playback?.end(how); playback = null
   try { player?.pause() } catch { /* already gone */ }
   void Speech.stop()
   if (state.playing) finish()
@@ -113,11 +122,12 @@ async function fetchClip(text: string, voice: Voice, token: string) {
   return file.uri
 }
 
-function play(uri: string, mine: number) {
+function play(uri: string, mine: number, wait: Wait) {
   return new Promise<void>(resolve => {
     try {
       player ??= createAudioPlayer()
       const subscription = player.addListener('playbackStatusUpdate', status => {
+        if (status.playing && mine === run) wait.ready()
         if (status.didJustFinish || mine !== run || status.error) { subscription.remove(); clearInterval(watch); resolve() }
       })
       // Stopping pauses without a status update, so a stop is also noticed here.
@@ -130,10 +140,15 @@ function play(uri: string, mine: number) {
 }
 
 // The phone's own Hebrew voice; 0.8 is the pace it used before the recorded voices.
-function device(text: string, mine: number) {
+// `fellBack`: the recorded voice was asked for and couldn't be had.
+function device(text: string, mine: number, wait: Wait, fellBack: boolean) {
   update({ loading: false })
   return new Promise<void>(resolve => {
     if (mine !== run) return resolve()
-    Speech.speak(text, { language: 'he-IL', rate: 0.8 * state.rate, onDone: resolve, onStopped: resolve, onError: () => resolve() })
+    Speech.speak(text, {
+      language: 'he-IL', rate: 0.8 * state.rate, onDone: resolve, onStopped: resolve,
+      onStart: () => { if (mine === run) wait.ready({ voice: 'device', ...(fellBack ? { fellBack: true } : {}) }) },
+      onError: () => { if (mine === run) wait.failed('phone voice failed'); resolve() },
+    })
   })
 }

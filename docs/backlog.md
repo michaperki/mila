@@ -908,8 +908,28 @@ capture on. At mila-hebrew.netlify.app/debug.html → Usage (admins, own account
     each as steps with its share of comparable visits: quick reversals, detours, retries, panels
     closed at once or left unused, screens left untouched, tasks left, and recurring 2–4 step paths
     found without being asked for; panels by what was done with each showing.
+- **Waits** (2026-11-27, Mike: "frame it around what became available to the user before they
+  moved on"): `waitFor` in `lib/usage.ts` records a `wait` per thing asked for that takes time,
+  with the milestones that became visible (foreground ms), failures kept apart, and how it ended
+  (ready, or left before: screen left, cancelled, pressed again…); a start with no end is unknown.
+  First two: photo → readable passage (camera: shutter, photo chosen or Read this passage, to the
+  Reader opening on it) and Listen → sound actually starting (player playing, or the phone's voice
+  starting). Word lookups are made into waits in the viewer from their own study events (lookup,
+  explained, closed) plus the drawer's Details offer, not instrumented in the drawer being
+  redesigned; `closed` gained `v: 2`, `shown` (the quick meaning now counts as the first meaning
+  shown), `failed` and `moreFailed`, and Reader lookups before `v: 2` are left out. Viewer: a Waits
+  table (ready, time to show median and 90th percentile, failed, left before ready by how and time
+  waited, unknown; Details once the meaning showed: opened, moved on, none, left before it could
+  be known) and patterns: left before ready, failed while waiting, available and moved on.
+  Fixes found in Preview the same day: a double tap pushed Your words twice (every navigation now
+  goes through `lib/nav.ts`, which ignores the same navigation again within 1 s unless Back came
+  between); the launch recorded `__root` and a replace by Home (now one open); Back by the system
+  (action POP) right after a pick was put down to the pick (now never; a control's router.back()
+  is GO_BACK). Events from the first v2 builds are corrected in the viewer (`prepare`).
+  Next: waits for live reading, Paste, quick meanings, Check for updates, once these two read well.
 - **Not yet:** controls on All forms, Root, Learning Insights and the password forms; answers on
-  cards (they are study events); other accounts.
+  cards (they are study events); other accounts; a different-destination double tap (Library then
+  Your words before the first screen lands) still goes through.
 
 ## Smaller and older items
 

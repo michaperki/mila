@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error a plain module served to the viewer as it is
-import { abandoned, backtracks, detours, features, navCheck, paths, patterns, readSheet, showings } from '../public/usage-analysis.js'
+import { abandoned, backtracks, detours, features, lookupWaits, navCheck, paths, patterns, prepare, readSheet, showings, waits, waitSummary } from '../public/usage-analysis.js'
 
 // One session's events, in order: `at` in seconds.
 let seq = 0
@@ -119,5 +119,76 @@ describe('usage analysis', () => {
     const all = patterns(events, 3000)
     expect(all.find((row: any) => row.kind === 'left untouched')).toMatchObject({ steps: ['→ Account', 'nothing done', '↩ Back'], count: 1, comparable: 1 })
     expect(all.find((row: any) => row.kind === 'panel closed at once')).toMatchObject({ count: 2, comparable: 3, share: 2 / 3 })
+  })
+
+  it('puts right the first v2 builds: the root layout at launch, and system Back taken for a pick', () => {
+    seq = 0
+    const fixed = prepare([
+      nav(0, null, '__root', 'open'), nav(0.01, '__root', 'index', 'replace', 6),
+      e(1, 'pick', { surface: 'your words', option: 'open a word' }), nav(2.3, 'word', 'vocabulary', 'back', 1300, { action: 'POP', after: 'open a word' }),
+      nav(4, 'word', 'vocabulary', 'back', 900, { action: 'GO_BACK', after: 'delete word' }),
+    ])
+    expect(fixed.filter((x: any) => x.type === 'nav').map((x: any) => [x.from, x.to, x.how, x.after ?? null])).toEqual([[null, 'index', 'open', null], ['word', 'vocabulary', 'back', null], ['word', 'vocabulary', 'back', 'delete word']])
+  })
+
+  it('tells what reached the learner: ready, failed, left before ready, or unknown with no outcome', () => {
+    seq = 0
+    const w = (at: number, state: string, fields: Record<string, unknown>) => e(at, 'wait', { state, ...fields })
+    const a = w(1, 'start', { surface: 'camera', what: 'photo to passage', goal: 'passage', from: 'capture' })
+    const b = w(20, 'start', { surface: 'camera', what: 'photo to passage', goal: 'passage', from: 'photo' })
+    const c = w(40, 'start', { surface: 'camera', what: 'photo to passage', goal: 'passage', from: 'capture' })
+    const d = w(60, 'start', { surface: 'camera', what: 'photo to passage', goal: 'passage', from: 'capture' })
+    const events = [
+      a, w(6, 'reached', { of: a.id, milestone: 'passage', ms: 5000 }), w(6, 'end', { of: a.id, how: 'ready', ms: 5000, after: 0, reached: ['passage'] }),
+      b, w(23, 'end', { of: b.id, how: 'screen left', ms: 3000, reached: [] }),
+      c, w(45, 'failed', { of: c.id, reason: 'no text', ms: 4000 }), w(45, 'end', { of: c.id, how: 'failed', ms: 4000, reached: [] }),
+      d,
+    ]
+    const list = waits(events)
+    expect(list.map((x: any) => x.outcome)).toEqual(['ready', 'left before ready', 'failed', 'unknown'])
+    const [row] = waitSummary(list)
+    expect(row).toMatchObject({ started: 4, ready: 1, failed: 1, left: 1, unknown: 1, known: 3, readyMedian: 5000, leftHow: { 'screen left': 1 }, failedWhy: { 'no text': 1 } })
+    // Left before ready is a pattern out of the waits whose outcome is known: 1 of 3, not of 4.
+    const left = patterns(events).find((p: any) => p.kind === 'left before ready')
+    expect(left).toMatchObject({ steps: ['photo to passage (photo)', 'waiting for passage', 'screen left before it showed'], count: 1, comparable: 3 })
+    expect(left.examples[0]).toMatchObject({ id: b.id, last: { id: events[4].id } })
+  })
+
+  it('makes word lookups waits from their own events: first meaning, Details, foreground time, failures', () => {
+    seq = 0
+    const T = 1000_000
+    const st = (at: number, type: string, fields: Record<string, unknown>) => ({ id: `r:${seq}`, session: 'reading', seq: seq++, at: T + at * 1000, type, ...fields })
+    const u = (at: number, type: string, fields: Record<string, unknown>) => ({ id: `u:${seq}`, session: 'app', seq: seq++, at: T + at * 1000, type, ...fields })
+    const drawer1 = u(0.05, 'offer', { surface: 'reader drawer', options: ['close', 'listen', 'save'] })
+    const usage = [u(-5, 'nav', { nv: 2, to: 'reader', how: 'push' }), drawer1, u(10.94, 'offer', { surface: 'reader drawer', options: ['details'], group: drawer1.id }), u(14, 'pick', { surface: 'reader drawer', option: 'close', group: drawer1.id })]
+    // The session seen in Preview: the meaning and Details after about 11 s, closed 3 s later.
+    // Here with 2 s in the background while waiting, which isn't counted.
+    const l1 = st(0, 'lookup', { saved: false })
+    const l2 = st(30, 'lookup', { saved: false }) // left before anything showed; the explanation came after
+    const l3 = st(50, 'lookup', { saved: false }) // the quick meaning showed, then the explanation failed
+    const l4 = st(70, 'lookup', { saved: false }) // no closed event: unknown
+    const l5 = st(-60, 'lookup', { saved: false }) // closed before `v: 2`: its meaning time is unreliable, left out
+    const lookups = [
+      st(-59, 'closed', { of: l5.id, how: 'closed', ms: 4000, waitMs: 3000, details: false }), l5,
+      l1, st(3, 'app', { state: 'background' }), st(5, 'app', { state: 'active' }), st(10.9, 'explained', { of: l1.id, why: 'tap', ms: 10900 }),
+      st(14, 'closed', { v: 2, of: l1.id, how: 'closed', ms: 14000, waitMs: 10980, shown: 'meaning', details: false }),
+      l2, st(32, 'closed', { v: 2, of: l2.id, how: 'left', ms: 2000, waitMs: null, shown: null, details: false }), st(36, 'explained', { of: l2.id, why: 'tap', ms: 6000 }),
+      l3, st(51, 'closed', { v: 2, of: l3.id, how: 'next word', ms: 1000, waitMs: 200, shown: 'quick', details: false, failed: 'error' }),
+      l4,
+    ]
+    const made = lookupWaits(lookups, usage)
+    expect(made.skipped).toBe(1)
+    const list = waits([...usage, ...made.events])
+    expect(list.map((x: any) => [x.outcome, x.readyMs, x.waitedMs, x.details])).toEqual([
+      ['ready', 8980, 12000, 'moved on'],
+      ['left before ready', null, 2000, 'left before it could be known'],
+      ['ready', 200, 1000, 'failed'],
+      ['unknown', null, null, null],
+    ])
+    expect(list[0].reached).toEqual([{ milestone: 'meaning', ms: 8980 }, { milestone: 'details', ms: 8980 }])
+    expect(made.events.find((x: any) => x.of === `lookup:${l2.id}` && x.state === 'end').arrivedAfter).toBe(4000)
+    const found = patterns([...usage, ...made.events])
+    expect(found.find((p: any) => p.kind === 'available, moved on')).toMatchObject({ count: 1, comparable: 1 })
+    expect(found.find((p: any) => p.kind === 'left before ready')).toMatchObject({ steps: ['word lookup', 'waiting for meaning', 'screen left before it showed'], count: 1, comparable: 3 })
   })
 })

@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, T
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated'
 import { feel } from '../lib/feedback'
 import { DURATION, settle } from '../lib/motion'
-import { router } from 'expo-router'
+import { router } from '../lib/nav'
 import { useViewport, ViewportContext } from './Seen'
 import Ionicons from '@expo/vector-icons/Ionicons'
 // Taken from the bonsai on Home: warm paper, bark-dark ink, moss green. Calm, with no bright accents.

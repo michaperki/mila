@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native'
-import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router'
+import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router'
+import { router } from '../lib/nav'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { stop as stopSpeaking } from '../lib/speech'
 import { ListenButton } from '../components/Listen'
@@ -61,7 +62,7 @@ export default function Word() {
     // Runs for each new attempt, not on every refresh of the word.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, attempt, preparing])
-  useFocusEffect(useCallback(() => () => stopSpeaking(), []))
+  useFocusEffect(useCallback(() => () => stopSpeaking('screen left'), []))
   // Usage (lib/usage.ts): the word's controls each visit, as this word has them.
   const visit = useVisit()
   const wordPick = useOffer('word page', session && entry && visit !== null ? `${visit}:${entry.id}` : null, entry ? wordOptions(entry, entries) : [])

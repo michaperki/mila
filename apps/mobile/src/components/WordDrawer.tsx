@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, type LayoutChangeEvent, type NativeScrollEvent, Pressable, ScrollView, type StyleProp, StyleSheet, Text, useWindowDimensions, View, type ViewStyle } from 'react-native'
-import { router } from 'expo-router'
+import { router } from '../lib/nav'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Animated from 'react-native-reanimated'
@@ -78,16 +78,27 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
 
   // The lookup open now: when it was asked for, when its meaning first showed, and when its
   // details were opened, for its `closed` event (Learning Insights: how long a word was looked at).
-  const lookedUp = useRef<{ id: string; at: number; shownAt?: number; detailsAt?: number } | null>(null)
+  // `shown`: what showed first, the sentence's quick meaning or the word's own; `failed`: the
+  // lookup ended with nothing to show (an error, or no meaning on a card), `moreFailed`: More did.
+  // (Usage view, 2026-11-27: `v: 2` closed events count the quick meaning as the meaning shown;
+  // before, a quick meaning on screen while the explanation loaded wasn't counted.)
+  const lookedUp = useRef<{ id: string; at: number; shownAt?: number; shown?: 'quick' | 'meaning'; detailsAt?: number; failed?: 'error' | 'no meaning'; moreFailed?: boolean } | null>(null)
   const closedFor = useRef(new Set<string>())
-  useEffect(() => { const looked = lookedUp.current; if (looked && !looked.shownAt && (gloss || analysis)) looked.shownAt = now() }, [gloss, analysis])
+  const quickShown = tap && !tap.phrase ? quick : ''
+  useEffect(() => {
+    const looked = lookedUp.current
+    if (looked && !looked.shownAt && (gloss || analysis || quickShown)) { looked.shownAt = now(); looked.shown = gloss || analysis ? 'meaning' : 'quick' }
+  }, [gloss, analysis, quickShown])
   useEffect(() => { const looked = lookedUp.current; if (looked && !looked.detailsAt && details) looked.detailsAt = now() }, [details])
   // The drawer leaving the word it shows: another word, closed, or the screen left.
   const finish = (how: 'next word' | 'closed' | 'left') => {
     const looked = lookedUp.current
     if (!looked || closedFor.current.has(looked.id)) return
     closedFor.current.add(looked.id)
-    log?.('closed', { of: looked.id, how, ms: now() - looked.at, waitMs: looked.shownAt ? looked.shownAt - looked.at : null, details: !!looked.detailsAt })
+    log?.('closed', {
+      v: 2, of: looked.id, how, ms: now() - looked.at, waitMs: looked.shownAt ? looked.shownAt - looked.at : null, shown: looked.shown ?? null, details: !!looked.detailsAt,
+      ...(looked.failed ? { failed: looked.failed } : {}), ...(looked.moreFailed ? { moreFailed: true } : {}),
+    })
   }
   const explainedFor = useRef(new Set<string>())
   // The explanation of a word looked up arriving: its dictionary form and how it is used here,
@@ -124,6 +135,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       const quick = session ? await quickMeanings(next.sentence, words, session.token, next.act).then(meanings => meanings[at] || '') : ''
       if (version.current !== current) return
       if (quick) setGloss(quick)
+      else if (looked) looked.failed = 'no meaning'
       setBusy(false); return
     }
     try {
@@ -131,7 +143,7 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       logExplained(looked, result.analysis, 'tap')
       if (version.current !== current) return
       setAnalysis(result.analysis); setGloss(result.gloss)
-    } catch (failure) { if (version.current === current) setError((failure as Error).message) }
+    } catch (failure) { if (version.current === current) { setError((failure as Error).message); if (looked) looked.failed = 'error' } }
     finally { if (version.current === current) setBusy(false) }
   }
   // More on a card's word: the full explanation, asked for now, shown with its details. If it
@@ -147,13 +159,14 @@ export function useWordLookup(session: Session | null, { quick = '', onLostError
       if (version.current !== current) return
       if (result.analysis) { setAnalysis(result.analysis); setGloss(result.gloss); setDetails(true) }
       else if (!gloss) setGloss(result.gloss)
-    } catch (failure) { if (version.current === current) setError((failure as Error).message) }
+      if (!result.analysis && looked) looked.moreFailed = true
+    } catch (failure) { if (version.current === current) { setError((failure as Error).message); if (looked) looked.moreFailed = true } }
     finally { if (version.current === current) setBusy(false) }
   }
   // Anything still on its way for the word shown is dropped (leaving the screen does this too).
   const leave = useRef(finish)
   useEffect(() => { leave.current = finish })
-  const invalidate = useCallback(() => { version.current++; stopSpeaking(); leave.current('left') }, [])
+  const invalidate = useCallback(() => { version.current++; stopSpeaking('drawer closed or screen left'); leave.current('left') }, [])
   const close = () => { finish('closed'); invalidate(); setTap(null) }
 
   const isPhrase = !!tap?.phrase

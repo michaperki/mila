@@ -7,12 +7,15 @@
 //   - patterns, ranked by how often they happened, each as a sequence of steps with its share of
 //     the comparable visits: quick reversals, detours and retries, panels closed at once or left
 //     unused, screens left untouched, tasks left, and recurring paths;
+//   - waits: what reached the learner before they moved on (a photo becoming a passage, Listen
+//     starting, a word lookup's meaning and Details), how long it took, failures, unknowns;
 //   - panels by what was done with them, controls by use out of the showings that offered them,
 //     panels scrolled into view, backtracks, the Read sheet and unfinished tasks.
 // Right: an example's session as it was recorded, around the moment.
 // Uses the page's own api, $ and esc (debug.html).
 import {
-  abandoned, activeMs, around, backtracks, COVERAGE, describe, features, navCheck, NOT_TRACKED, patterns, readSheet, screenName, showings, trackedEvents,
+  abandoned, activeMs, around, backtracks, COVERAGE, describe, features, lookupWaits, navCheck, NOT_TRACKED, patterns, prepare, readSheet, screenName, showings, trackedEvents,
+  waits, waitSummary,
 } from './usage-analysis.js'
 
 const PREFS = 'milaUsagePrefs'
@@ -28,18 +31,25 @@ const median = list => { if (!list.length) return null; const s = [...list].sort
 const counts = map => Object.entries(map).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${esc(k)} ${n}`).join(' · ')
 // A pattern's steps as chips: Back in red, explicit actions in green, screens plain.
 const chips = steps => `<span class="chips">${steps.map(step => `<span class="step ${/^↩/.test(step) ? 'back' : /: /.test(step) ? 'pick' : ''}">${esc(step)}</span>`).join('<span class="sep">›</span>')}</span>`
-const KINDS = ['quick reversal', 'detour', 'retry', 'panel closed at once', 'shown, nothing used', 'left untouched', 'task left', 'path']
+const KINDS = ['quick reversal', 'detour', 'retry', 'panel closed at once', 'shown, nothing used', 'left untouched', 'task left', 'left before ready', 'failed while waiting', 'available, moved on', 'path']
 
 window.showUsage = async (force) => {
   if (!data || force || loadedDays !== prefs.days) {
     $('usageMain').innerHTML = '<p class="muted">Loading…</p>'
-    try { data = await api(`debug-trace?usage=${prefs.days}`); loadedDays = prefs.days } catch (error) { $('usageMain').innerHTML = `<p style="color:var(--red)">${esc(error.message)}</p>`; return }
+    try {
+      data = await api(`debug-trace?usage=${prefs.days}`); loadedDays = prefs.days
+      // The events as recorded (with the first v2 builds' slips put right), and the word lookups'
+      // waits made from their own events, in the sessions they happened in.
+      const events = prepare(data.events)
+      const lookups = lookupWaits(data.lookups ?? [], events)
+      data.all = [...events, ...lookups.events]; data.lookupsLeftOut = lookups.skipped
+    } catch (error) { $('usageMain').innerHTML = `<p style="color:var(--red)">${esc(error.message)}</p>`; return }
   }
   draw()
 }
 
 function draw() {
-  const events = data.events
+  const events = data.all
   const tracked = trackedEvents(events)
   const threshold = prefs.threshold * 1000
   const check = navCheck(events)
@@ -57,6 +67,7 @@ function draw() {
   const tasks = abandoned(tracked)
   // Panels scrolled into view, each out of the visits to the screen they are on.
   const seenRows = [...events.filter(e => e.type === 'seen').reduce((map, e) => map.set(`${e.surface}|${e.panel}`, { surface: e.surface, panel: e.panel, n: (map.get(`${e.surface}|${e.panel}`)?.n ?? 0) + 1 }), new Map()).values()]
+  const waitRows = waitSummary(waits(events)).sort((a, b) => b.started - a.started)
   const healthy = check.tracked > 0 && check.disagreeing === 0 && !(check.byHow.unknown > 0)
 
   $('usageMain').innerHTML = `
@@ -94,6 +105,20 @@ function draw() {
     ${shown.map((p, i) => `<tr class="click ${chosen?.kind === 'pattern' && chosen.key === p.key ? 'on' : ''}" data-pattern="${i}"><td class="kind">${esc(p.kind)}</td><td>${chips(p.steps)}${p.by ? `<div class="muted" style="font-size:11px">${counts(p.by)}</div>` : ''}</td>
       <td class="num">${p.count}</td><td class="num muted">${p.comparable ?? '–'}</td><td class="num">${pct(p.share)}${meter(p.share)}</td></tr>`).join('') || `<tr><td colspan="5" class="muted">${check.tracked ? 'No patterns yet at this count.' : 'Patterns need screen changes from the fixed tracker: use Mila Preview after the update.'}</td></tr>`}
     </table>${found.length > shown.length ? `<p class="muted">${found.length - shown.length} more below this count; filter by kind or raise “at least” to narrow.</p>` : ''}
+  </div>
+
+  <div class="u-section">
+    <h2>Waits: what reached the learner before they moved on</h2>
+    <div class="note">Something asked for that takes time: a photo becoming a readable passage (from the shutter, a photo chosen or Read this passage, to the Reader opening on it), Listen until its sound actually starts, a word lookup until its first meaning shows (the sentence’s quick meaning counts) and, after it, Details becoming available. Times are with Mila in the foreground. <strong>Left before ready</strong>: moved on before it showed, by how. <strong>Unknown</strong>: started and nothing after (the app was killed, or its events never arrived), so no outcome is assumed. Time alone doesn’t say why someone left. Click a row for examples.${data.lookupsLeftOut ? ` ${data.lookupsLeftOut} earlier Reader ${data.lookupsLeftOut === 1 ? 'lookup is' : 'lookups are'} left out: their meaning time didn’t count the quick meaning.` : ''}</div>
+    <table class="u"><tr><th>Wait</th><th class="num">Started</th><th class="num">Ready</th><th class="num">Time to show (median · 90%)</th><th class="num">Failed</th><th class="num">Left before ready</th><th class="num">Unknown</th></tr>
+    ${waitRows.map((w, i) => `<tr class="click ${chosen?.kind === 'wait' && chosen.key === w.what ? 'on' : ''}" data-wait="${i}"><td>${esc(w.what)} <span class="muted">→ ${esc(w.goal)}</span>${Object.keys(w.from).length ? `<div class="muted" style="font-size:11px">${counts(w.from)}</div>` : ''}</td>
+      <td class="num">${w.started}</td><td class="num">${w.ready} <span class="muted">${w.known ? pct(w.ready / w.known) : '–'}</span></td>
+      <td class="num">${w.readyMedian !== null ? `${secs(w.readyMedian)} · ${secs(w.readyP90)}` : '–'}</td>
+      <td class="num ${w.failed ? 'zero' : ''}">${w.failed}${w.failed ? `<div class="muted" style="font-size:11px">${counts(w.failedWhy)}</div>` : ''}</td>
+      <td class="num ${w.left ? 'zero' : ''}">${w.left}${w.left ? `<div class="muted" style="font-size:11px">${counts(w.leftHow)} · median ${secs(w.leftMedian)} waited</div>` : ''}</td>
+      <td class="num muted">${w.unknown}</td></tr>
+      ${Object.keys(w.details).length ? `<tr><td colspan="7" class="muted" style="font-size:12px;padding-left:18px">Details, once the meaning showed: ${counts(w.details)}</td></tr>` : ''}`).join('') || '<tr><td colspan="7" class="muted">No waits recorded in this period (photo and Listen waits come from builds after 2026-11-27).</td></tr>'}
+    </table>
   </div>
 
   <div class="u-section">
@@ -164,13 +189,14 @@ function draw() {
   bind('back', back, 'back', p => p.key)
   bind('read', sheet.rows, 'read', r => r.choice)
   bind('task', tasks, 'task', t => t.task)
+  bind('wait', waitRows, 'wait', w => w.what)
   // A row chosen before a redraw (another cutoff, sort) stays chosen, with its numbers redone.
   if (chosen) {
     const again = chosen.kind === 'pattern' ? found.find(p => p.key === chosen.key)
       : chosen.kind === 'panel' ? panels.find(s => s.surface === chosen.key)
         : chosen.kind === 'feature' ? surfaces.flatMap(s => s.options).find(o => `${o.surface}|${o.option}` === chosen.key)
           : chosen.kind === 'back' ? back.find(p => p.key === chosen.key) : chosen.kind === 'read' ? sheet.rows.find(r => r.choice === chosen.key)
-            : chosen.kind === 'task' ? tasks.find(t => t.task === chosen.key) : chosen.item
+            : chosen.kind === 'task' ? tasks.find(t => t.task === chosen.key) : chosen.kind === 'wait' ? waitRows.find(w => w.what === chosen.key) : chosen.item
     if (again) { chosen.item = again; side() } else { chosen = null; $('usageSide').innerHTML = '' }
   } else if (!$('usageSide').innerHTML) $('usageSide').innerHTML = '<p class="muted">Click a row to see examples: the session as recorded, around the moment.</p>'
 }
@@ -181,10 +207,11 @@ function choose(next) { chosen = { ...next, example: 0, list: null }; draw() }
 function examplesOf() {
   const { kind, item } = chosen
   if (kind === 'feature') return chosen.list === 'missed'
-    ? item.missed.map(group => { const offer = data.events.find(e => e.type === 'offer' && (e.group ?? e.id) === group); return offer ? { session: offer.session, id: offer.id } : null }).filter(Boolean)
+    ? item.missed.map(group => { const offer = data.all.find(e => e.type === 'offer' && (e.group ?? e.id) === group); return offer ? { session: offer.session, id: offer.id } : null }).filter(Boolean)
     : item.examples
   if (kind === 'panel') return item.examples[chosen.list ?? 'closedAtOnce'] ?? []
   if (kind === 'back') return chosen.list === 'all' ? item.times : item.examples
+  if (kind === 'wait') return item.examples[chosen.list ?? (item.left ? 'left' : item.failed ? 'failed' : 'ready')] ?? []
   return item.examples
 }
 
@@ -203,11 +230,16 @@ function side() {
     <p class="muted">Time on ${esc(screenName(item.to))} before leaving, every arrival (red: Back within the cutoff; grey: left another way). Click one to see it.</p>
     <div class="times">${item.times.map((t, i) => `<span class="${t.back && t.ms <= prefs.threshold * 1000 ? 'hit' : t.back ? '' : 'other'}" data-time="${i}" title="${t.back ? 'Back' : 'not Back'}">${secs(t.ms)}</span>`).join('') || '<span class="other">none left yet</span>'}</div>`
   if (kind === 'read') head = `<h2>Read sheet · ${esc(item.choice)}</h2><p>Chosen ${item.chosen} times${item.choice === 'dismiss' ? '' : `, ${item.read} of ${item.checked} led to reading`}.</p>`
+  if (kind === 'wait') {
+    const list = chosen.list ?? (item.left ? 'left' : item.failed ? 'failed' : 'ready')
+    head = `<h2>${esc(item.what)} → ${esc(item.goal)}</h2><p>${item.started} started: ${item.ready} ready, ${item.failed} failed, ${item.left} left before ready, ${item.unknown} unknown.${item.readyMedian !== null ? ` Ready in ${secs(item.readyMedian)} (median), ${secs(item.readyP90)} at the 90th percentile.` : ''}</p>
+    <p>${['left', 'failed', 'ready', 'unknown'].map(l => `<button class="mode ${list === l ? 'on' : ''}" data-list="${l}">${{ left: 'Left before ready', failed: 'Failed', ready: 'Ready', unknown: 'Unknown' }[l]} (${item.examples[l].length})</button>`).join(' ')}</p>`
+  }
   if (kind === 'task') head = `<h2>${esc(item.task)}</h2><p>${item.abandoned} of ${item.started}. ${counts(item.by)}</p>`
   if (kind === 'check') head = `<h2>${esc(item.title)}</h2>${item.notes?.[index] ? `<p>${esc(item.notes[index])}</p>` : ''}`
   let body = '<p class="muted">No examples.</p>'
   if (example) {
-    const { list, at } = around(data.events, example.session, example.id, 12, 16)
+    const { list, at } = around(data.all, example.session, example.id, 12, 16)
     const t0 = at?.at ?? list[0]?.at ?? 0
     const from = list.findIndex(e => e.id === example.id), to = example.last ? list.findIndex(e => e.id === example.last.id) : from
     body = `<p><button id="uPrev" ${index <= 0 ? 'disabled' : ''}>‹</button> Example ${index + 1} of ${examples.length} <button id="uNext" ${index >= examples.length - 1 ? 'disabled' : ''}>›</button>

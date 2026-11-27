@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, AppState, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import * as ImagePicker from 'expo-image-picker'
-import { router, useFocusEffect } from 'expo-router'
+import { useFocusEffect } from 'expo-router'
+import { router } from '../lib/nav'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Animated from 'react-native-reanimated'
@@ -10,7 +11,7 @@ import { APPEAR } from '../lib/motion'
 import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles } from '../components/ui'
 import { ScanShimmer } from '../components/Motion'
 import { FeedbackButton } from '../components/Feedback'
-import { outcome, useOffer, useVisit } from '../lib/usage'
+import { outcome, useOffer, useVisit, type Wait, waitFor } from '../lib/usage'
 import { useSession } from '../state/session'
 import { recognizeImage } from '../lib/recognition'
 import { createLiveSession, skip } from '../lib/live-session'
@@ -44,6 +45,10 @@ export default function Camera() {
   // the read goes on if Mila is left or the phone locked; the reader opens if this screen is
   // still where the learner is when it is done, and otherwise the page is in the Library.
   const scanning = useRef<string | null>(null)
+  // Usage (lib/usage.ts): a photo becoming a readable passage, from the shutter (or a photo
+  // chosen, or Read this passage on a live result) to the Reader opening on it, or how it ended.
+  const pageWait = useRef<Wait | null>(null)
+  const startWait = (from: 'capture' | 'photo' | 'live result') => { pageWait.current = waitFor('camera', 'photo to passage', 'passage', { from }); return pageWait.current }
   // Stops the live preview (leaving the screen or the app); a page being read goes on.
   const stopLive = useCallback(() => {
     liveSession.current?.stop(); liveSession.current = null
@@ -53,6 +58,8 @@ export default function Camera() {
     setFocused(true)
     return () => {
       setFocused(false); stopLive()
+      // Left while the page was being read: it goes on, and the passage waits in the Library.
+      pageWait.current?.end('screen left', { kept: !!scanning.current && !scanning.current.startsWith('file:') }); pageWait.current = null
       scanning.current = null; setReading(null); setBusy(false); setCapturing(false)
     }
   }, [stopLive]))
@@ -64,7 +71,11 @@ export default function Camera() {
     return () => subscription.remove()
   }, [stopLive])
   // Every camera passage the learner opens is kept in their library automatically.
-  const openReader = (value: Recognition) => { outcome('camera', 'opened reader', { from: value.source === 'page' ? 'page' : 'live' }); setRecognition(value.library === 'saved' ? value : { ...value, library: 'auto' }); router.push('/reader') }
+  const openReader = (value: Recognition, fellBack = false) => {
+    outcome('camera', 'opened reader', { from: value.source === 'page' ? 'page' : 'live' })
+    pageWait.current?.ready(fellBack ? { fellBack: 'live result' } : undefined); pageWait.current = null
+    setRecognition(value.library === 'saved' ? value : { ...value, library: 'auto' }); router.push('/reader')
+  }
   const present = (value: Recognition) => {
     setResult(value.text ? value : null)
     setMessage(value.text ? 'Translation of the last sampled image.' : 'No text found. Move closer and hold steady.')
@@ -86,6 +97,7 @@ export default function Camera() {
     if (!session) return
     setError(null); setResult(null); setBusy(true); setMessage(READING_PAGE); setReading(image)
     let scan: Scan
+    const wait = pageWait.current
     try { scan = await keepScan(image, session.user.id) } catch {
       // Without room to keep it, the photo is still read; it just isn't kept meanwhile.
       scan = { id: '', owner: '', file: '', width: 0, height: 0, takenAt: 0, attempts: 0 }
@@ -98,21 +110,23 @@ export default function Camera() {
       if (mine()) openReader(value)
     } catch (failure) {
       if (!mine()) return
-      if (fallback) { if (scan.id) dropScan(scan.id); openReader(fallback); return }
+      if (fallback) { if (scan.id) dropScan(scan.id); openReader(fallback, true); return }
       const message = (failure as Error).message
       outcome('camera', failure instanceof NoText ? 'no text' : 'read failed', { kept: !!scan.id })
+      wait?.failed(failure instanceof NoText ? 'no text' : 'read failed', { kept: !!scan.id })
       setError(failure instanceof NoText || !scan.id ? message : `${message} The photo is kept in your Library and will be read again when you're back.`)
     } finally { if (mine()) { scanning.current = null; setReading(null); setBusy(false); setMessage('Point at a short Hebrew passage.') } }
   }
   const capture = async () => {
     if (locked.current || !session || !camera.current) return
     setError(null); setCapturing(true); locked.current = true
+    const wait = startWait('capture')
     try {
       const picture = await camera.current.takePictureAsync({ quality: 0.85, shutterSound: false })
       if (!picture) throw new Error('The camera could not capture this passage. Try again.')
       locked.current = false
       await readPage({ uri: picture.uri, width: picture.width, height: picture.height })
-    } catch (failure) { setError((failure as Error).message) }
+    } catch (failure) { wait.failed('capture failed'); setError((failure as Error).message) }
     finally { locked.current = false; setCapturing(false) }
   }
   // A live result is quick OCR of one frame; reading it in full re-reads that frame with
@@ -120,11 +134,13 @@ export default function Camera() {
   const readPassage = async (value: Recognition) => {
     userStopped.current = true; liveSession.current?.stop()
     if (value.source === 'page' || !value.image || !session || locked.current) { openReader(value); return }
+    startWait('live result')
     await readPage(value.image, value)
   }
   // Stops a page read in progress, lets its photo go and brings the camera back.
   const cancelReading = () => {
     cameraPick('cancel')
+    pageWait.current?.end('cancelled'); pageWait.current = null
     if (scanning.current) dropScan(scanning.current)
     scanning.current = null
     setReading(null); setBusy(false); setCapturing(false); setMessage('Point at a short Hebrew passage.')
@@ -166,6 +182,7 @@ export default function Camera() {
       const selected = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 1 })
       if (selected.canceled) return
       const asset = selected.assets[0]
+      startWait('photo')
       await readPage({ uri: asset.uri, width: asset.width, height: asset.height })
     } catch (failure) { setError((failure as Error).message) }
   }

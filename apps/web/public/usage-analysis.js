@@ -7,6 +7,9 @@
 //   offer   { surface, options, group? }   the first offer of a showing has no group: its id is it
 //   pick    { surface, option, group, value? }
 //   outcome { surface, outcome }
+//   wait    { state: 'start' | 'reached' | 'failed' | 'end', ... }   waiting for something to reach
+//           the learner (usage.ts waitFor); word lookups' waits are made here from their own study
+//           events (lookupWaits)
 
 // The surfaces whose controls are recorded, and since when; everything else is screens only.
 // Kept here so the view can say "not tracked" rather than show a zero. Screen changes count only
@@ -29,6 +32,8 @@ export const COVERAGE = [
   { surface: 'word page', what: 'Listen, mark known / undo, all forms, root, stages (fold, mark known, undo, study now), built on, expressions, its words, open passage, delete', since: '2026-11-26 (v2)' },
   { surface: 'library', what: 'Search, sort, open a passage (which row), passage menu (long press or …) and its choice, rename, delete, photos waiting: read again, delete; pull to refresh', since: '2026-11-26 (v2)' },
   { surface: 'account', what: 'Every setting and button, check for updates (outcomes: update found, already latest, failed), Learning Insights, debug capture (start, stop, outcomes); panels seen: AI spend, Learning Insights, debug capture, temporary password', since: '2026-11-26 (v2)' },
+  { surface: 'waits', what: 'Photo → readable passage (from the shutter, a photo chosen, or Read this passage on a live result, to the Reader opening on it); Listen → its sound starting. Each: what became visible and when, failures, or how it was left before', since: '2026-11-27' },
+  { surface: 'word lookups', what: 'From the lookups’ own events: first meaning shown (the sentence’s quick meaning counts), Details becoming available, failures, how the drawer was left', since: '2026-11-27 (meaning times before this missed the quick meaning, so earlier Reader lookups are left out)' },
   { surface: 'import', what: 'Task, preview changes once something is pasted, apply, undo; outcomes: previewed, applied, nothing to change, failed', since: '2026-11-26 (v2)' },
 ]
 export const NOT_TRACKED = 'Controls on All forms, Root, Learning Insights, sign in and the password forms (their screens are tracked); swipes and answers on cards (those are study events); scrolling, except developer panels on Account coming into view.'
@@ -58,8 +63,25 @@ export function sessionsOf(events) {
     if (!sessions.has(event.session)) sessions.set(event.session, [])
     sessions.get(event.session).push(event)
   }
-  for (const list of sessions.values()) list.sort((a, b) => a.seq - b.seq)
+  // In time order (one phone's clock), so waits made from lookup events fall in place.
+  for (const list of sessions.values()) list.sort((a, b) => a.at - b.at || a.seq - b.seq)
   return sessions
+}
+
+// The events as recorded, with what the first v2 builds got wrong put right (2026-11-27): every
+// launch recorded opening the root layout (`__root`) and then a replace by Home, which is the
+// launch; and Back by the system (action POP) taken soon after a pick was put down to that pick.
+export function prepare(events) {
+  const out = []
+  for (const event of events) {
+    if (event.type !== 'nav') { out.push(event); continue }
+    if (event.to === '__root') continue
+    let fixed = event
+    if (event.from === '__root') { const { ms: _ms, away: _away, ...rest } = event; fixed = { ...rest, from: null, how: 'open' } }
+    if (fixed.action === 'POP' && fixed.after) { const { after: _after, ...rest } = fixed; fixed = rest }
+    out.push(fixed)
+  }
+  return out
 }
 const ref = event => ({ session: event.session, id: event.id })
 
@@ -215,8 +237,15 @@ export function describe(event) {
   if (event.type === 'seen') return `${event.surface}: ${event.panel} panel scrolled into view`
   if (event.type === 'pick') return `${event.surface}: ${event.option}${event.value !== undefined ? ` = ${event.value}` : ''}`
   if (event.type === 'outcome') return `${event.surface}: ${event.outcome}`
+  if (event.type === 'wait') {
+    if (event.state === 'start') return `${event.what} asked for${event.from ? ` (${event.from})` : ''}, waiting for ${event.goal}${event.by ? ` · by ${event.by}` : ''}`
+    if (event.state === 'reached') return `${event.milestone} ${event.milestone === 'playing' ? 'started' : 'visible'} after ${seconds(event.ms)}${event.shown === 'quick' ? ' (the sentence’s quick meaning)' : ''}${event.fellBack ? ` (fell back to the ${event.fellBack === true ? 'phone’s voice' : event.fellBack})` : ''}${event.voice ? ` · ${event.voice}` : ''}`
+    if (event.state === 'failed') return `${event.what ?? 'wait'} failed: ${event.reason}${event.ms !== null && event.ms !== undefined ? ` after ${seconds(event.ms)}` : ''}`
+    if (event.state === 'end') return `${event.how === 'ready' ? 'ready' : `ended: ${event.how}`} after ${seconds(event.ms)}${event.after !== undefined ? `, ${seconds(event.after)} after ${event.reached?.[event.reached.length - 1] ?? 'it'} showed` : ', nothing shown yet'}${event.used?.length ? ` · used ${event.used.join(', ')}` : ''}${event.arrivedAfter !== undefined ? ` · it arrived ${seconds(event.arrivedAfter)} later` : ''}`
+  }
   return event.type
 }
+const seconds = ms => (ms === null || ms === undefined ? '?' : `${(ms / 1000).toFixed(1)} s`)
 
 // Sessions whose screen changes were recorded by the fixed tracker (`nv: 2`). Before it, a
 // session has the launch and nothing after, so anything worked out from screen changes uses
@@ -393,8 +422,175 @@ export function patterns(events, threshold = 3000, { least = 1, longest = 4 } = 
   for (const t of abandoned(trackedEvents(events))) {
     if (t.abandoned) rows.push({ kind: 'task left', steps: [t.task], count: t.abandoned, comparable: t.started, examples: t.examples, by: t.by })
   }
+  rows.push(...waitPatterns(waits(events)))
   rows.push(...paths(events, { least: Math.max(2, least), longest }))
   return rows.filter(row => row.count >= least)
     .map(row => ({ ...row, share: row.comparable ? row.count / row.comparable : null, key: `${row.kind}\u0000${row.steps.join('\u0000')}` }))
     .sort((a, b) => b.count - a.count || (b.share ?? 0) - (a.share ?? 0) || b.steps.length - a.steps.length)
+}
+
+// Word lookups as waits (2026-11-27), from their own study events rather than the drawer (which is
+// being redesigned): `lookup` (the tap), `explained` (the explanation arriving, even after the
+// drawer moved on) and `closed` (how the drawer left the word, when its first meaning showed,
+// whether Details was opened, failures), with the drawer's showing (usage offers) for when Details
+// became available, and the app's background time (study `app` events) to count foreground time
+// only. Each becomes wait events in the usage session it happened in:
+//   goal `meaning`: the first meaning shown (the sentence's quick meaning counts);
+//   milestone `details`: Details available (Reader lookups, and card lookups once More was asked).
+// Left out: Reader lookups before closed events counted the quick meaning (no `v`), whose meaning
+// time can be late. A lookup with no closed event has no known outcome (unknown).
+export function lookupWaits(lookups = [], events = []) {
+  const list = [...lookups].sort((a, b) => a.at - b.at)
+  const closed = new Map(), explained = new Map(), background = []
+  let since = null
+  for (const e of list) {
+    if (e.type === 'closed' && e.of) closed.set(e.of, e)
+    if (e.type === 'explained' && e.of && !explained.has(e.of)) explained.set(e.of, e)
+    if (e.type === 'app') {
+      if (e.state === 'active') { if (since !== null) background.push([since, e.at]); since = null }
+      else since ??= e.at
+    }
+  }
+  if (since !== null) background.push([since, Infinity])
+  const fg = (from, to) => Math.max(0, to - from - background.reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, to) - Math.max(a, from)), 0))
+  // The usage session each lookup happened in: the last one begun before it.
+  const starts = [...sessionsOf(events)].map(([session, evs]) => ({ session, at: evs[0].at })).sort((a, b) => a.at - b.at)
+  const sessionAt = at => { let found = null; for (const s of starts) if (s.at <= at + 1000) found = s.session; return found }
+  // Drawer showings: their first offer, when Details was first offered in them, and More pressed.
+  const showings = []
+  const byGroup = new Map()
+  for (const e of [...events].sort(byTime)) {
+    if (e.surface !== 'reader drawer' && e.surface !== 'study drawer') continue
+    if (e.type === 'offer' && !e.group) { const s = { surface: e.surface, at: e.at, id: e.id, detailsAt: null, more: false }; showings.push(s); byGroup.set(e.id, s) }
+    const s = byGroup.get(e.type === 'offer' ? groupOf(e) : e.group)
+    if (!s) continue
+    if (e.type === 'offer' && (e.options ?? []).includes('details') && s.detailsAt === null) s.detailsAt = e.at
+    if (e.type === 'pick' && e.option === 'more') s.more = true
+  }
+  const out = []
+  let skipped = 0
+  for (const l of list) {
+    if (l.type !== 'lookup') continue
+    const card = l.glossed !== undefined
+    const c = closed.get(l.id), x = explained.get(l.id)
+    if (c && !c.v && !card) { skipped++; continue }
+    const session = sessionAt(l.at)
+    if (!session) continue
+    const surface = card ? 'study drawer' : 'reader drawer'
+    const showing = showings.find(s => s.surface === surface && s.at >= l.at - 200 && s.at <= l.at + 1500) ?? null
+    const base = { type: 'wait', session, seq: -1, source: 'lookup events' }
+    const id = `lookup:${l.id}`
+    out.push({ ...base, id, at: l.at, state: 'start', surface, what: 'word lookup', goal: 'meaning', ...(l.saved ? { from: 'saved word' } : card ? { from: 'card' } : {}) })
+    if (!c) continue
+    const reached = []
+    if (c.waitMs !== null && c.waitMs !== undefined) {
+      const at = l.at + c.waitMs
+      reached.push({ milestone: 'meaning', at })
+      out.push({ ...base, id: `${id}:meaning`, at, state: 'reached', of: id, milestone: 'meaning', ms: fg(l.at, at), ...(c.shown ? { shown: c.shown } : {}) })
+    }
+    const detailsAsked = !card || showing?.more || x?.why === 'more'
+    if (showing?.detailsAt && showing.detailsAt <= c.at && detailsAsked) {
+      // Offered in the same render as the meaning it comes with, a few ms either way: not before it.
+      const at = Math.max(showing.detailsAt, reached[0]?.at ?? l.at)
+      reached.push({ milestone: 'details', at })
+      out.push({ ...base, id: `${id}:details`, at, state: 'reached', of: id, milestone: 'details', ms: fg(l.at, at) })
+    }
+    // A failure with a meaning already shown (the quick one) is the explanation's, not the meaning's.
+    const shown = reached.some(r => r.milestone === 'meaning')
+    const failed = c.failed && !shown
+    if (failed) out.push({ ...base, id: `${id}:failed`, at: c.at - 1, state: 'failed', of: id, what: 'word lookup', reason: c.failed === 'no meaning' ? 'no meaning to show' : 'lookup failed', ms: null })
+    const last = reached[reached.length - 1]
+    const how = failed ? 'failed' : { closed: 'closed', 'next word': 'next word', left: 'screen left' }[c.how] ?? c.how
+    out.push({
+      ...base, id: `${id}:end`, at: c.at, state: 'end', of: id, how, ms: fg(l.at, c.at),
+      ...(last ? { after: fg(last.at, c.at) } : {}), reached: reached.map(r => r.milestone), used: c.details ? ['details'] : [],
+      // Details: whether it could have been had. An explanation arriving before the drawer left
+      // without Details offered means this word had none to show.
+      details: !detailsAsked ? 'not asked' : reached.some(r => r.milestone === 'details') ? (c.details ? 'opened' : 'moved on') : c.failed || c.moreFailed ? 'failed' : x && x.at <= c.at ? 'none for this word' : 'left before it could be known',
+      ...(x && x.at > c.at && !reached.length ? { arrivedAfter: fg(c.at, x.at) } : {}),
+    })
+  }
+  return { events: out, skipped }
+}
+
+// Every wait, from its events (the app's own and the lookups'), by what reached the learner:
+//   ready              its goal was reached (shown, or sound started)
+//   failed             it couldn't be had
+//   left before ready  the learner moved on first: left the screen, cancelled, pressed again…
+//   unknown            started, and nothing after: the app was killed or the events lost
+export function waits(events) {
+  const starts = new Map(), parts = new Map()
+  for (const e of [...events].sort(byTime)) {
+    if (e.type !== 'wait') continue
+    if (e.state === 'start') { starts.set(e.id, e); continue }
+    if (!parts.has(e.of)) parts.set(e.of, [])
+    parts.get(e.of).push(e)
+  }
+  return [...starts.values()].map(start => {
+    const later = parts.get(start.id) ?? []
+    const reached = later.filter(e => e.state === 'reached')
+    const failed = later.find(e => e.state === 'failed') ?? null
+    const end = later.find(e => e.state === 'end') ?? null
+    const ready = reached.find(e => e.milestone === start.goal) ?? null
+    const outcome = failed ? 'failed' : ready ? 'ready' : end ? 'left before ready' : 'unknown'
+    return {
+      id: start.id, session: start.session, at: start.at, surface: start.surface, what: start.what, goal: start.goal, from: start.from ?? null, by: start.by ?? null,
+      outcome, readyMs: ready?.ms ?? null, waitedMs: end?.ms ?? null, how: end?.how ?? null, after: end?.after ?? null,
+      reached: reached.map(e => ({ milestone: e.milestone, ms: e.ms })), failed: failed?.reason ?? null, details: end?.details ?? null, used: end?.used ?? [],
+      start, last: end ?? failed ?? reached[reached.length - 1] ?? start,
+    }
+  })
+}
+
+const pctile = (list, q) => { if (!list.length) return null; const s = [...list].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(q * s.length))] }
+const example = w => ({ session: w.session, id: w.start.id, last: { session: w.session, id: w.last.id } })
+
+// Each kind of wait: how many there were and what came of them, how long the goal took to show
+// (median, 90th percentile, foreground time), and how long people waited before leaving, by how
+// they left; for word lookups, what came of Details.
+export function waitSummary(list) {
+  const rows = new Map()
+  for (const w of list) {
+    if (!rows.has(w.what)) rows.set(w.what, { what: w.what, goal: w.goal, started: 0, ready: 0, failed: 0, left: 0, unknown: 0, readyMs: [], leftMs: [], leftHow: {}, failedWhy: {}, from: {}, details: {}, examples: { ready: [], failed: [], left: [], unknown: [] } })
+    const row = rows.get(w.what)
+    row.started++
+    const kind = { ready: 'ready', failed: 'failed', 'left before ready': 'left', unknown: 'unknown' }[w.outcome]
+    row[kind]++
+    if (row.examples[kind].length < 30) row.examples[kind].push(example(w))
+    if (w.from) row.from[w.from] = (row.from[w.from] ?? 0) + 1
+    if (w.outcome === 'ready' && w.readyMs !== null) row.readyMs.push(w.readyMs)
+    if (w.outcome === 'left before ready') { if (w.waitedMs !== null) row.leftMs.push(w.waitedMs); row.leftHow[w.how] = (row.leftHow[w.how] ?? 0) + 1 }
+    if (w.outcome === 'failed') row.failedWhy[w.failed] = (row.failedWhy[w.failed] ?? 0) + 1
+    if (w.details && w.outcome === 'ready') row.details[w.details] = (row.details[w.details] ?? 0) + 1
+  }
+  return [...rows.values()].map(row => ({
+    ...row, known: row.started - row.unknown,
+    readyMedian: pctile(row.readyMs, 0.5), readyP90: pctile(row.readyMs, 0.9), leftMedian: pctile(row.leftMs, 0.5),
+  }))
+}
+
+// Waits as patterns: left before ready (out of the waits with a known outcome), each way of
+// leaving its own row; failures; and, for lookups, Details available and moved on from.
+function waitPatterns(list) {
+  const rows = new Map()
+  const add = (kind, steps, w, comparable) => {
+    const key = `${kind}\u0000${steps.join('\u0000')}`
+    if (!rows.has(key)) rows.set(key, { kind, steps, count: 0, comparable, examples: [], waited: [] })
+    const row = rows.get(key)
+    row.count++
+    if (row.examples.length < 20) row.examples.push(example(w))
+    if (w.waitedMs !== null) row.waited.push(w.waitedMs)
+  }
+  const known = {}, detailsShown = {}
+  for (const w of list) {
+    if (w.outcome !== 'unknown') known[w.what] = (known[w.what] ?? 0) + 1
+    if (w.reached.some(r => r.milestone === 'details')) detailsShown[w.what] = (detailsShown[w.what] ?? 0) + 1
+  }
+  for (const w of list) {
+    const asked = `${w.what}${w.from ? ` (${w.from})` : ''}`
+    if (w.outcome === 'left before ready') add('left before ready', [asked, `waiting for ${w.goal}`, `${w.how} before it showed`], w, known[w.what])
+    if (w.outcome === 'failed') add('failed while waiting', [asked, `failed: ${w.failed}`], w, known[w.what])
+    if (w.details === 'moved on') add('available, moved on', [`${w.what}: meaning shown`, 'Details available', `${w.how}, Details not opened`], w, detailsShown[w.what])
+  }
+  return [...rows.values()].map(({ waited, ...row }) => ({ ...row, by: waited.length ? { 'median wait before leaving': `${seconds(pctile(waited, 0.5))}` } : undefined }))
 }

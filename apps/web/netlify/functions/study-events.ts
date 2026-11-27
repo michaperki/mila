@@ -19,7 +19,7 @@ const reply = (statusCode: number, body: unknown) => ({ statusCode, headers: { '
 // with their controls, controls used, outcomes), sent the same way and kept apart, in usageEvents,
 // so that nothing reading study events (Learning Insights, the learner model) sees them. They are
 // read by the developers' Usage view (debug-trace.ts ?usage).
-export const USAGE_TYPES = new Set(['nav', 'offer', 'seen', 'pick', 'outcome'])
+export const USAGE_TYPES = new Set(['nav', 'offer', 'seen', 'pick', 'outcome', 'wait'])
 const TYPES = new Set(['start', 'show', 'reveal', 'answer', 'end', 'read', 'select', 'lookup', 'explained', 'save', 'unsave', 'app', 'view', 'closed', 'hold', 'plan', 'hint', 'deselect', ...USAGE_TYPES])
 const MAX_EVENTS = 200
 // An event larger than this is kept apart rather than with the others (see below).

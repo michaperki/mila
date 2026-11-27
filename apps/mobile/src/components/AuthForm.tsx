@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Alert, KeyboardAvoidingView, Linking, Platform, Text, TextInput, View } from 'react-native'
-import { Redirect, router } from 'expo-router'
+import { Redirect } from 'expo-router'
+import { router } from '../lib/nav'
 import { Button, ErrorNotice, Page, styles, TextButton } from './ui'
 import { PRIVACY_URL, SUPPORT_EMAIL } from '../lib/app-info'
 import { useSession } from '../state/session'

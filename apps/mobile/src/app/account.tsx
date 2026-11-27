@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
-import { router, useFocusEffect } from 'expo-router'
+import { useFocusEffect } from 'expo-router'
+import { router } from '../lib/nav'
 import { Alert, Linking, Switch, Text, View } from 'react-native'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { AccountGate, Button, colors, ErrorNotice, Page, Pressy, styles, TextButton } from '../components/ui'

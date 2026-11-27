@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { File, Paths } from 'expo-file-system'
-import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router'
+import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router'
+import { router } from '../lib/nav'
 import { Platform, Text, View } from 'react-native'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { colors, ErrorNotice, Loading, Page, Pill, Pressy, styles, TextButton } from '../components/ui'

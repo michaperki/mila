@@ -21,11 +21,13 @@ import { type Screen, screenChange, stackOf } from './nav-change'
 //   seen     a panel scrolled into view (`surface`, `panel`): on screen, not acted on.
 //   pick     a control used, an explicit action (`surface`, `option`, `group`, sometimes `value`).
 //   outcome  what came of something, where it isn't a screen change (`surface`, `outcome`).
+//   wait     something asked for that takes time to reach the learner (waitFor below): what
+//            became visible to them, and when, before they moved on.
 // They go through the study events' queue (lib/study-log.ts) and the server keeps them apart,
 // in usageEvents (functions/study-events.ts), so Learning Insights and the learner model never
 // read them. Signed out, nothing is kept.
 type Fields = Record<string, unknown>
-type Kind = 'nav' | 'offer' | 'seen' | 'pick' | 'outcome'
+type Kind = 'nav' | 'offer' | 'seen' | 'pick' | 'outcome' | 'wait'
 let log: ReturnType<typeof studySession>['log'] | null = null
 let owner: string | null = null
 const record = (type: Kind, fields: Fields) => (log ? log(type, fields) : null)
@@ -54,6 +56,54 @@ export function outcome(surface: string, name: string, fields?: Fields) {
 }
 export function seen(surface: string, panel: string) {
   record('seen', { surface, panel })
+}
+
+// Waiting for something to reach the learner (2026-11-27): a photo becoming a readable passage, a
+// Listen press becoming sound. Framed by what became visible (or audible) before they moved on:
+// `goal` is the milestone the wait is for, and others can be reached on the way or after.
+//   wait {state: 'start', surface, what, goal, by?, ...}  its id is the wait's; `by`, the pick that
+//                                                          asked for it
+//   wait {state: 'reached', of, milestone, ms}   a milestone became visible, `ms` after the start
+//   wait {state: 'failed', of, reason, ms}       it can't be had (ends it)
+//   wait {state: 'end', of, how, ms, after?, reached}  how the wait ended: 'ready' (its goal
+//        reached), 'failed', or what the learner did before it was: the screen left, cancelled,
+//        stopped, replaced by another. `after`: how long the last milestone had been visible.
+// Every `ms` is time with Mila in the foreground. A wait with a start and no end (the app killed
+// or the events lost) has no known outcome: the Usage view counts it as unknown.
+type WaitFields = Fields
+export type Wait = { reached: (milestone: string, fields?: WaitFields) => void; ready: (fields?: WaitFields) => void; failed: (reason: string, fields?: WaitFields) => void; end: (how: string, fields?: WaitFields) => void; readonly done: boolean }
+const foreground = () => Date.now() - awayNow()
+const openWaits = new Map<string, Wait>()
+export function waitFor(surface: string, what: string, goal: string, fields?: WaitFields): Wait {
+  openWaits.get(what)?.end('replaced')
+  const by = causedBy()
+  const id = record('wait', { state: 'start', surface, what, goal, ...(by ? { by: `${by.surface}: ${by.option}` } : {}), ...fields })
+  const base = foreground()
+  const reached: string[] = []
+  let last: number | null = null, done = !id
+  const wait: Wait = {
+    get done() { return done },
+    reached(milestone, more) {
+      if (done || reached.includes(milestone)) return
+      reached.push(milestone); last = foreground()
+      record('wait', { state: 'reached', of: id, milestone, ms: last - base, ...more })
+    },
+    ready(more) { wait.reached(goal, more); wait.end('ready') },
+    failed(reason, more) {
+      if (done) return
+      record('wait', { state: 'failed', of: id, reason, ms: foreground() - base, ...more })
+      wait.end('failed')
+    },
+    end(how, more) {
+      if (done) return
+      done = true
+      if (openWaits.get(what) === wait) openWaits.delete(what)
+      const now = foreground()
+      record('wait', { state: 'end', of: id, how, ms: now - base, ...(last !== null ? { after: now - last } : {}), reached, ...more })
+    },
+  }
+  if (id) openWaits.set(what, wait)
+  return wait
 }
 
 // A surface shown while `key` is not null (a new key, or null and back, is a new showing), with
@@ -101,6 +151,15 @@ AppState.addEventListener('change', state => {
 })
 const awayNow = () => awayTotal + (backgroundSince !== null ? Date.now() - backgroundSince : 0)
 
+// Told of each screen change, by how (lib/nav.ts: a Back clears its double-tap guard).
+const screenListeners = new Set<(how: string) => void>()
+export function onScreenChange(listener: (how: string) => void) { screenListeners.add(listener); return () => { screenListeners.delete(listener) } }
+
+// The navigation action of Back taken by the system (the native back gesture, the header's back
+// button: native-stack dispatches POP): never a control's doing, however soon after a pick it
+// comes. A control's Back (Done, Delete: router.back()) is GO_BACK, and the app never pops itself.
+const SYSTEM_BACK = new Set(['POP'])
+
 type Listen = (event: string, callback: (event: { data?: { action?: { type?: string }; noop?: boolean } }) => void) => () => void
 // Every screen change, from the navigation container's own events (mounted once, in the root
 // layout): its state after each change, and the action dispatched just before it.
@@ -114,16 +173,21 @@ export function NavigationUsage() {
       const change = screenChange(previous?.stack ?? null, stack)
       if (!change) { if (previous && stack.length) previous.stack = stack; return }
       const now = Date.now()
-      const by = causedBy()
       const old = previous?.stack ?? []
+      const observed = action && now - action.at < 1000 ? action.type : null
+      // What made the change: the action seen says when it was the system's Back; otherwise a
+      // pick just before it is taken to have made it (a control's push, Done's GO_BACK).
+      const by = change.how === 'open' || (observed && SYSTEM_BACK.has(observed)) ? null : causedBy()
       record('nav', {
         nv: 2, to: stack[stack.length - 1].name, from: old[old.length - 1]?.name ?? null, how: change.how, depth: stack.length,
         ...(change.popped ? { popped: change.popped } : {}), ...(change.pushed ? { pushed: change.pushed } : {}),
-        ...(action && now - action.at < 1000 ? { action: action.type } : {}),
+        ...(observed ? { action: observed } : {}),
         ...(previous ? { ms: now - previous.at, away: awayNow() - previous.away } : {}),
-        ...(by && change.how !== 'open' ? { after: by.option } : {}),
+        ...(by ? { after: by.option } : {}),
       })
       previous = { stack, at: now, away: awayNow() }
+      action = null
+      screenListeners.forEach(listener => listener(change.how))
     }
     const listen = navigation.addListener as unknown as Listen
     const stopState = listen('state', onState)

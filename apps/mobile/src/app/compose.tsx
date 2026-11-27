@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { KeyboardAvoidingView, Platform, Text, TextInput } from 'react-native'
-import { router } from 'expo-router'
+import { router } from '../lib/nav'
 import { Button, ErrorNotice, Page, styles } from '../components/ui'
 import { readText } from '../lib/recognition'
 import { useSession } from '../state/session'

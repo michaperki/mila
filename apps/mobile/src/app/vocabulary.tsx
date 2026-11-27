@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useOffer, useVisit } from '../lib/usage'
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
-import { router } from 'expo-router'
+import { router } from '../lib/nav'
 import { AccountGate, Button, colors, ErrorNotice, Loading, Page, Pill, Pressy, styles } from '../components/ui'
 import { countsOf, formsIn, isFamiliar, openStages, statusOf, type Status, studyPool } from '../lib/forms'
 import type { VocabEntry } from '../lib/types'

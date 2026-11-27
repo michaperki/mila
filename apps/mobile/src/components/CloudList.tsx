@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActionSheetIOS, ActivityIndicator, Alert, Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
-import { router, useFocusEffect } from 'expo-router'
+import { useFocusEffect } from 'expo-router'
+import { router } from '../lib/nav'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { AccountGate, colors, ErrorNotice, Loading, Page, Pill, styles } from './ui'
 import { request } from '../lib/api'

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import type { ErrorBoundaryProps } from 'expo-router'
-import { router, Stack } from 'expo-router'
+import { Stack } from 'expo-router'
+import { router } from '../lib/nav'
 import { StatusBar } from 'expo-status-bar'
 import { useFonts } from 'expo-font'
 import { ActivityIndicator, Text, View } from 'react-native'
